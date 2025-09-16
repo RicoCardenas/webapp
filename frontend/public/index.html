@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>ECU Plot Web</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <header class="hero">
+      <h1>ECU Plot Web</h1>
+      <p class="subtitle">Panel para generar y visualizar gráficas desde datos de la ECU.</p>
+    </header>
+
+    <main>
+      <section id="chart-form">
+        <h2>Nueva gráfica</h2>
+        <form>
+          <label for="title">Título</label>
+          <input type="text" id="title" name="title" placeholder="Temperatura del motor" />
+
+          <label for="description">Descripción</label>
+          <textarea id="description" name="description" placeholder="Descripción breve"></textarea>
+
+          <button type="submit">Guardar gráfica</button>
+        </form>
+      </section>
+
+      <section id="chart-list">
+        <h2>Últimas gráficas</h2>
+        <ul id="charts"></ul>
+      </section>
+    </main>
+
+    <script src="app.js"></script>
+  </body>
+</html>
