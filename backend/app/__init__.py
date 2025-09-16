@@ -1,26 +1,24 @@
-"""Inicialización de la aplicación web basada en Flask."""
-from __future__ import annotations
+"""Application factory for the backend service."""
+from pathlib import Path
 
-from flask import Flask, jsonify
+from flask import Flask
 
-from .config import Config
-from .database import db
+from backend.config import Config
+from .routes import register_routes
+
+# Resolve project directories so Flask can serve the frontend assets.
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+PUBLIC_DIR = PROJECT_ROOT / "frontend" / "public"
+STATIC_DIR = PROJECT_ROOT / "frontend" / "src"
 
 
-def create_app(config_class: type[Config] = Config) -> Flask:
-    """Crea y configura una instancia de la aplicación Flask."""
-    app = Flask(__name__, static_folder=None)
-    app.config.from_object(config_class)
-
-    db.init_app(app)
-
-    from .routes import api_bp
-
-    app.register_blueprint(api_bp, url_prefix="/api")
-
-    @app.get("/health")
-    def healthcheck() -> tuple[dict[str, str], int]:
-        """Ruta simple para comprobar el estado del servicio."""
-        return jsonify(status="ok"), 200
-
+def create_app() -> Flask:
+    app = Flask(
+        __name__,
+        static_folder=str(STATIC_DIR),
+        static_url_path="/static",
+        template_folder=str(PUBLIC_DIR),
+    )
+    app.config.from_object(Config)
+    register_routes(app)
     return app
