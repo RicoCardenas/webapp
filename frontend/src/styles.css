@@ -304,6 +304,56 @@ ul, ol { padding-left: 1.2rem; }
   margin-inline: auto;
 }
 
+.main {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: clamp(48px, 8vw, 80px);
+}
+
+.main > section {
+  width: 100%;
+}
+
+.section-title {
+  text-align: center;
+}
+
+.hero__inner {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: var(--space-4);
+}
+
+.hero__title {
+  margin-bottom: 0;
+}
+
+.how__inner,
+.about__inner,
+.docs__inner,
+.contact__inner {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-5);
+}
+
+.how__inner,
+.about__inner,
+.contact__inner {
+  text-align: center;
+}
+
+.how__steps,
+.docs__section {
+  width: min(100%, 720px);
+  margin-inline: auto;
+  text-align: left;
+}
+
 /* Espaciado vertical coherente */
 
 .hero,
@@ -511,6 +561,38 @@ ul, ol { padding-left: 1.2rem; }
   border-color: var(--color-border);
 }
 
+.icon {
+  display: inline-block;
+  pointer-events: none;
+}
+
+.icon--theme,
+.icon--menu {
+  width: 1.75rem;
+  height: 1.75rem;
+  object-fit: contain;
+}
+
+.icon--menu {
+  width: 2rem;
+  height: 2rem;
+}
+
+.icon--theme-dark,
+.icon--menu-dark {
+  display: none;
+}
+
+html[data-theme="dark"] .icon--theme-light,
+html[data-theme="dark"] .icon--menu-light {
+  display: none;
+}
+
+html[data-theme="dark"] .icon--theme-dark,
+html[data-theme="dark"] .icon--menu-dark {
+  display: inline-block;
+}
+
 .link {
   background: none;
   border: none;
@@ -699,6 +781,7 @@ ul, ol { padding-left: 1.2rem; }
 #contact-form {
   width: min(100%, 720px);
   margin-inline: auto;
+  text-align: left;
 }
 
 /* --- Formularios (estilos base) --- */
