@@ -20,7 +20,15 @@
             <header id="site-header" class="header" role="banner" aria-label="Cabecera del sitio">
                 <div class="header__inner">
                 <!-- Logo clicable -->
-                    <a href="#hero" class="header__logo" aria-label="Ir al inicio">EcuPlot</a>
+                    <a href="#hero" class="header__logo" aria-label="Ir al inicio">
+                      <img
+                        src="../public/images/logo.jpg"
+                        alt="EcuPlot logo"
+                        class="header__logo-img img-responsive"
+                        decoding="async"
+                      />
+                      <span class="header__logo-text">EcuPlot</span>
+                    </a>
     
                     <!-- Navegación principal -->
                     <nav id="primary-nav" class="nav header__nav" aria-label="Navegación principal">
@@ -42,8 +50,8 @@
                         Crear cuenta
                       </button>
                       <button class="btn btn--icon header__btn" type="button" aria-pressed="false" aria-label="Cambiar tema claro/oscuro" data-theme-toggle>
-                        <img class="icon icon--theme icon--theme-light" src="/images/sol.png" alt="" decoding="async" />
-                        <img class="icon icon--theme icon--theme-dark" src="/images/luna.png" alt="" decoding="async" />
+                        <img class="icon icon--theme icon--theme-light" src="../public/images/sol.png" alt="" decoding="async" />
+                        <img class="icon icon--theme icon--theme-dark" src="../public/images/luna.png" alt="" decoding="async" />
                       </button>
                       <button
                         class="btn btn--icon header__btn header__btn--menu"
@@ -53,8 +61,8 @@
                         aria-expanded="false"
                         data-drawer-toggle
                       >
-                        <img class="icon icon--menu icon--menu-light" src="/images/hamburgblack.png" alt="" decoding="async" />
-                        <img class="icon icon--menu icon--menu-dark" src="/images/hamburgwhite.png" alt="" decoding="async" />
+                        <img class="icon icon--menu icon--menu-light" src="../public/images/hamburgblack.png" alt="" decoding="async" />
+                        <img class="icon icon--menu icon--menu-dark" src="../public/images/hamburgwhite.png" alt="" decoding="async" />
                       </button>
                     </div>
                 </div>
@@ -146,11 +154,26 @@
               <section id="how-it-works" class="how" aria-labelledby="how-title">
                 <div class="how__inner">
                   <h2 id="how-title" class="section-title">Cómo funciona</h2>
-                  <ol class="how__steps">
-                    <li class="how__step"><strong>Paso 1:</strong> Ingresa una función (p. ej., <code>sin(x)</code> o <code>x^2 + 2x + 1</code>).</li>
-                    <li class="how__step"><strong>Paso 2:</strong> Previsualiza la gráfica en tiempo real y ajusta parámetros.</li>
-                    <li class="how__step"><strong>Paso 3:</strong> Exporta la imagen y comparte o inserta en tu informe.</li>
-                  </ol>
+                  <div class="how__steps" role="list">
+                    <article class="how__step" role="listitem">
+                      <h3 class="how__step-title">1. Ingresa tu función</h3>
+                      <p class="how__step-text">
+                        Escribe expresiones como <code>sin(x)</code>, <code>x^2 + 2x + 1</code> o combina múltiples términos con operadores familiares.
+                      </p>
+                    </article>
+                    <article class="how__step" role="listitem">
+                      <h3 class="how__step-title">2. Ajusta en vivo</h3>
+                      <p class="how__step-text">
+                        Observa la gráfica al instante, modifica parámetros y activa opciones como cuadrículas o diferentes colores.
+                      </p>
+                    </article>
+                    <article class="how__step" role="listitem">
+                      <h3 class="how__step-title">3. Exporta y comparte</h3>
+                      <p class="how__step-text">
+                        Descarga la visualización en PNG o SVG con fondo limpio para insertarla en presentaciones, informes o clases.
+                      </p>
+                    </article>
+                  </div>
                 </div>
               </section>
           
@@ -169,40 +192,44 @@
               <section id="docs" class="docs" aria-labelledby="docs-title">
                 <div class="docs__inner">
                   <h2 id="docs-title" class="section-title">Documentación</h2>
-                
-                  <nav class="docs__nav" aria-label="Índice de documentación">
-                    <ul class="docs__list" role="list">
-                      <li class="docs__item"><a class="docs__link" href="#docs-sintaxis">Sintaxis soportada</a></li>
-                      <li class="docs__item"><a class="docs__link" href="#docs-ejemplos">Ejemplos</a></li>
-                      <li class="docs__item"><a class="docs__link" href="#docs-atajos">Atajos de teclado</a></li>
-                      <li class="docs__item"><a class="docs__link" href="#docs-exportacion">Exportación</a></li>
-                    </ul>
-                  </nav>
-              
-                  <section id="docs-sintaxis" class="docs__section" aria-labelledby="docs-sintaxis-title">
-                    <h3 id="docs-sintaxis-title" class="docs__subtitle">Sintaxis soportada</h3>
-                    <p>Operadores: <code>+</code>, <code>-</code>, <code>*</code>, <code>/</code>, <code>^</code>. Funciones: <code>sin</code>, <code>cos</code>, <code>tan</code>, <code>exp</code>, <code>ln</code>, <code>sqrt</code>, etc.</p>
-                  </section>
-              
-                  <section id="docs-ejemplos" class="docs__section" aria-labelledby="docs-ejemplos-title">
-                    <h3 id="docs-ejemplos-title" class="docs__subtitle">Ejemplos</h3>
-                    <ul class="docs__examples" role="list">
-                      <li><code>y = 2x + 1</code></li>
-                      <li><code>y = sin(x)</code></li>
-                      <li><code>y = e^x</code></li>
-                      <li><code>y = (x - 1)^2</code></li>
-                    </ul>
-                  </section>
-              
-                  <section id="docs-atajos" class="docs__section" aria-labelledby="docs-atajos-title">
-                    <h3 id="docs-atajos-title" class="docs__subtitle">Atajos de teclado</h3>
-                    <p>Ej.: <kbd>Ctrl</kbd> + <kbd>Enter</kbd> para graficar, <kbd>G</kbd> para alternar cuadrícula.</p>
-                  </section>
-              
-                  <section id="docs-exportacion" class="docs__section" aria-labelledby="docs-exportacion-title">
-                    <h3 id="docs-exportacion-title" class="docs__subtitle">Exportación</h3>
-                    <p>Exporta a PNG o SVG con fondo transparente. Ideal para informes y presentaciones.</p>
-                  </section>
+
+                  <div class="docs__grid">
+                    <article class="docs__card">
+                      <h3 class="docs__card-title">Sintaxis soportada</h3>
+                      <p class="docs__card-text">
+                        Utiliza operadores clásicos (<code>+</code>, <code>-</code>, <code>*</code>, <code>/</code>, <code>^</code>) y funciones como
+                        <code>sin</code>, <code>cos</code>, <code>tan</code>, <code>exp</code>, <code>ln</code> o <code>sqrt</code>. Combina variables y constantes sin preocuparte por mayúsculas.
+                      </p>
+                      <ul class="docs__card-list" role="list">
+                        <li>Constantes: <code>pi</code>, <code>e</code></li>
+                        <li>Paréntesis para agrupar y anidar funciones</li>
+                        <li>Soporte para funciones compuestas y multiplicación implícita</li>
+                      </ul>
+                    </article>
+
+                    <article class="docs__card">
+                      <h3 class="docs__card-title">Ejemplos rápidos</h3>
+                      <p class="docs__card-text">Empieza con plantillas de uso frecuente y ajústalas a tus necesidades.</p>
+                      <ul class="docs__chips" role="list">
+                        <li><code>y = 2x + 1</code></li>
+                        <li><code>y = sin(x)</code></li>
+                        <li><code>y = e^x</code></li>
+                        <li><code>y = (x - 1)^2</code></li>
+                      </ul>
+                    </article>
+
+                    <article class="docs__card">
+                      <h3 class="docs__card-title">Atajos y exportación</h3>
+                      <p class="docs__card-text">
+                        Domina el flujo con combinaciones de teclado y comparte resultados profesionales en segundos.
+                      </p>
+                      <ul class="docs__card-list" role="list">
+                        <li><kbd>Ctrl</kbd> + <kbd>Enter</kbd> para graficar al instante.</li>
+                        <li><kbd>G</kbd> activa la cuadrícula para comparar valores.</li>
+                        <li>Exporta la imagen en PNG o SVG con fondo transparente.</li>
+                      </ul>
+                    </article>
+                  </div>
                 </div>
               </section>
           
