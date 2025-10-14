@@ -1,15 +1,452 @@
 <!DOCTYPE html>
 <html lang="es">
-  <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>ECU Plot App</title>
-  </head>
-  <body>
-    <main id="root">
-      <h1>ECU Plot</h1>
-      <p>Bienvenido al nuevo proyecto. Construyamos algo increíble.</p>
-    </main>
-    <script src="/static/app.js" type="module"></script>
-  </body>
+    <head> <!-- Metadatos básicos -->
+        <meta charset="utf-8" /> <meta name="viewport" content="width=device-width, initial-scale=1" /> 
+        <title>EcuPlot — Graficadora matemática en la web</title>
+        <meta name="description" content="EcuPlot es una graficadora matemática en la web: ingresa funciones, previsualiza en tiempo real y exporta imágenes. Rápida, educativa y accesible." />
+        <meta name="theme-color" content="#0f172a" />
+        <meta name="robots" content="index,follow" />
+        <link rel="canonical" href="/" />
+        <link rel="icon" href="/static/icons/favicon-32.png" sizes="32x32" />
+        <link rel="icon" href="/static/icons/favicon-16.png" sizes="16x16" />
+        <link rel="apple-touch-icon" href="/static/icons/apple-touch-icon.png" />
+        <link rel="manifest" href="/static/manifest.webmanifest" />
+        <link rel="mask-icon" href="/static/icons/safari-pinned-tab.svg" color="#0f172a" />
+        <meta name="msapplication-TileColor" content="#0f172a" />
+        <link rel="stylesheet" href="/static/styles.css" />
+        </head>
+        <body class="page page--landing">
+            <a class="skip-link" href="#app">Saltar al contenido principal</a>
+            <header id="site-header" class="header" role="banner" aria-label="Cabecera del sitio">
+                <div class="header__inner">
+                <!-- Logo clicable -->
+                    <a href="#hero" class="header__logo" aria-label="Ir al inicio">EcuPlot</a>
+    
+                    <!-- Navegación principal -->
+                    <nav id="primary-nav" class="nav header__nav" aria-label="Navegación principal">
+                      <ul class="nav__list" role="list">
+                        <li class="nav__item"><a class="nav__link" href="#hero" aria-current="page">Inicio</a></li>
+                        <li class="nav__item"><a class="nav__link" href="#about">Acerca de</a></li>
+                        <li class="nav__item"><a class="nav__link" href="#how-it-works">Cómo funciona</a></li>
+                        <li class="nav__item"><a class="nav__link" href="#docs">Documentación</a></li>
+                        <li class="nav__item"><a class="nav__link" href="#contact">Contacto</a></li>
+                      </ul>
+                    </nav>
+                
+                    <!-- Grupo de acciones -->
+                    <div class="header__actions">
+                      <button class="btn btn--ghost header__btn" type="button" data-open="modal-login" aria-haspopup="dialog" aria-controls="modal-login">
+                        Iniciar sesión
+                      </button>
+                      <button class="btn btn--primary header__btn" type="button" data-open="modal-signup" aria-haspopup="dialog" aria-controls="modal-signup">
+                        Crear cuenta
+                      </button>
+                      <button class="btn btn--icon header__btn" type="button" aria-pressed="false" aria-label="Cambiar tema claro/oscuro" data-theme-toggle>
+                        <svg class="icon icon--theme" aria-hidden="true" focusable="false" width="20" height="20" viewBox="0 0 24 24">
+                          <circle cx="12" cy="12" r="5"></circle>
+                        </svg>
+                      </button>
+                      <button
+                        class="btn btn--icon header__btn header__btn--menu"
+                        type="button"
+                        aria-label="Abrir menú"
+                        aria-controls="mobile-drawer"
+                        aria-expanded="false"
+                        data-drawer-toggle
+                      >
+                        <svg class="icon icon--menu" aria-hidden="true" focusable="false" width="24" height="24" viewBox="0 0 24 24">
+                          <path d="M3 6h18M3 12h18M3 18h18" />
+                        </svg>
+                      </button>
+                    </div>
+                </div>
+            </header>
+
+            <!-- Cajón móvil (oculto por defecto) -->
+            <aside
+              id="mobile-drawer"
+              class="drawer"
+              aria-hidden="true"
+              aria-labelledby="mobile-drawer-title"
+              role="dialog"
+            >
+              <div class="drawer__overlay" data-drawer-toggle tabindex="-1" aria-hidden="true"></div>
+              <div class="drawer__panel" role="document">
+                <div class="drawer__header">
+                  <h2 id="mobile-drawer-title" class="drawer__title">Menú</h2>
+                  <button class="drawer__close btn btn--icon" type="button" data-drawer-toggle aria-label="Cerrar menú">
+                    <svg class="icon icon--close" aria-hidden="true" focusable="false" width="20" height="20" viewBox="0 0 24 24">
+                      <path d="M6 6l12 12M6 18L18 6" />
+                    </svg>
+                  </button>
+                </div>
+                <nav class="drawer__nav" aria-label="Navegación móvil">
+                  <ul class="drawer__list" role="list">
+                    <li class="drawer__item"><a class="drawer__link" href="#hero">Inicio</a></li>
+                    <li class="drawer__item"><a class="drawer__link" href="#about">Acerca de</a></li>
+                    <li class="drawer__item"><a class="drawer__link" href="#how-it-works">Cómo funciona</a></li>
+                    <li class="drawer__item"><a class="drawer__link" href="#docs">Documentación</a></li>
+                    <li class="drawer__item"><a class="drawer__link" href="#contact">Contacto</a></li>
+                  </ul>
+                  <div class="drawer__actions">
+                    <button class="btn btn--ghost drawer__btn" type="button" data-open="modal-login" aria-haspopup="dialog" aria-controls="modal-login">Iniciar sesión</button>
+                    <button class="btn btn--primary drawer__btn" type="button" data-open="modal-signup" aria-haspopup="dialog" aria-controls="modal-signup">Crear cuenta</button>
+                  </div>
+                </nav>
+              </div>
+            </aside>
+
+            <!-- Contenido principal -->
+            <main id="app" class="main" role="main">
+              <section id="hero" class="hero" aria-labelledby="hero-title">
+                <div class="hero__inner">
+                  <h1 id="hero-title" class="hero__title">EcuPlot</h1>
+                  <p class="hero__subtitle">Graficadora matemática en la web: funciones, vista previa instantánea y exportación.</p>
+                
+                  <div class="hero__ctas">
+                    <a id="cta-graficar" class="btn btn--primary hero__cta" href="#docs" role="button" data-action="start-plotting">Graficar ahora</a>
+                    <a class="btn btn--ghost hero__cta" href="#docs" role="button">Ver documentación</a>
+                  </div>
+              
+                  <!-- Estado del backend -->
+                  <p class="status status--loading" data-status role="status" aria-live="polite">
+                    Verificando estado del backend…
+                  </p>
+                </div>
+              </section>
+          
+              <!-- FEATURES -->
+              <section id="features" class="features" aria-labelledby="features-title">
+                <div class="features__inner">
+                  <h2 id="features-title" class="section-title">Características</h2>
+                  <ul class="features__list" role="list">
+                    <li class="features__item">
+                      <h3 class="features__item-title">Múltiples funciones</h3>
+                      <p class="features__item-text">Lineales, cuadráticas, trigonométricas, exponenciales y más, en una sola vista.</p>
+                    </li>
+                    <li class="features__item">
+                      <h3 class="features__item-title">Historial inteligente</h3>
+                      <p class="features__item-text">Recupera y edita funciones recientes para iterar más rápido.</p>
+                    </li>
+                    <li class="features__item">
+                      <h3 class="features__item-title">Exportación de imagen</h3>
+                      <p class="features__item-text">Descarga tus gráficas en PNG/SVG listo para informes y presentaciones.</p>
+                    </li>
+                    <li class="features__item">
+                      <h3 class="features__item-title">Atajos de teclado</h3>
+                      <p class="features__item-text">Productividad sin ratón: inserta funciones, alterna cuadrícula y exporta.</p>
+                    </li>
+                    <li class="features__item">
+                      <h3 class="features__item-title">Accesible por diseño</h3>
+                      <p class="features__item-text">Etiqueta, contraste y navegación por teclado desde el primer día.</p>
+                    </li>
+                  </ul>
+                </div>
+              </section>
+          
+              <!-- HOW IT WORKS -->
+              <section id="how-it-works" class="how" aria-labelledby="how-title">
+                <div class="how__inner">
+                  <h2 id="how-title" class="section-title">Cómo funciona</h2>
+                  <ol class="how__steps">
+                    <li class="how__step"><strong>Paso 1:</strong> Ingresa una función (p. ej., <code>sin(x)</code> o <code>x^2 + 2x + 1</code>).</li>
+                    <li class="how__step"><strong>Paso 2:</strong> Previsualiza la gráfica en tiempo real y ajusta parámetros.</li>
+                    <li class="how__step"><strong>Paso 3:</strong> Exporta la imagen y comparte o inserta en tu informe.</li>
+                  </ol>
+                </div>
+              </section>
+          
+              <!-- ABOUT -->
+              <section id="about" class="about" aria-labelledby="about-title">
+                <div class="about__inner">
+                  <h2 id="about-title" class="section-title">Acerca de EcuPlot</h2>
+                  <p class="about__text">
+                    EcuPlot nació como un proyecto educativo con el propósito de facilitar el aprendizaje de matemáticas mediante visualizaciones claras,
+                    accesibles y rápidas en el navegador. Está pensado para estudiantes, docentes y profesionales que necesitan comunicar ideas con precisión.
+                  </p>
+                </div>
+              </section>
+          
+              <!-- DOCS -->
+              <section id="docs" class="docs" aria-labelledby="docs-title">
+                <div class="docs__inner">
+                  <h2 id="docs-title" class="section-title">Documentación</h2>
+                
+                  <nav class="docs__nav" aria-label="Índice de documentación">
+                    <ul class="docs__list" role="list">
+                      <li class="docs__item"><a class="docs__link" href="#docs-sintaxis">Sintaxis soportada</a></li>
+                      <li class="docs__item"><a class="docs__link" href="#docs-ejemplos">Ejemplos</a></li>
+                      <li class="docs__item"><a class="docs__link" href="#docs-atajos">Atajos de teclado</a></li>
+                      <li class="docs__item"><a class="docs__link" href="#docs-exportacion">Exportación</a></li>
+                    </ul>
+                  </nav>
+              
+                  <section id="docs-sintaxis" class="docs__section" aria-labelledby="docs-sintaxis-title">
+                    <h3 id="docs-sintaxis-title" class="docs__subtitle">Sintaxis soportada</h3>
+                    <p>Operadores: <code>+</code>, <code>-</code>, <code>*</code>, <code>/</code>, <code>^</code>. Funciones: <code>sin</code>, <code>cos</code>, <code>tan</code>, <code>exp</code>, <code>ln</code>, <code>sqrt</code>, etc.</p>
+                  </section>
+              
+                  <section id="docs-ejemplos" class="docs__section" aria-labelledby="docs-ejemplos-title">
+                    <h3 id="docs-ejemplos-title" class="docs__subtitle">Ejemplos</h3>
+                    <ul class="docs__examples" role="list">
+                      <li><code>y = 2x + 1</code></li>
+                      <li><code>y = sin(x)</code></li>
+                      <li><code>y = e^x</code></li>
+                      <li><code>y = (x - 1)^2</code></li>
+                    </ul>
+                  </section>
+              
+                  <section id="docs-atajos" class="docs__section" aria-labelledby="docs-atajos-title">
+                    <h3 id="docs-atajos-title" class="docs__subtitle">Atajos de teclado</h3>
+                    <p>Ej.: <kbd>Ctrl</kbd> + <kbd>Enter</kbd> para graficar, <kbd>G</kbd> para alternar cuadrícula.</p>
+                  </section>
+              
+                  <section id="docs-exportacion" class="docs__section" aria-labelledby="docs-exportacion-title">
+                    <h3 id="docs-exportacion-title" class="docs__subtitle">Exportación</h3>
+                    <p>Exporta a PNG o SVG con fondo transparente. Ideal para informes y presentaciones.</p>
+                  </section>
+                </div>
+              </section>
+          
+              <!-- CONTACT -->
+              <section id="contact" class="contact" aria-labelledby="contact-title">
+                <div class="contact__inner">
+                  <h2 id="contact-title" class="section-title">Contacto</h2>
+                
+                  <form
+                    id="contact-form"
+                    class="form contact__form"
+                    action="/contact"
+                    method="post"
+                    novalidate
+                    data-form-validate
+                    aria-describedby="contact-form-errors"
+                  >
+                    <div id="contact-form-errors" class="form__errors" aria-live="polite" role="status">
+                      <ul class="form__errors-list" role="list" data-global-error-messages></ul>
+                    </div>
+                
+                    <div class="form__field">
+                      <label class="form__label" for="contact-name">Nombre</label>
+                      <input
+                        class="form__input"
+                        type="text"
+                        id="contact-name"
+                        name="name"
+                        autocomplete="name"
+                        inputmode="text"
+                        aria-describedby="error-contact-name"
+                        required
+                      />
+                      <p id="error-contact-name" class="form__error" aria-hidden="true"></p>
+                    </div>
+                
+                    <div class="form__field">
+                      <label class="form__label" for="contact-email">Correo electrónico</label>
+                      <input
+                        class="form__input"
+                        type="email"
+                        id="contact-email"
+                        name="email"
+                        autocomplete="email"
+                        inputmode="email"
+                        aria-describedby="error-contact-email"
+                        required
+                      />
+                      <p id="error-contact-email" class="form__error" aria-hidden="true"></p>
+                    </div>
+                
+                    <div class="form__field">
+                      <label class="form__label" for="contact-message">Mensaje</label>
+                      <textarea
+                        class="form__textarea"
+                        id="contact-message"
+                        name="message"
+                        rows="6"
+                        aria-describedby="error-contact-message"
+                        required
+                      ></textarea>
+                      <p id="error-contact-message" class="form__error" aria-hidden="true"></p>
+                    </div>
+                
+                    <div class="form__actions">
+                      <button class="btn btn--primary" type="submit">Enviar</button>
+                    </div>
+                  </form>
+                </div>
+              </section>
+            </main>
+
+            <!-- Pie de página -->
+            <footer id="site-footer" class="footer" role="contentinfo">
+              <div class="footer__inner">
+                <p class="footer__copy">© <span data-year></span> EcuPlot. Todos los derechos reservados.</p>
+                <nav class="footer__nav" aria-label="Enlaces secundarios">
+                  <ul class="footer__list" role="list">
+                    <li class="footer__item"><a class="footer__link" href="/terminos">Términos</a></li>
+                    <li class="footer__item"><a class="footer__link" href="/privacidad">Privacidad</a></li>
+                  </ul>
+                </nav>
+                <p class="footer__credit">Un proyecto educativo de código limpio y accesible.</p>
+              </div>
+            </footer>
+
+
+            <div
+              id="modal-login"
+              class="modal"
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="login-title"
+              aria-describedby="login-desc"
+              aria-hidden="true"
+            >
+              <div class="modal__overlay" data-close="modal" tabindex="-1" aria-hidden="true"></div>
+              <div class="modal__dialog" role="document" tabindex="-1">
+                <header class="modal__header">
+                  <h2 id="login-title" class="modal__title">Iniciar sesión</h2>
+                  <p id="login-desc" class="modal__desc">Accede a tu cuenta para gestionar tus funciones y exportaciones.</p>
+                  <button class="modal__close btn btn--icon" type="button" data-close="modal" aria-label="Cerrar">
+                    <svg class="icon icon--close" aria-hidden="true" focusable="false" width="20" height="20" viewBox="0 0 24 24">
+                      <path d="M6 6l12 12M6 18L18 6" />
+                    </svg>
+                  </button>
+                </header>
+            
+                <div class="modal__body">
+                  <form class="form" action="/login" method="post" novalidate data-form-validate>
+                    <div class="form__field">
+                      <label class="form__label" for="login-email">Correo electrónico</label>
+                      <input
+                        class="form__input"
+                        type="email"
+                        id="login-email"
+                        name="email"
+                        autocomplete="email"
+                        inputmode="email"
+                        aria-describedby="error-login-email"
+                        required
+                      />
+                      <p id="error-login-email" class="form__error" aria-hidden="true"></p>
+                    </div>
+                
+                    <div class="form__field">
+                      <label class="form__label" for="login-password">Contraseña</label>
+                      <input
+                        class="form__input"
+                        type="password"
+                        id="login-password"
+                        name="password"
+                        autocomplete="current-password"
+                        aria-describedby="error-login-password"
+                        required
+                      />
+                      <p id="error-login-password" class="form__error" aria-hidden="true"></p>
+                    </div>
+                
+                    <div class="form__actions">
+                      <button class="btn btn--primary" type="submit">Entrar</button>
+                      <a class="form__link" href="/recuperar">¿Olvidaste tu contraseña?</a>
+                    </div>
+                
+                    <p class="form__hint">¿No tienes cuenta? <button class="link" type="button" data-open="modal-signup">Crear cuenta</button></p>
+                  </form>
+                </div>
+              </div>
+            </div>
+
+            <!-- Modal: Signup -->
+            <div
+              id="modal-signup"
+              class="modal"
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="signup-title"
+              aria-describedby="signup-desc"
+              aria-hidden="true"
+            >
+              <div class="modal__overlay" data-close="modal" tabindex="-1" aria-hidden="true"></div>
+              <div class="modal__dialog" role="document" tabindex="-1">
+                <header class="modal__header">
+                  <h2 id="signup-title" class="modal__title">Crear cuenta</h2>
+                  <p id="signup-desc" class="modal__desc">Regístrate para guardar funciones, historiales y exportaciones.</p>
+                  <button class="modal__close btn btn--icon" type="button" data-close="modal" aria-label="Cerrar">
+                    <svg class="icon icon--close" aria-hidden="true" focusable="false" width="20" height="20" viewBox="0 0 24 24">
+                      <path d="M6 6l12 12M6 18L18 6" />
+                    </svg>
+                  </button>
+                </header>
+            
+                <div class="modal__body">
+                  <form class="form" action="/signup" method="post" novalidate data-form-validate>
+                    <div class="form__field">
+                      <label class="form__label" for="signup-name">Nombre</label>
+                      <input
+                        class="form__input"
+                        type="text"
+                        id="signup-name"
+                        name="name"
+                        autocomplete="name"
+                        aria-describedby="error-signup-name"
+                        required
+                      />
+                      <p id="error-signup-name" class="form__error" aria-hidden="true"></p>
+                    </div>
+                
+                    <div class="form__field">
+                      <label class="form__label" for="signup-email">Correo electrónico</label>
+                      <input
+                        class="form__input"
+                        type="email"
+                        id="signup-email"
+                        name="email"
+                        autocomplete="email"
+                        inputmode="email"
+                        aria-describedby="error-signup-email"
+                        required
+                      />
+                      <p id="error-signup-email" class="form__error" aria-hidden="true"></p>
+                    </div>
+                
+                    <div class="form__field">
+                      <label class="form__label" for="signup-password">Contraseña</label>
+                      <input
+                        class="form__input"
+                        type="password"
+                        id="signup-password"
+                        name="password"
+                        autocomplete="new-password"
+                        aria-describedby="error-signup-password"
+                        required
+                      />
+                      <p id="error-signup-password" class="form__error" aria-hidden="true"></p>
+                    </div>
+                
+                    <div class="form__field form__field--checkbox">
+                      <input class="form__checkbox" type="checkbox" id="signup-terms" name="terms" required aria-describedby="error-signup-terms" />
+                      <label class="form__label" for="signup-terms">Acepto los <a href="/terminos">términos y condiciones</a>.</label>
+                      <p id="error-signup-terms" class="form__error" aria-hidden="true"></p>
+                    </div>
+                
+                    <div class="form__actions">
+                      <button class="btn btn--primary" type="submit">Crear cuenta</button>
+                      <p class="form__hint">¿Ya tienes cuenta? <button class="link" type="button" data-open="modal-login">Inicia sesión</button></p>
+                    </div>
+                  </form>
+                </div>
+              </div>
+            </div>
+
+            <!-- Contenedor global de notificaciones -->
+            <div id="toasts" class="toasts" aria-live="polite" aria-atomic="true">
+            </div>
+
+            <noscript>
+              <div class="noscript">
+                Para utilizar EcuPlot necesitas habilitar JavaScript. Actívalo en tu navegador y recarga la página.
+              </div>
+            </noscript>
+
+            <script src="/static/app.js" type="module" defer></script>
+        </body>
 </html>
