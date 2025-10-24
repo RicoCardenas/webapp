@@ -1,0 +1,63 @@
+# ----------------------------------------------------------------------
+# 1. Archivos de Entorno y Secretos (CRUCIAL)
+# ----------------------------------------------------------------------
+
+# El archivo .env contiene tus credenciales de DB (PostgreSQL) y Brevo.
+# NUNCA debe subirse a un repositorio público.
+.env
+
+# ----------------------------------------------------------------------
+# 2. Entornos Virtuales (Python)
+# ----------------------------------------------------------------------
+
+# Ignorar la carpeta del entorno virtual que usamos (genera archivos grandes)
+.venv/
+/venv/
+/env/
+
+# ----------------------------------------------------------------------
+# 3. Archivos de Python Compilados / Cache
+# ----------------------------------------------------------------------
+
+# Archivos de bytecode de Python (pyc, pyo, pyd)
+**/*.pyc
+__pycache__/
+*.py[cod]
+
+# Carpeta de "instance" de Flask (si Flask la crea)
+instance/
+
+# ----------------------------------------------------------------------
+# 4. Bases de Datos y Backups
+# ----------------------------------------------------------------------
+
+# Archivos de SQLite (por si acaso, aunque ya no lo usamos)
+*.db
+*.sqlite
+*.sqlite3
+# Carpeta con backups locales de la DB (el archivo Backup23102025)
+/BackupsDB/
+
+# ----------------------------------------------------------------------
+# 5. Herramientas de Desarrollo / IDEs
+# ----------------------------------------------------------------------
+
+# JetBrains IDEs (PyCharm, WebStorm, etc.)
+.idea/
+# VS Code
+.vscode/
+
+# ----------------------------------------------------------------------
+# 6. Archivos de Alembic (Migraciones)
+# ----------------------------------------------------------------------
+
+# Cache y archivos temporales dentro de la carpeta migrations
+/backend/migrations/__pycache__/
+*.mako.tmp
+
+# ----------------------------------------------------------------------
+# 7. Archivos del Sistema Operativo
+# ----------------------------------------------------------------------
+
+.DS_Store
+Thumbs.db

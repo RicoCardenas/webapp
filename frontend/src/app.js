@@ -25,11 +25,20 @@ const SELECTORS = {
   toasts: '#toasts',
   year: '[data-year]',
   rootFallback: '#root', // compatibilidad con markup antiguo
+  // --- ¡NUEVOS SELECTORES! ---
+  signupForm: '#modal-signup .form',
+  signupEmail: '#signup-email',
+  signupPassword: '#signup-password',
+  signupTerms: '#signup-terms', // <-- ¡Kira 2.0: Casilla de términos!
+  loginForm: '#modal-login .form',
+  loginEmail: '#login-email',
+  loginPassword: '#login-password',
 };
 
 const KEYS = {
   theme: 'ecup-theme',
   lastSection: 'ecup-last-section',
+  sessionToken: 'ecuplot_session_token', // Para guardar el token
 };
 
 const CLASSNAMES = {
@@ -190,7 +199,7 @@ function unlockScroll() {
  * @param {RequestInit} [opts]
  * @param {number} [timeoutMs=3000]
  */
-async function safeFetch(url, opts = {}, timeoutMs = 3000) {
+async function safeFetch(url, opts = {}, timeoutMs = 5000) { // Aumentado a 5s
   const ctrl = new AbortController();
   const id = setTimeout(() => ctrl.abort(), timeoutMs);
   try {
@@ -492,7 +501,7 @@ const toast = (() => {
     on(closeBtn, 'click', () => remove());
 
     card.appendChild(text);
-    card.appendChild(closeBtn);
+    // card.appendChild(closeBtn); // Opcional: Descomentar para añadir botón de cierre
     container.appendChild(card);
 
     let timer = setTimeout(remove, timeoutMs);
@@ -580,20 +589,20 @@ function initContactForm() {
     }
 
     try {
-      const res = await safeFetch('/contact', {
+      const res = await safeFetch('/contact', { // Esto es solo un placeholder
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name, email, message }),
       }, 5000);
 
       if (res.ok) {
-        toast.success('Mensaje enviado');
+        toast.success('Mensaje enviado (simulación)');
         /** @type {HTMLFormElement} */(form).reset();
       } else {
-        toast.error('No se pudo enviar tu mensaje');
+        toast.error('No se pudo enviar tu mensaje (simulación)');
       }
     } catch {
-      toast.error('No se pudo enviar tu mensaje');
+      toast.error('No se pudo enviar tu mensaje (simulación)');
     }
   });
 }
@@ -652,6 +661,148 @@ function bindGlobalTriggers() {
   );
 }
 
+// ====== ¡NUEVA FUNCIÓN! Formularios de Autenticación =======================
+
+function initAuthForms() {
+  const signupForm = qs(SELECTORS.signupForm);
+  const loginForm = qs(SELECTORS.loginForm);
+
+  // --- Manejador de Registro (Signup) ---
+  if (signupForm) {
+    on(signupForm, 'submit', async (e) => {
+      e.preventDefault();
+      const btn = qs('button[type="submit"]', signupForm);
+      const emailEl = qs(SELECTORS.signupEmail, signupForm);
+      const passwordEl = qs(SELECTORS.signupPassword, signupForm);
+      // ¡Kira 2.0: Obtenemos la casilla de términos!
+      const termsCheckbox = /** @type {HTMLInputElement|null} */ (qs(SELECTORS.signupTerms, signupForm));
+      
+      if (!emailEl || !passwordEl || !btn || !termsCheckbox) return;
+
+      const email = emailEl.value;
+      const password = passwordEl.value;
+
+      if (!email || !password) {
+        toast.error('Email y contraseña son requeridos.');
+        return;
+      }
+      
+      // ¡Kira 2.0: Validación de términos en el Frontend!
+      if (!termsCheckbox.checked) {
+        toast.error('Debes aceptar los términos y condiciones.');
+        return;
+      }
+      
+      btn.setAttribute('disabled', 'true');
+      btn.textContent = 'Registrando...';
+
+      try {
+        const res = await safeFetch('/api/register', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          // ¡Kira 2.0: Enviamos 'terms: true' al backend!
+          body: JSON.stringify({ email, password, terms: true }),
+        });
+        
+        const data = await res.json(); // Lee la respuesta JSON siempre
+
+        if (res.ok) { // Status 200-299
+          toast.success(data.message || '¡Registro exitoso! Revisa tu correo.');
+          SignupModal.close();
+          /** @type {HTMLFormElement} */(signupForm).reset();
+        } else {
+          // Muestra el error específico del backend (ej. "Email ya existe")
+          toast.error(data.error || `Error (${res.status}): No se pudo registrar.`);
+        }
+      } catch (err) {
+        console.error('Error en fetch de registro:', err);
+        toast.error('Error de red. No se pudo contactar al servidor.');
+      } finally {
+        btn.removeAttribute('disabled');
+        btn.textContent = 'Crear cuenta';
+      }
+    });
+  }
+
+  // --- Manejador de Inicio de Sesión (Login) ---
+  if (loginForm) {
+    on(loginForm, 'submit', async (e) => {
+      e.preventDefault();
+      const btn = qs('button[type="submit"]', loginForm);
+      const emailEl = qs(SELECTORS.loginEmail, loginForm);
+      const passwordEl = qs(SELECTORS.loginPassword, loginForm);
+
+      if (!emailEl || !passwordEl || !btn) return;
+
+      const email = emailEl.value;
+      const password = passwordEl.value;
+      
+      if (!email || !password) {
+        toast.error('Email y contraseña son requeridos.');
+        return;
+      }
+
+      btn.setAttribute('disabled', 'true');
+      btn.textContent = 'Entrando...';
+
+      try {
+        const res = await safeFetch('/api/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email, password }),
+        });
+
+        const data = await res.json();
+
+        if (res.ok) {
+          toast.success(data.message || '¡Bienvenido de nuevo!');
+          // Guardar el token de sesión
+          if (data.session_token) {
+            localStorage.setItem(KEYS.sessionToken, data.session_token);
+          }
+          LoginModal.close();
+          /** @type {HTMLFormElement} */(loginForm).reset();
+          // Aquí podrías recargar la página o cambiar el estado de la UI
+          // location.reload(); 
+        } else {
+          toast.error(data.error || `Error (${res.status}): Credenciales inválidas.`);
+        }
+      } catch (err) {
+        console.error('Error en fetch de login:', err);
+        toast.error('Error de red. No se pudo contactar al servidor.');
+      } finally {
+        btn.removeAttribute('disabled');
+        btn.textContent = 'Entrar';
+      }
+    });
+  }
+}
+
+// ====== ¡NUEVA FUNCIÓN! Manejar Verificación de Email =======================
+
+function checkEmailVerification() {
+  const params = new URLSearchParams(window.location.search);
+  
+  if (params.has('verified') && params.get('verified') === 'true') {
+    toast.success('¡Correo verificado! Ya puedes iniciar sesión.', 8000);
+    // Limpia la URL para que el toast no aparezca si el usuario recarga
+    history.replaceState(null, '', window.location.pathname);
+    LoginModal.open(); // Abrir modal de login
+  }
+  
+  // Manejar otros errores que definimos en el backend
+  const error = params.get('error');
+  if (error) {
+    let message = 'Ocurrió un error de verificación.';
+    if (error === 'invalid_token') message = 'El enlace de verificación no es válido.';
+    if (error === 'token_used') message = 'El enlace de verificación ya fue utilizado.';
+    if (error === 'token_expired') message = 'El enlace de verificación ha expirado.';
+    
+    toast.error(message, 8000);
+    history.replaceState(null, '', window.location.pathname);
+  }
+}
+
 // ====== Punto de entrada ====================================================
 
 function init() {
@@ -667,9 +818,13 @@ function init() {
   setCurrentYear();
   restoreLastSection();
   bindGlobalTriggers();
+  
+  // --- ¡NUEVAS LLAMADAS! ---
+  initAuthForms();
+  checkEmailVerification();
 }
 
+// Inicia la aplicación
 init();
 
 export { openLogin, openSignup, toggleTheme };
-
