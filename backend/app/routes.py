@@ -1,11 +1,47 @@
 """HTTP endpoints exposed by the backend service."""
 import secrets
 from datetime import datetime, timedelta, timezone
-from flask import Blueprint, current_app, jsonify, send_from_directory, request, redirect, url_for
+from flask import Blueprint, current_app, jsonify, send_from_directory, request, redirect, url_for, g
 from .extensions import db, bcrypt, mail
-# ¡Kira 2.0: Importamos TODOS los modelos necesarios!
-from .models import Users, Roles, UserTokens, UserSessions
+from .models import Users, Roles, UserTokens, UserSessions, PlotHistory
 from flask_mail import Message
+from sqlalchemy import and_
+
+# Intentamos importar el decorador desde auth.py (recomendado)
+try:
+    from .auth import require_session
+except Exception:
+    # Fallback si aún no existe auth.py
+    from functools import wraps
+    def require_session(fn):
+        @wraps(fn)
+        def wrapper(*args, **kwargs):
+            auth = request.headers.get('Authorization', '')
+            token = None
+            if auth.startswith('Bearer '):
+                token = auth.split(' ', 1)[1].strip()
+            if not token:
+                token = request.headers.get('X-Session-Token')
+
+            if not token:
+                return jsonify(error="Token de sesión faltante."), 401
+
+            session = db.session.execute(
+                db.select(UserSessions).where(
+                    and_(
+                        UserSessions.session_token == token,
+                        UserSessions.expires_at > datetime.now(timezone.utc)
+                    )
+                )
+            ).scalar_one_or_none()
+
+            if not session:
+                return jsonify(error="Sesión inválida o expirada."), 401
+
+            g.current_user = session.user
+            g.current_session = session
+            return fn(*args, **kwargs)
+        return wrapper
 
 # --- Blueprints ---
 api = Blueprint("api", __name__)
@@ -17,6 +53,7 @@ frontend = Blueprint("frontend", __name__)
 def serve_frontend():
     """Sirve el index.html principal."""
     return send_from_directory(current_app.template_folder, "index.html")
+
 
 # --- Rutas de la API ---
 
@@ -33,11 +70,7 @@ def health_check():
 
 @api.post("/register")
 def register_user():
-    """
-    Endpoint para registrar un nuevo usuario.
-    Recibe: JSON con email, password y terms.
-    Responde: JSON con mensaje de éxito o error.
-    """
+    """Registro de nuevo usuario (envía correo de verificación)."""
     data = request.get_json()
     if not data:
         return jsonify(error="No se proporcionaron datos JSON."), 400
@@ -52,15 +85,13 @@ def register_user():
     if not terms:
         return jsonify(error="Debes aceptar los términos y condiciones para registrarte."), 400
 
-    # 1. Verificar si el email ya existe
     existing_user = db.session.execute(
         db.select(Users).where(Users.email == email)
     ).scalar_one_or_none()
     
     if existing_user:
-        return jsonify(error="El correo electrónico ya está registrado."), 409 # 409 Conflict
+        return jsonify(error="El correo electrónico ya está registrado."), 409
 
-    # 2. Obtener el rol 'user'
     user_role = db.session.execute(
         db.select(Roles).where(Roles.name == 'user')
     ).scalar_one_or_none()
@@ -69,11 +100,9 @@ def register_user():
         current_app.logger.error("Error crítico: No se encontró el rol 'user' en la DB.")
         return jsonify(error="Error interno del servidor al configurar el usuario."), 500
 
-    # 3. Hashear la contraseña
     hashed_password = bcrypt.generate_password_hash(password).decode('utf-8')
 
     try:
-        # 4. Crear el nuevo usuario
         new_user = Users(
             email=email,
             password_hash=hashed_password,
@@ -81,7 +110,6 @@ def register_user():
         )
         db.session.add(new_user)
         
-        # 5. Crear el token de verificación
         token_value = secrets.token_urlsafe(32)
         expires = datetime.now(timezone.utc) + timedelta(hours=24) 
         
@@ -93,11 +121,8 @@ def register_user():
         )
         db.session.add(verification_token)
 
-        # 6. Envío REAL de correo
         verification_link = url_for('api.verify_email', token=token_value, _external=True)
-        sender = current_app.config.get('MAIL_DEFAULT_SENDER')
-        if not sender:
-             sender = current_app.config.get('MAIL_USERNAME')
+        sender = current_app.config.get('MAIL_DEFAULT_SENDER') or current_app.config.get('MAIL_USERNAME')
 
         msg = Message(
             subject="¡Bienvenido a EcuPlot! Verifica tu correo.",
@@ -121,7 +146,6 @@ El equipo de EcuPlot
         mail.send(msg)
         current_app.logger.info(f"Correo de verificación enviado exitosamente a {email}")
 
-        # 7. Confirmar la transacción
         db.session.commit()
 
     except Exception as e:
@@ -129,7 +153,6 @@ El equipo de EcuPlot
         current_app.logger.error(f"Error al registrar usuario o enviar correo: {e}")
         return jsonify(error="No se pudo completar el registro, intente más tarde."), 500
 
-    # 8. Enviar respuesta exitosa
     return jsonify(
         message=f"Registro exitoso para {email}. Se ha enviado un correo de verificación."
     ), 201 
@@ -137,11 +160,7 @@ El equipo de EcuPlot
 
 @api.get("/verify-email")
 def verify_email():
-    """
-    Endpoint para verificar el correo de un usuario.
-    Recibe: 'token' como query param.
-    Responde: Redirección al frontend.
-    """
+    """Verificación de correo por token."""
     token_value = request.args.get('token')
     if not token_value:
         return redirect(url_for('frontend.serve_frontend', error='missing_token'))
@@ -179,11 +198,7 @@ def verify_email():
 
 @api.post("/login")
 def login_user():
-    """
-    Endpoint para iniciar sesión.
-    Recibe: JSON con email y password.
-    Responde: JSON con token de sesión o error.
-    """
+    """Inicio de sesión: devuelve session_token y crea registro en user_sessions."""
     data = request.get_json()
     if not data:
         return jsonify(error="No se proporcionaron datos JSON."), 400
@@ -210,12 +225,8 @@ def login_user():
     if not bcrypt.check_password_hash(user.password_hash, password):
         return jsonify(error="Credenciales inválidas."), 401 
     
-    # --- ¡Kira 2.0: LÓGICA DE SESIÓN ARREGLADA! ---
-    # Esto estaba comentado por error, pero tu modelo 'UserSessions' sí existe.
-    # Ahora crearemos un registro de sesión en la DB.
-    
     session_token = secrets.token_urlsafe(64)
-    expires = datetime.now(timezone.utc) + timedelta(days=7) # Sesión de 7 días
+    expires = datetime.now(timezone.utc) + timedelta(days=7)
     
     new_session = UserSessions(
         session_token=session_token,
@@ -239,3 +250,50 @@ def login_user():
         session_token=session_token,
         user_id=user.id
     ), 200
+
+
+# -------------------- Cerrar sesión --------------------
+@api.post("/logout")
+@require_session
+def logout_user():
+    """Cierra la sesión actual (revoca el token usado en la petición)."""
+    try:
+        db.session.delete(g.current_session)
+        db.session.commit()
+        return jsonify(message="Sesión cerrada."), 200
+    except Exception as e:
+        db.session.rollback()
+        current_app.logger.error(f"Error al cerrar sesión: {e}")
+        return jsonify(error="No se pudo cerrar la sesión."), 500
+
+
+# -------------------- Rutas protegidas de ejemplo --------------------
+@api.post("/plot")
+@require_session
+def create_plot():
+    """Crea un registro en plot_history para el usuario autenticado."""
+    data = request.get_json() or {}
+    expression = data.get('expression')
+    plot_parameters = data.get('plot_parameters')
+    plot_metadata = data.get('plot_metadata')
+
+    if not expression or not isinstance(expression, str):
+        return jsonify(error="Falta 'expression' (string)."), 400
+
+    try:
+        item = PlotHistory(
+            user_id=g.current_user.id,
+            expression=expression,
+            plot_parameters=plot_parameters,
+            plot_metadata=plot_metadata
+        )
+        db.session.add(item)
+        db.session.commit()
+        return jsonify(
+            id=str(item.id),
+            message="Expresión guardada en historial."
+        ), 201
+    except Exception as e:
+        db.session.rollback()
+        current_app.logger.error(f"Error al guardar plot_history: {e}")
+        return jsonify(error="No se pudo guardar el historial."), 500

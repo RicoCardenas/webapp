@@ -29,10 +29,13 @@ const SELECTORS = {
   signupForm: '#modal-signup .form',
   signupEmail: '#signup-email',
   signupPassword: '#signup-password',
-  signupTerms: '#signup-terms', // <-- ¡Kira 2.0: Casilla de términos!
+  signupTerms: '#signup-terms', // <-- Casilla de términos
   loginForm: '#modal-login .form',
   loginEmail: '#login-email',
   loginPassword: '#login-password',
+  // Para manejo de sesión en UI:
+  btnLogout: '#btn-logout',
+  btnAccount: '#btn-account',
 };
 
 const KEYS = {
@@ -143,7 +146,7 @@ function trapFocus(container) {
 
   const focusables = getFocusable(container);
   const first = focusables[0];
-  const last = focusables[focusables.length - 1];
+  const last = focusables[last ? (focusables.length - 1) : 0];
 
   const handler = (e) => {
     if (e.key !== 'Tab') return;
@@ -501,7 +504,7 @@ const toast = (() => {
     on(closeBtn, 'click', () => remove());
 
     card.appendChild(text);
-    // card.appendChild(closeBtn); // Opcional: Descomentar para añadir botón de cierre
+    // card.appendChild(closeBtn); // Opcional: botón de cierre
     container.appendChild(card);
 
     let timer = setTimeout(remove, timeoutMs);
@@ -589,7 +592,7 @@ function initContactForm() {
     }
 
     try {
-      const res = await safeFetch('/contact', { // Esto es solo un placeholder
+      const res = await safeFetch('/contact', { // placeholder
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name, email, message }),
@@ -661,6 +664,59 @@ function bindGlobalTriggers() {
   );
 }
 
+// ====== AUTENTICACIÓN (UI + Fetch) =========================================
+
+// Helpers de sesión en localStorage
+function getSessionToken() { return localStorage.getItem(KEYS.sessionToken); }
+function setSessionToken(token) { if (token) localStorage.setItem(KEYS.sessionToken, token); }
+function clearSessionToken() { localStorage.removeItem(KEYS.sessionToken); }
+
+/** fetch que añade Authorization: Bearer <token> */
+async function authFetch(url, options = {}) {
+  const token = getSessionToken();
+  const headers = new Headers(options.headers || {});
+  if (token) headers.set('Authorization', `Bearer ${token}`);
+  if (!headers.has('Content-Type')) headers.set('Content-Type', 'application/json');
+  return fetch(url, { ...options, headers });
+}
+
+// Crea/ubica botón “Mi Cuenta” (si algún día lo necesitas crear por JS)
+function ensureAccountButton() {
+  const actions = qs('.header__actions');
+  if (!actions) return null;
+  let btnAccount = qs('#btn-account', actions);
+  if (!btnAccount) {
+    btnAccount = document.createElement('a');
+    btnAccount.id = 'btn-account';
+    btnAccount.className = 'btn header__btn';
+    btnAccount.href = '#docs';
+    btnAccount.textContent = 'Mi Cuenta';
+    btnAccount.style.display = 'none';
+    const themeBtn = qs(SELECTORS.themeToggle, actions);
+    actions.insertBefore(btnAccount, themeBtn || actions.lastChild);
+  }
+  return btnAccount;
+}
+
+// Mostrar/ocultar UI según sesión
+function setAuthUI(isLogged) {
+  const btnLogin = qsa('[data-open="modal-login"]');
+  const btnSignup = qsa('[data-open="modal-signup"]');
+  const btnAccount = qs(SELECTORS.btnAccount) || ensureAccountButton();
+  const btnLogout = qs(SELECTORS.btnLogout);
+
+  btnLogin.forEach(b => (b instanceof HTMLElement) && (b.style.display = isLogged ? 'none' : ''));
+  btnSignup.forEach(b => (b instanceof HTMLElement) && (b.style.display = isLogged ? 'none' : ''));
+  if (btnAccount) btnAccount.style.display = isLogged ? '' : 'none';
+  if (btnLogout) btnLogout.style.display = isLogged ? '' : 'none';
+}
+
+// Pinta estado al cargar
+function restoreSessionAuth() {
+  const hasToken = !!getSessionToken();
+  setAuthUI(hasToken);
+}
+
 // ====== ¡NUEVA FUNCIÓN! Formularios de Autenticación =======================
 
 function initAuthForms() {
@@ -674,7 +730,6 @@ function initAuthForms() {
       const btn = qs('button[type="submit"]', signupForm);
       const emailEl = qs(SELECTORS.signupEmail, signupForm);
       const passwordEl = qs(SELECTORS.signupPassword, signupForm);
-      // ¡Kira 2.0: Obtenemos la casilla de términos!
       const termsCheckbox = /** @type {HTMLInputElement|null} */ (qs(SELECTORS.signupTerms, signupForm));
       
       if (!emailEl || !passwordEl || !btn || !termsCheckbox) return;
@@ -686,8 +741,6 @@ function initAuthForms() {
         toast.error('Email y contraseña son requeridos.');
         return;
       }
-      
-      // ¡Kira 2.0: Validación de términos en el Frontend!
       if (!termsCheckbox.checked) {
         toast.error('Debes aceptar los términos y condiciones.');
         return;
@@ -700,18 +753,16 @@ function initAuthForms() {
         const res = await safeFetch('/api/register', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          // ¡Kira 2.0: Enviamos 'terms: true' al backend!
           body: JSON.stringify({ email, password, terms: true }),
         });
         
-        const data = await res.json(); // Lee la respuesta JSON siempre
+        const data = await res.json();
 
-        if (res.ok) { // Status 200-299
+        if (res.ok) {
           toast.success(data.message || '¡Registro exitoso! Revisa tu correo.');
           SignupModal.close();
           /** @type {HTMLFormElement} */(signupForm).reset();
         } else {
-          // Muestra el error específico del backend (ej. "Email ya existe")
           toast.error(data.error || `Error (${res.status}): No se pudo registrar.`);
         }
       } catch (err) {
@@ -756,14 +807,11 @@ function initAuthForms() {
 
         if (res.ok) {
           toast.success(data.message || '¡Bienvenido de nuevo!');
-          // Guardar el token de sesión
-          if (data.session_token) {
-            localStorage.setItem(KEYS.sessionToken, data.session_token);
-          }
+          if (data.session_token) setSessionToken(data.session_token);
+          setAuthUI(true); // <-- actualizar UI
           LoginModal.close();
           /** @type {HTMLFormElement} */(loginForm).reset();
-          // Aquí podrías recargar la página o cambiar el estado de la UI
-          // location.reload(); 
+          // Si quieres recargar para forzar estado: location.reload();
         } else {
           toast.error(data.error || `Error (${res.status}): Credenciales inválidas.`);
         }
@@ -778,19 +826,17 @@ function initAuthForms() {
   }
 }
 
-// ====== ¡NUEVA FUNCIÓN! Manejar Verificación de Email =======================
+// ====== Manejar Verificación de Email ======================================
 
 function checkEmailVerification() {
   const params = new URLSearchParams(window.location.search);
   
   if (params.has('verified') && params.get('verified') === 'true') {
     toast.success('¡Correo verificado! Ya puedes iniciar sesión.', 8000);
-    // Limpia la URL para que el toast no aparezca si el usuario recarga
     history.replaceState(null, '', window.location.pathname);
-    LoginModal.open(); // Abrir modal de login
+    LoginModal.open();
   }
   
-  // Manejar otros errores que definimos en el backend
   const error = params.get('error');
   if (error) {
     let message = 'Ocurrió un error de verificación.';
@@ -801,6 +847,38 @@ function checkEmailVerification() {
     toast.error(message, 8000);
     history.replaceState(null, '', window.location.pathname);
   }
+}
+
+// ====== Helpers de sesión para rutas protegidas =============================
+
+/** Llama a la API protegida para guardar una expresión en el historial */
+async function savePlot(expression, plot_parameters = null, plot_metadata = null) {
+  const res = await authFetch('/api/plot', {
+    method: 'POST',
+    body: JSON.stringify({ expression, plot_parameters, plot_metadata }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data?.error || 'No se pudo guardar el historial');
+  return data; // { id, message }
+}
+
+// ====== Logout (cliente + servidor) ========================================
+
+async function logout() {
+  try {
+    await authFetch('/api/logout', { method: 'POST' });
+  } catch (e) {
+    console.warn('Logout request failed (se limpia igual):', e);
+  } finally {
+    clearSessionToken();
+    setAuthUI(false);
+    toast?.success?.('Sesión cerrada.');
+  }
+}
+
+function bindLogout() {
+  const btn = qs(SELECTORS.btnLogout);
+  if (btn) on(btn, 'click', (e) => { e.preventDefault(); logout(); });
 }
 
 // ====== Punto de entrada ====================================================
@@ -818,13 +896,15 @@ function init() {
   setCurrentYear();
   restoreLastSection();
   bindGlobalTriggers();
-  
-  // --- ¡NUEVAS LLAMADAS! ---
+
+  // --- NUEVO: estado de sesión + cableado de logout ---
+  restoreSessionAuth();
   initAuthForms();
+  bindLogout();
   checkEmailVerification();
 }
 
 // Inicia la aplicación
 init();
 
-export { openLogin, openSignup, toggleTheme };
+export { openLogin, openSignup, toggleTheme, authFetch, savePlot, logout };
