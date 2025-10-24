@@ -11,3 +11,5 @@ Flask-Migrate    # Para manejar migraciones de la base de datos
 Flask-Bcrypt     # Para hashear contraseñas
 Flask-Mail       # Para enviar correos de verificación (lo configuraremos)
 Flask-CORS      # Para manejar CORS si es necesario
+
+pytest>=7.0  # Para testing

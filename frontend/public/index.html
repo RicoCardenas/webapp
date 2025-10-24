@@ -1,8 +1,8 @@
 <!DOCTYPE html>
 <html lang="es">
-  <head> <!-- Metadatos básicos -->
-    <meta charset="utf-8" /> 
-    <meta name="viewport" content="width=device-width, initial-scale=1" /> 
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>EcuPlot</title>
     <meta name="description" content="EcuPlot es una graficadora matemática en la web: ingresa funciones, previsualiza en tiempo real y exporta imágenes. Rápida, educativa y accesible." />
     <meta name="theme-color" content="#0f172a" />
@@ -21,7 +21,7 @@
 
     <header id="site-header" class="header" role="banner" aria-label="Cabecera del sitio">
       <div class="header__inner">
-        <!-- Logo clicable -->
+        <!-- Logo -->
         <a href="#hero" class="header__logo" aria-label="Ir al inicio">
           <img
             src="/static/images/logo.jpg"
@@ -39,25 +39,18 @@
             <li class="nav__item"><a class="nav__link" href="#about">Acerca de</a></li>
             <li class="nav__item"><a class="nav__link" href="#how-it-works">Cómo funciona</a></li>
             <li class="nav__item"><a class="nav__link" href="#docs">Documentación</a></li>
+            <li class="nav__item"><a class="nav__link" href="#plotter">Graficadora</a></li>
             <li class="nav__item"><a class="nav__link" href="#contact">Contacto</a></li>
           </ul>
         </nav>
-        
-        <!-- Grupo de acciones -->
-        <div class="header__actions">
-          <button class="btn btn--ghost header__btn" type="button" data-open="modal-login" aria-haspopup="dialog" aria-controls="modal-login">
-            Iniciar sesión
-          </button>
-          <button class="btn btn--primary header__btn" type="button" data-open="modal-signup" aria-haspopup="dialog" aria-controls="modal-signup">
-            Crear cuenta
-          </button>
-          <!-- Botón Cerrar sesión -->
-          <button id="btn-logout" class="btn btn--ghost header__btn header__btn--logout" type="button" style="display:none">
-            Cerrar sesión
-          </button>
 
-          <!-- Botón Mi Cuenta (visible cuando se inicia sesion) -->
-          <a id="btn-account" class="btn header__btn header__btn--account" href="#docs" style="display:none">Mi Cuenta</a>
+        <!-- Acciones -->
+        <div class="header__actions">
+          <button class="btn btn--ghost header__btn" type="button" data-open="modal-login" aria-haspopup="dialog" aria-controls="modal-login">Iniciar sesión</button>
+          <button class="btn btn--primary header__btn" type="button" data-open="modal-signup" aria-haspopup="dialog" aria-controls="modal-signup">Crear cuenta</button>
+          <button id="btn-logout" class="btn header__btn--logout" type="button" style="display:none">
+          Cerrar sesión
+          </button>
 
           <button class="btn btn--icon header__btn" type="button" aria-pressed="false" aria-label="Cambiar tema claro/oscuro" data-theme-toggle>
             <img class="icon icon--theme icon--theme-light" src="/static/images/luna.png" alt="" decoding="async" />
@@ -78,22 +71,14 @@
       </div>
     </header>
 
-    <!-- Cajón móvil (oculto por defecto) -->
-    <aside
-      id="mobile-drawer"
-      class="drawer"
-      aria-hidden="true"
-      aria-labelledby="mobile-drawer-title"
-      role="dialog"
-    >
+    <!-- Drawer móvil -->
+    <aside id="mobile-drawer" class="drawer" aria-hidden="true" aria-labelledby="mobile-drawer-title" role="dialog">
       <div class="drawer__overlay" data-drawer-toggle tabindex="-1" aria-hidden="true"></div>
       <div class="drawer__panel" role="document">
         <div class="drawer__header">
           <h2 id="mobile-drawer-title" class="drawer__title">Menú</h2>
           <button class="drawer__close btn btn--icon" type="button" data-drawer-toggle aria-label="Cerrar menú">
-            <svg class="icon icon--close" aria-hidden="true" focusable="false" width="20" height="20" viewBox="0 0 24 24">
-              <path d="M6 6l12 12M6 18L18 6" />
-            </svg>
+            <svg class="icon icon--close" aria-hidden="true" focusable="false" width="20" height="20" viewBox="0 0 24 24"><path d="M6 6l12 12M6 18L18 6" /></svg>
           </button>
         </div>
         <nav class="drawer__nav" aria-label="Navegación móvil">
@@ -102,13 +87,12 @@
             <li class="drawer__item"><a class="drawer__link" href="#about">Acerca de</a></li>
             <li class="drawer__item"><a class="drawer__link" href="#how-it-works">Cómo funciona</a></li>
             <li class="drawer__item"><a class="drawer__link" href="#docs">Documentación</a></li>
+            <li class="drawer__item"><a class="drawer__link" href="#plotter">Graficadora</a></li>
             <li class="drawer__item"><a class="drawer__link" href="#contact">Contacto</a></li>
           </ul>
           <div class="drawer__actions">
             <button class="btn btn--ghost drawer__btn" type="button" data-open="modal-login" aria-haspopup="dialog" aria-controls="modal-login">Iniciar sesión</button>
             <button class="btn btn--primary drawer__btn" type="button" data-open="modal-signup" aria-haspopup="dialog" aria-controls="modal-signup">Crear cuenta</button>
-            <!-- (Opcional) Puedes duplicar un botón “Mi Cuenta” para móvil si luego quieres -->
-            <!-- <a id="btn-account-mobile" class="btn drawer__btn" href="#docs" style="display:none">Mi Cuenta</a> -->
           </div>
         </nav>
       </div>
@@ -116,23 +100,19 @@
 
     <!-- Contenido principal -->
     <main id="app" class="main" role="main">
+      <!-- HERO -->
       <section id="hero" class="hero" aria-labelledby="hero-title">
         <div class="hero__inner">
           <h1 id="hero-title" class="hero__title">EcuPlot</h1>
           <p class="hero__subtitle">Graficadora matemática en la web: funciones, vista previa instantánea y exportación.</p>
-        
+
           <div class="hero__ctas">
-            <a id="cta-graficar" class="btn btn--primary hero__cta" href="#docs" role="button" data-action="start-plotting">Graficar ahora</a>
+            <a id="cta-graficar" class="btn btn--primary hero__cta" href="#plotter" role="button">Graficar ahora</a>
             <a class="btn btn--ghost hero__cta" href="#docs" role="button">Ver documentación</a>
           </div>
-      
-          <!-- Estado del backend -->
-          <p class="status status--loading" data-status role="status" aria-live="polite">
-            Verificando estado del backend…
-          </p>
         </div>
       </section>
-  
+
       <!-- FEATURES -->
       <section id="features" class="features" aria-labelledby="features-title">
         <div class="features__inner">
@@ -161,26 +141,26 @@
           </ul>
         </div>
       </section>
-  
+
       <!-- HOW IT WORKS -->
       <section id="how-it-works" class="how" aria-labelledby="how-title">
         <div class="how__inner">
           <h2 id="how-title" class="section-title">Cómo funciona</h2>
           <div class="how__steps" role="list">
             <article class="how__step" role="listitem">
-              <h3 class="how__step-title">1. Ingresa tu función</h3>
+              <h3 class="how__step-title">Ingresa tu función</h3>
               <p class="how__step-text">
                 Escribe expresiones como <code>sin(x)</code>, <code>x^2 + 2x + 1</code> o combina múltiples términos con operadores familiares.
               </p>
             </article>
             <article class="how__step" role="listitem">
-              <h3 class="how__step-title">2. Ajusta en vivo</h3>
+              <h3 class="how__step-title">Ajusta en vivo</h3>
               <p class="how__step-text">
                 Observa la gráfica al instante, modifica parámetros y activa opciones como cuadrículas o diferentes colores.
               </p>
             </article>
             <article class="how__step" role="listitem">
-              <h3 class="how__step-title">3. Exporta y comparte</h3>
+              <h3 class="how__step-title">Exporta y comparte</h3>
               <p class="how__step-text">
                 Descarga la visualización en PNG o SVG con fondo limpio para insertarla en presentaciones, informes o clases.
               </p>
@@ -188,7 +168,7 @@
           </div>
         </div>
       </section>
-  
+
       <!-- ABOUT -->
       <section id="about" class="about" aria-labelledby="about-title">
         <div class="about__inner">
@@ -199,7 +179,7 @@
           </p>
         </div>
       </section>
-  
+
       <!-- DOCS -->
       <section id="docs" class="docs" aria-labelledby="docs-title">
         <div class="docs__inner">
@@ -244,12 +224,63 @@
           </div>
         </div>
       </section>
-  
+
+      <!-- PLOTTER (Motor propio) -->
+      <section id="plotter" class="docs" aria-labelledby="plotter-title">
+        <div class="docs__inner">
+          <h2 id="plotter-title" class="section-title">Graficadora</h2>
+
+          <div class="docs__grid">
+            <!-- Panel de entrada -->
+            <article class="docs__card" style="grid-column: 1 / -1;">
+              <h3 class="docs__card-title">Ingresa expresiones</h3>
+              <p class="docs__card-text">
+                Ejemplos: <code>y = sin(x)</code>, <code>f(x) = x^2 + 2x + 1</code>, <code>cos(x)</code>
+              </p>
+
+              <form id="plot-form" class="form" autocomplete="off" aria-describedby="plotter-hint">
+                <div class="form__field">
+                  <label class="form__label" for="plot-input">Expresión</label>
+                  <input
+                    class="form__input"
+                    id="plot-input"
+                    name="expr"
+                    type="text"
+                    placeholder="y = sin(x)"
+                    inputmode="text"
+                    spellcheck="false"
+                    autocomplete="off"
+                  />
+                  <p id="plotter-hint" class="form__hint">Tip: <kbd>Ctrl</kbd> + <kbd>Enter</kbd> para graficar rápidamente.</p>
+                </div>
+
+                <div class="form__actions">
+                  <button class="btn btn--primary" type="submit">Graficar</button>
+                  <button id="btn-clear" class="btn btn--ghost" type="button">Limpiar</button>
+                  <button id="btn-grid" class="btn btn--ghost" type="button" aria-pressed="true">Cuadrícula: ON</button>
+                  <button id="btn-export" class="btn btn--ghost" type="button">Exportar PNG</button>
+                  <button id="btn-history" class="btn btn--ghost" type="button">Historial</button>
+                </div>
+              </form>
+
+              <!-- Lista de expresiones activas -->
+              <div id="expr-list" class="docs__chips" aria-live="polite" aria-atomic="true" style="margin-top:.5rem;"></div>
+            </article>
+
+            <!-- Lienzo -->
+            <article class="docs__card" style="grid-column: 1 / -1;">
+              <h3 class="docs__card-title">Vista</h3>
+              <div id="ggb-container" style="width:100%; aspect-ratio:16/9; min-height:380px;" aria-label="Lienzo de graficación"></div>
+            </article>
+          </div>
+        </div>
+      </section>
+
       <!-- CONTACT -->
       <section id="contact" class="contact" aria-labelledby="contact-title">
         <div class="contact__inner">
           <h2 id="contact-title" class="section-title">Contacto</h2>
-        
+
           <form
             id="contact-form"
             class="form contact__form"
@@ -262,50 +293,25 @@
             <div id="contact-form-errors" class="form__errors" aria-live="polite" role="status">
               <ul class="form__errors-list" role="list" data-global-error-messages></ul>
             </div>
-        
+
             <div class="form__field">
               <label class="form__label" for="contact-name">Nombre</label>
-              <input
-                class="form__input"
-                type="text"
-                id="contact-name"
-                name="name"
-                autocomplete="name"
-                inputmode="text"
-                aria-describedby="error-contact-name"
-                required
-              />
+              <input class="form__input" type="text" id="contact-name" name="name" autocomplete="name" inputmode="text" aria-describedby="error-contact-name" required />
               <p id="error-contact-name" class="form__error" aria-hidden="true"></p>
             </div>
-        
+
             <div class="form__field">
               <label class="form__label" for="contact-email">Correo electrónico</label>
-              <input
-                class="form__input"
-                type="email"
-                id="contact-email"
-                name="email"
-                autocomplete="email"
-                inputmode="email"
-                aria-describedby="error-contact-email"
-                required
-              />
+              <input class="form__input" type="email" id="contact-email" name="email" autocomplete="email" inputmode="email" aria-describedby="error-contact-email" required />
               <p id="error-contact-email" class="form__error" aria-hidden="true"></p>
             </div>
-        
+
             <div class="form__field">
               <label class="form__label" for="contact-message">Mensaje</label>
-              <textarea
-                class="form__textarea"
-                id="contact-message"
-                name="message"
-                rows="6"
-                aria-describedby="error-contact-message"
-                required
-              ></textarea>
+              <textarea class="form__textarea" id="contact-message" name="message" rows="6" aria-describedby="error-contact-message" required></textarea>
               <p id="error-contact-message" class="form__error" aria-hidden="true"></p>
             </div>
-        
+
             <div class="form__actions">
               <button class="btn btn--primary" type="submit">Enviar</button>
             </div>
@@ -329,63 +335,33 @@
     </footer>
 
     <!-- Modal: Login -->
-    <div
-      id="modal-login"
-      class="modal"
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="login-title"
-      aria-describedby="login-desc"
-      aria-hidden="true"
-    >
+    <div id="modal-login" class="modal" role="dialog" aria-modal="true" aria-labelledby="login-title" aria-describedby="login-desc" aria-hidden="true">
       <div class="modal__overlay" data-close="modal" tabindex="-1" aria-hidden="true"></div>
       <div class="modal__dialog" role="document" tabindex="-1">
         <header class="modal__header">
           <h2 id="login-title" class="modal__title">Iniciar sesión</h2>
           <p id="login-desc" class="modal__desc">Accede a tu cuenta para gestionar tus funciones y exportaciones.</p>
-          <button class="modal__close btn btn--icon" type="button" data-close="modal" aria-label="Cerrar">
-            <svg class="icon icon--close" aria-hidden="true" focusable="false" width="20" height="20" viewBox="0 0 24 24">
-              <path d="M6 6l12 12M6 18L18 6" />
-            </svg>
-          </button>
+          <button class="modal__close btn btn--icon" type="button" data-close="modal" aria-label="Cerrar">✕</button>
         </header>
-    
         <div class="modal__body">
           <form class="form" action="/login" method="post" novalidate data-form-validate>
             <div class="form__field">
               <label class="form__label" for="login-email">Correo electrónico</label>
-              <input
-                class="form__input"
-                type="email"
-                id="login-email"
-                name="email"
-                autocomplete="email"
-                inputmode="email"
-                aria-describedby="error-login-email"
-                required
-              />
+              <input class="form__input" type="email" id="login-email" name="email" autocomplete="email" inputmode="email" aria-describedby="error-login-email" required />
               <p id="error-login-email" class="form__error" aria-hidden="true"></p>
             </div>
-        
+
             <div class="form__field">
               <label class="form__label" for="login-password">Contraseña</label>
-              <input
-                class="form__input"
-                type="password"
-                id="login-password"
-                name="password"
-                autocomplete="current-password"
-                aria-describedby="error-login-password"
-                required
-              />
+              <input class="form__input" type="password" id="login-password" name="password" autocomplete="current-password" aria-describedby="error-login-password" required />
               <p id="error-login-password" class="form__error" aria-hidden="true"></p>
             </div>
-        
+
             <div class="form__actions">
               <button class="btn btn--primary" type="submit">Entrar</button>
               <a class="form__link" href="/recuperar">¿Olvidaste tu contraseña?</a>
             </div>
-        
+
             <p class="form__hint">¿No tienes cuenta? <button class="link" type="button" data-open="modal-signup">Crear cuenta</button></p>
           </form>
         </div>
@@ -393,78 +369,41 @@
     </div>
 
     <!-- Modal: Signup -->
-    <div
-      id="modal-signup"
-      class="modal"
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="signup-title"
-      aria-describedby="signup-desc"
-      aria-hidden="true"
-    >
+    <div id="modal-signup" class="modal" role="dialog" aria-modal="true" aria-labelledby="signup-title" aria-describedby="signup-desc" aria-hidden="true">
       <div class="modal__overlay" data-close="modal" tabindex="-1" aria-hidden="true"></div>
       <div class="modal__dialog" role="document" tabindex="-1">
         <header class="modal__header">
           <h2 id="signup-title" class="modal__title">Crear cuenta</h2>
           <p id="signup-desc" class="modal__desc">Regístrate para guardar funciones, historiales y exportaciones.</p>
-          <button class="modal__close btn btn--icon" type="button" data-close="modal" aria-label="Cerrar">
-            <svg class="icon icon--close" aria-hidden="true" focusable="false" width="20" height="20" viewBox="0 0 24 24">
-              <path d="M6 6l12 12M6 18L18 6" />
-            </svg>
-          </button>
+          <button class="modal__close btn btn--icon" type="button" data-close="modal" aria-label="Cerrar">✕</button>
         </header>
-    
+
         <div class="modal__body">
           <form class="form" action="/signup" method="post" novalidate data-form-validate>
             <div class="form__field">
               <label class="form__label" for="signup-name">Nombre</label>
-              <input
-                class="form__input"
-                type="text"
-                id="signup-name"
-                name="name"
-                autocomplete="name"
-                aria-describedby="error-signup-name"
-                required
-              />
+              <input class="form__input" type="text" id="signup-name" name="name" autocomplete="name" aria-describedby="error-signup-name" required />
               <p id="error-signup-name" class="form__error" aria-hidden="true"></p>
             </div>
-        
+
             <div class="form__field">
               <label class="form__label" for="signup-email">Correo electrónico</label>
-              <input
-                class="form__input"
-                type="email"
-                id="signup-email"
-                name="email"
-                autocomplete="email"
-                inputmode="email"
-                aria-describedby="error-signup-email"
-                required
-              />
+              <input class="form__input" type="email" id="signup-email" name="email" autocomplete="email" inputmode="email" aria-describedby="error-signup-email" required />
               <p id="error-signup-email" class="form__error" aria-hidden="true"></p>
             </div>
-        
+
             <div class="form__field">
               <label class="form__label" for="signup-password">Contraseña</label>
-              <input
-                class="form__input"
-                type="password"
-                id="signup-password"
-                name="password"
-                autocomplete="new-password"
-                aria-describedby="error-signup-password"
-                required
-              />
+              <input class="form__input" type="password" id="signup-password" name="password" autocomplete="new-password" aria-describedby="error-signup-password" required />
               <p id="error-signup-password" class="form__error" aria-hidden="true"></p>
             </div>
-        
+
             <div class="form__field form__field--checkbox">
               <input class="form__checkbox" type="checkbox" id="signup-terms" name="terms" required aria-describedby="error-signup-terms" />
               <label class="form__label" for="signup-terms">Acepto los <a href="/terminos">términos y condiciones</a>.</label>
               <p id="error-signup-terms" class="form__error" aria-hidden="true"></p>
             </div>
-        
+
             <div class="form__actions">
               <button class="btn btn--primary" type="submit">Crear cuenta</button>
               <p class="form__hint">¿Ya tienes cuenta? <button class="link" type="button" data-open="modal-login">Inicia sesión</button></p>
@@ -474,15 +413,47 @@
       </div>
     </div>
 
-    <!-- Contenedor global de notificaciones -->
+    <!-- Modal: Historial -->
+    <div id="modal-history" class="modal" role="dialog" aria-modal="true" aria-labelledby="history-title" aria-hidden="true">
+      <div class="modal__overlay" data-close="history" tabindex="-1" aria-hidden="true"></div>
+      <div class="modal__dialog" role="document" tabindex="-1">
+        <header class="modal__header">
+          <h2 id="history-title" class="modal__title">Historial</h2>
+          <button class="modal__close btn btn--icon" type="button" data-close="history" aria-label="Cerrar">✕</button>
+        </header>
+
+        <div class="modal__body">
+          <div class="form__field">
+            <label class="form__label" for="history-search">Buscar</label>
+            <input class="form__input" id="history-search" type="text" placeholder="filtrar por texto..." />
+          </div>
+
+          <div class="form__field" style="display:flex;align-items:center;gap:.5rem;">
+            <input id="history-select-all" type="checkbox" />
+            <label for="history-select-all">Seleccionar todo</label>
+          </div>
+
+          <div id="history-list" class="history__list" role="list" style="max-height:45vh; overflow:auto;"></div>
+
+          <div class="form__actions" style="justify-content:flex-end;">
+            <button id="history-plot-selected" class="btn btn--primary" type="button">Graficar seleccionadas</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Toasts -->
     <div id="toasts" class="toasts" aria-live="polite" aria-atomic="true"></div>
 
     <noscript>
-      <div class="noscript">
-        Para utilizar EcuPlot necesitas habilitar JavaScript. Actívalo en tu navegador y recarga la página.
-      </div>
+      <div class="noscript">Para utilizar EcuPlot necesitas habilitar JavaScript. Actívalo en tu navegador y recarga la página.</div>
     </noscript>
 
+    <!-- math.js -->
+    <script src="https://cdn.jsdelivr.net/npm/mathjs@11.11.0/lib/browser/math.js"></script>
+    <!-- plotter propio -->
+    <script src="/static/plotter.js" defer></script>
+    <!-- app.js general -->
     <script src="/static/app.js" type="module" defer></script>
   </body>
 </html>

@@ -32,11 +32,8 @@ instance/
 # ----------------------------------------------------------------------
 
 # Archivos de SQLite (por si acaso, aunque ya no lo usamos)
-*.db
-*.sqlite
-*.sqlite3
+
 # Carpeta con backups locales de la DB (el archivo Backup23102025)
-/BackupsDB/
 
 # ----------------------------------------------------------------------
 # 5. Herramientas de Desarrollo / IDEs

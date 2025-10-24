@@ -361,12 +361,12 @@ ul, ol { padding-left: 1.2rem; }
 }
 
 /* Scroll anclas con header sticky */
-
 #hero,
 #features,
 #how-it-works,
 #about,
 #docs,
+#plotter,
 #contact {
   scroll-margin-top: calc(var(--header-h) + 16px);
 }
@@ -377,6 +377,7 @@ ul, ol { padding-left: 1.2rem; }
   #how-it-works,
   #about,
   #docs,
+  #plotter,
   #contact {
     scroll-margin-top: calc(var(--header-h-lg) + 16px);
   }
@@ -565,7 +566,7 @@ ul, ol { padding-left: 1.2rem; }
 
 /* Logout: ghost con tinte peligro suave */
 .header__btn--logout {
-  color: #b91c1c; 
+  color: #d94040; 
   border-color: transparent;
 }
 .header__btn--logout:hover {
@@ -577,7 +578,7 @@ ul, ol { padding-left: 1.2rem; }
   border-radius: 6px;
 }
 [data-theme="dark"] .header__btn--logout {
-  color: #fca5a5; 
+  color: #e13434; 
 }
 [data-theme="dark"] .header__btn--logout:hover {
   background-color: rgba(252, 165, 165, 0.12); 
@@ -586,6 +587,7 @@ ul, ol { padding-left: 1.2rem; }
   opacity: 0.6;
   pointer-events: none;
 }
+
 
 .btn--icon {
   display: inline-grid;
@@ -733,50 +735,60 @@ html[data-theme="dark"] .icon--menu-dark {
 .features__item-title { font-size: var(--fs-md); margin-bottom: var(--space-2); }
 .features__item-text { color: var(--color-text-muted); }
 
-/* --- HOW IT WORKS (cards pulidas) --- */
+/* --- HOW IT WORKS --- */
 
 .how__inner { text-align: center; }
 
 .how__steps {
-  counter-reset: how-step;
+  counter-reset: how;
   display: grid;
+  align-items: stretch;         
   gap: var(--space-4);
   margin-top: var(--space-4);
   padding: 0;
   list-style: none;
   width: min(100%, 1000px);
   margin-inline: auto;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
 }
 
 .how__step {
   position: relative;
   display: grid;
+  align-content: start;       
   gap: var(--space-3);
   padding: clamp(1.75rem, 3vw, 2.5rem);
   border-radius: clamp(20px, 5vw, 28px);
-  background: linear-gradient(160deg, color-mix(in srgb, var(--color-surface) 96%, transparent) 0%, color-mix(in srgb, var(--color-muted) 55%, transparent) 100%);
+  background: linear-gradient(
+    160deg,
+    color-mix(in srgb, var(--color-surface) 96%, transparent) 0%,
+    color-mix(in srgb, var(--color-muted) 55%, transparent) 100%
+  );
   box-shadow: var(--shadow-md);
   text-align: left;
   min-height: 100%;
 }
 
 .how__step::before {
-  counter-increment: how-step;
-  content: counter(how-step, decimal-leading-zero);
-  font-size: var(--fs-sm);
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  color: var(--color-primary);
-  background: color-mix(in srgb, var(--color-primary) 18%, transparent);
+  counter-increment: how;
+  content: counter(how, decimal-leading-zero);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.5rem;
+  height: 2.5rem;
   border-radius: 999px;
-  padding: 0.25rem 0.75rem;
-  width: max-content;
+  background: color-mix(in srgb, var(--color-primary) 18%, transparent);
+  color: var(--color-primary);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  margin-bottom: 0.25rem;         
 }
 
 .how__step-title {
   font-size: var(--fs-lg);
   color: var(--color-text);
+  margin: 0;                     
 }
 
 .how__step-text {
@@ -1145,3 +1157,69 @@ html[data-theme="dark"] #btn-account:hover {
   a { text-decoration: underline; }
 }
 
+.plotter-canvas {
+  background: linear-gradient(
+    to bottom right,
+    color-mix(in srgb, var(--color-muted) 18%, transparent),
+    color-mix(in srgb, var(--color-muted) 6%, transparent)
+  );
+  border: 1px solid color-mix(in srgb, var(--color-border) 65%, transparent);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-md);
+}
+
+/* Chips “borrables” para expresiones */
+#expr-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+#expr-list .chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.35rem 0.65rem;
+  border-radius: var(--radius-pill);
+  background: color-mix(in srgb, var(--color-muted) 70%, transparent);
+  border: 1px solid color-mix(in srgb, var(--color-border) 70%, transparent);
+  box-shadow: var(--shadow-sm);
+  color: var(--color-text);
+  transition: transform var(--dur-1) var(--easing), background var(--dur-1) var(--easing);
+}
+#expr-list .chip:hover,
+#expr-list .chip:focus-visible {
+  background: color-mix(in srgb, var(--color-primary) 12%, transparent);
+  outline: none;
+  transform: translateY(-1px);
+}
+#expr-list .chip__swatch {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex: 0 0 10px;
+}
+#expr-list .chip__label {
+  font-size: var(--fs-sm);
+  white-space: nowrap;
+}
+#expr-list .chip__close {
+  opacity: .85;
+  font-size: var(--fs-sm);
+}
+
+/* ===== Historial: lista con checkboxes ===== */
+.history__list { display: grid; gap: 0.5rem; margin-top: 0.5rem; }
+.history__row {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid color-mix(in srgb, var(--color-border) 65%, transparent);
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--color-muted) 60%, transparent);
+}
+.history__row:hover { background: color-mix(in srgb, var(--color-primary) 10%, transparent); }
+.history__check { width: 1rem; height: 1rem; accent-color: var(--color-primary); }
+.history__expr { font-size: var(--fs-sm); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.history__date { font-size: var(--fs-xs); color: var(--color-text-muted); }
