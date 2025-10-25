@@ -1,12 +1,27 @@
 """Application configuration values."""
 import os
+import json
+from typing import List
 from pathlib import Path
 from dotenv import load_dotenv
+
 
 # --- Cargar variables de entorno ---
 load_dotenv()
 
 BASE_DIR = Path(__file__).resolve().parent
+
+def parse_list_env(name: str) -> List[str]:
+
+    raw = os.getenv(name, "").strip()
+    if not raw:
+        return []
+    if raw.startswith("["):
+        try:
+            return [str(s) for s in json.loads(raw)]
+        except Exception:
+            return []
+    return [item.strip() for item in raw.split(",") if item.strip()]
 
 class Config:
     # clave secreta de flask
@@ -24,7 +39,7 @@ class Config:
     SQLALCHEMY_DATABASE_URI = db_url
     SQLALCHEMY_TRACK_MODIFICATIONS = False
 
-    # configuracion para correo (esto para la verificacion) ---
+    # configuracion para correo ---
     MAIL_SERVER = os.getenv('MAIL_SERVER')
     MAIL_PORT = int(os.getenv('MAIL_PORT', 587))
     MAIL_USE_TLS = os.getenv('MAIL_USE_TLS', 'true').lower() == 'true'
@@ -32,8 +47,10 @@ class Config:
     MAIL_USERNAME = os.getenv('MAIL_USERNAME')
     MAIL_PASSWORD = os.getenv('MAIL_PASSWORD')
     
-    # ¡Kira 2.0: Cambio! 
-    # Hacemos que MAIL_DEFAULT_SENDER sea solo el email.
-    # Si no está en el .env, usa MAIL_USERNAME como fallback.
     MAIL_DEFAULT_SENDER = os.getenv('MAIL_DEFAULT_SENDER', os.getenv('MAIL_USERNAME'))
 
+    # CORS & contacto
+    CORS_ORIGINS = parse_list_env('CORS_ORIGINS')
+    CONTACT_RECIPIENTS = parse_list_env('CONTACT_RECIPIENTS')
+    CONTACT_RECIPIENT = CONTACT_RECIPIENTS[0]
+    

@@ -7,41 +7,7 @@ from .models import Users, Roles, UserTokens, UserSessions, PlotHistory
 from flask_mail import Message
 from sqlalchemy import and_, desc  # <- añadimos desc para ordenar historial
 
-# Intentamos importar el decorador desde auth.py (recomendado)
-try:
-    from .auth import require_session
-except Exception:
-    # Fallback si aún no existe auth.py
-    from functools import wraps
-    def require_session(fn):
-        @wraps(fn)
-        def wrapper(*args, **kwargs):
-            auth = request.headers.get('Authorization', '')
-            token = None
-            if auth.startswith('Bearer '):
-                token = auth.split(' ', 1)[1].strip()
-            if not token:
-                token = request.headers.get('X-Session-Token')
-
-            if not token:
-                return jsonify(error="Token de sesión faltante."), 401
-
-            session = db.session.execute(
-                db.select(UserSessions).where(
-                    and_(
-                        UserSessions.session_token == token,
-                        UserSessions.expires_at > datetime.now(timezone.utc)
-                    )
-                )
-            ).scalar_one_or_none()
-
-            if not session:
-                return jsonify(error="Sesión inválida o expirada."), 401
-
-            g.current_user = session.user
-            g.current_session = session
-            return fn(*args, **kwargs)
-        return wrapper
+from .auth import require_session
 
 # --- Blueprints ---
 api = Blueprint("api", __name__)
@@ -64,6 +30,46 @@ def health_check():
     except Exception as e:
         current_app.logger.error(f"Error de conexión a DB: {e}")
         return jsonify(status="ok", db_status="error"), 500
+
+
+@api.post("/contact")
+def contact_message():
+    """Recibe mensajes del formulario de contacto del landing."""
+    data = request.get_json() or {}
+    name = (data.get('name') or '').strip()
+    email = (data.get('email') or '').strip()
+    message = (data.get('message') or '').strip()
+
+    errors = {}
+    if len(name) < 2:
+        errors['name'] = 'Ingresa tu nombre (mínimo 2 caracteres).'
+    if not email or '@' not in email:
+        errors['email'] = 'Proporciona un correo válido.'
+    if len(message) < 10:
+        errors['message'] = 'El mensaje debe tener al menos 10 caracteres.'
+
+    if errors:
+        return jsonify(error="Datos inválidos", fields=errors), 400
+
+    recipient = current_app.config.get('CONTACT_RECIPIENT')
+    sender = current_app.config.get('MAIL_DEFAULT_SENDER') or current_app.config.get('MAIL_USERNAME')
+
+    try:
+        if recipient and sender:
+            msg = Message(
+                subject='Nuevo contacto de EcuPlot',
+                sender=sender,
+                recipients=[recipient],
+                body=f"Nombre: {name}\nEmail: {email}\n\n{message}",
+            )
+            mail.send(msg)
+        else:
+            current_app.logger.info('Contacto recibido sin destinatario configurado: %s', data)
+    except Exception as exc:
+        current_app.logger.error('No se pudo reenviar el contacto: %s', exc)
+        return jsonify(error='No se pudo enviar el mensaje en este momento.'), 502
+
+    return jsonify(message='Mensaje enviado. Gracias por escribirnos.'), 200
 
 @api.post("/register")
 def register_user():

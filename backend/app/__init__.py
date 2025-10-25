@@ -5,7 +5,7 @@ from backend.config import Config
 
 
 # Importamos las instancias de las extensiones
-from .extensions import db, migrate, bcrypt, mail
+from .extensions import db, migrate, bcrypt, mail, cors
 
 # Resolve project directories so Flask can serve the frontend assets.
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
@@ -34,6 +34,11 @@ def create_app(config_object=Config) -> Flask:
     migrate.init_app(app, db)
     bcrypt.init_app(app)
     mail.init_app(app)
+    cors.init_app(
+        app,
+        resources={r"/api/*": {"origins": app.config.get("CORS_ORIGINS", "*")}},
+        supports_credentials=True,
+    )
     
     # --- Importar Modelos ---
     # Es crucial importarlos *después* de inicializar 'db'

@@ -1,3 +1,4 @@
+import { authFetch, toast } from './app.js';
 
 const UI = {
   container: '#ggb-container',
@@ -58,18 +59,6 @@ function niceStep(span) {
   if (base < 1.5) step = 1; else if (base < 3.5) step = 2; else if (base < 7.5) step = 5; else step = 10;
   return step * pow10;
 }
-function toast(type, message, ms=3500) {
-  const host = document.querySelector(UI.toasts);
-  if (!host) { console[type === 'error' ? 'error':'log'](message); return; }
-  const card = document.createElement('div');
-  if (type === 'success') card.classList.add('is-success');
-  if (type === 'error') card.classList.add('is-danger');
-  if (type === 'info') card.classList.add('is-info');
-  if (type === 'warn') card.classList.add('is-warning');
-  card.textContent = message; host.appendChild(card);
-  setTimeout(() => card.remove(), ms);
-}
-
 // ---------------- Render ----------------
 
 function drawGridAndAxes() {
@@ -187,7 +176,7 @@ function normalizeExpr(raw){
 
 async function addExpression(raw){
   const label=normalizeExpr(raw);
-  if(!label){ toast('warn','Escribe una expresión.'); return; }
+  if(!label){ toast.warn?.('Escribe una expresión.'); return; }
   const rhs=label.split('=').slice(1).join('=').trim();
 
   let compiled;
@@ -195,7 +184,7 @@ async function addExpression(raw){
     compiled=math.compile(rhs);
     try{ void compiled.evaluate({x:0}); }catch{}
   }catch{
-    toast('error','Expresión inválida. Tip: para trozos usa if(cond, expr1, expr2).');
+    toast.error?.('Expresión inválida. Tip: para trozos usa if(cond, expr1, expr2).');
     return;
   }
 
@@ -205,17 +194,15 @@ async function addExpression(raw){
   renderChip({id,label,color});
   renderAll();
 
-  const token=localStorage.getItem(KEYS.sessionToken);
-  if(token){
+  if(localStorage.getItem(KEYS.sessionToken)){
     try{
-      await fetch('/api/plot',{
+      await authFetch('/api/plot',{
         method:'POST',
-        headers:{'Content-Type':'application/json','X-Session-Token':token},
         body:JSON.stringify({expression:label})
       });
     }catch{}
   }
-  toast('success','Expresión añadida.');
+  toast.success?.('Expresión añadida.');
 }
 
 function renderChip({id,label,color}){
@@ -252,17 +239,15 @@ function closeHistoryModal(){ const m=document.querySelector(UI.modalHistory); m
 
 async function fetchHistory(q=''){
   const token=localStorage.getItem(KEYS.sessionToken);
-  if(!token){ toast('warn','Inicia sesión para ver tu historial.'); return; }
+  if(!token){ toast.warn?.('Inicia sesión para ver tu historial.'); return; }
   const params=new URLSearchParams();
   if(q) params.set('q', q);
   params.set('limit', String(state.history.limit));
   params.set('offset', String(state.history.offset));
 
-  const res=await fetch(`/api/plot/history?${params.toString()}`,{
-    headers:{'X-Session-Token':token}
-  });
+  const res=await authFetch(`/api/plot/history?${params.toString()}`);
   if(!res.ok){
-    toast('error','No se pudo cargar el historial.');
+    toast.error?.('No se pudo cargar el historial.');
     return;
   }
   const data=await res.json();
@@ -309,7 +294,7 @@ function selectAllHistory(checked){
 }
 
 function plotSelectedFromHistory(){
-  if(state.history.selected.size===0){ toast('warn','No hay expresiones seleccionadas.'); return; }
+  if(state.history.selected.size===0){ toast.warn?.('No hay expresiones seleccionadas.'); return; }
   for(const expr of state.history.selected){
     addExpression(expr);
   }

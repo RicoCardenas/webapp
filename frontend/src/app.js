@@ -907,4 +907,4 @@ function init() {
 // Inicia la aplicación
 init();
 
-export { openLogin, openSignup, toggleTheme, authFetch, savePlot, logout };
+export { openLogin, openSignup, toggleTheme, authFetch, savePlot, logout, toast };
