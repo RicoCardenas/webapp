@@ -938,6 +938,7 @@ html[data-theme="dark"] .icon--menu-dark {
 .footer__inner {
   display: grid;
   gap: var(--space-4);
+  place-items: center;
 }
 @media (min-width: 768px) {
   .footer__inner {

@@ -483,6 +483,20 @@ const toast = (() => {
   };
 })();
 
+function showFieldError(pEl, msg) {
+  if (!pEl) return;
+  pEl.textContent = msg;
+  pEl.classList.add('is-visible');
+  pEl.setAttribute('aria-hidden', 'false');
+}
+
+function hideFieldError(pEl) {
+  if (!pEl) return;
+  pEl.textContent = '';
+  pEl.classList.remove('is-visible');
+  pEl.setAttribute('aria-hidden', 'true');
+}
+
 // Contacto
 function initContactForm() {
   const form = qs('#contact-form');
@@ -676,6 +690,16 @@ function initAuthForms() {
   const signupForm = qs('#modal-signup .form');
   const loginForm = qs('#modal-login .form');
 
+  // 1. Validadores específicos para autenticación
+  const authValidators = {
+    email: (v) =>
+      /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v || '') ? '' : 'Ingresa un correo válido',
+    password: (v) =>
+      v && v.length >= 8 ? '' : 'La contraseña debe tener al menos 8 caracteres',
+    loginPassword: (v) =>
+      v && v.length > 0 ? '' : 'Ingresa tu contraseña',
+  };
+
   if (signupForm) {
     on(signupForm, 'submit', async (e) => {
       e.preventDefault();
@@ -685,11 +709,31 @@ function initAuthForms() {
       const passwordEl = qs('#signup-password', signupForm);
       const terms = qs('#signup-terms', signupForm);
 
-      if (!emailEl || !passwordEl || !btn || !terms) return;
-      if (!terms.checked) {
-        toast.error('Debes aceptar los términos y condiciones.');
-        return;
-      }
+      // 2. Obtener elementos de error
+      const errEmail = qs('#error-signup-email', signupForm);
+      const errPass = qs('#error-signup-password', signupForm);
+      const errTerms = qs('#error-signup-terms', signupForm);
+
+      if (!emailEl || !passwordEl || !btn || !terms || !errEmail || !errPass || !errTerms) return;
+
+      // 3. Ocultar errores previos
+      hideFieldError(errEmail);
+      hideFieldError(errPass);
+      hideFieldError(errTerms);
+
+      // 4. Ejecutar validaciones
+      const errors = {
+        email: authValidators.email(emailEl.value),
+        password: authValidators.password(passwordEl.value),
+        terms: !terms.checked ? 'Debes aceptar los términos' : ''
+      };
+
+      let invalid = false;
+      if (errors.email) { showFieldError(errEmail, errors.email); invalid = true; }
+      if (errors.password) { showFieldError(errPass, errors.password); invalid = true; }
+      if (errors.terms) { showFieldError(errTerms, errors.terms); invalid = true; }
+
+      if (invalid) return;
 
       btn.disabled = true;
       btn.textContent = 'Registrando...';
@@ -733,7 +777,28 @@ function initAuthForms() {
       const emailEl = qs('#login-email', loginForm);
       const passwordEl = qs('#login-password', loginForm);
 
-      if (!emailEl || !passwordEl || !btn) return;
+      // 2. Obtener elementos de error
+      const errEmail = qs('#error-login-email', loginForm);
+      const errPass = qs('#error-login-password', loginForm);
+
+      if (!emailEl || !passwordEl || !btn || !errEmail || !errPass) return;
+
+      // 3. Ocultar errores previos
+      hideFieldError(errEmail);
+      hideFieldError(errPass);
+
+      // 4. Ejecutar validaciones
+      const errors = {
+        email: authValidators.email(emailEl.value),
+        password: authValidators.loginPassword(passwordEl.value), // Solo revisa que no esté vacío
+      };
+
+      let invalid = false;
+      if (errors.email) { showFieldError(errEmail, errors.email); invalid = true; }
+      if (errors.password) { showFieldError(errPass, errors.password); invalid = true; }
+      
+      // 5. Detener si hay errores
+      if (invalid) return;
 
       btn.disabled = true;
       btn.textContent = 'Entrando...';
@@ -770,7 +835,6 @@ function initAuthForms() {
     });
   }
 }
-
 function checkEmailVerification() {
   const params = new URLSearchParams(window.location.search);
 
