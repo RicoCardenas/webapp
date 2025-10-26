@@ -1,4 +1,3 @@
-"""Entry point for running the backend development server."""
 from .app import create_app
 
 
@@ -18,7 +17,7 @@ def make_shell_context():
         Tags,
         PlotHistoryTags,
         AuditLog
-        )# Importa tus modelos
+        )
     
     return {
         "app": app,

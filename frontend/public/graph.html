@@ -4,8 +4,6 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>EcuPlot – Graficadora</title>
-
-    <!-- Reutiliza tus estilos globales (tema oscuro/claro y tipografías) -->
     <link rel="stylesheet" href="/static/styles.css" />
 
   </head>
@@ -16,7 +14,6 @@
         <a class="btn btn--ghost graph-header__back" href="/" aria-label="Volver al inicio">← Volver</a>
         <div class="graph-header__title">Graficadora</div>
         <div class="graph-header__spacer"></div>
-        <!-- Si quieres, el toggle de tema -->
         <button class="btn btn--icon" type="button" aria-pressed="false" aria-label="Cambiar tema claro/oscuro" data-theme-toggle>
           <span aria-hidden="true">🌓</span>
         </button>
@@ -24,21 +21,16 @@
 
       <!-- Contenido principal -->
       <div class="graph-main">
-        <!-- Sidebar: lista de expresiones activas -->
         <aside class="sidebar" aria-label="Expresiones activas">
           <div class="sidebar__header">Funciones</div>
           <div id="expr-list" class="sidebar__list" aria-live="polite" aria-atomic="true"></div>
         </aside>
 
-        <!-- Stage: canvas + toolbar -->
         <section class="stage" aria-label="Área de graficación">
-          <!-- Contenedor que usa tu plotter (NO CAMBIAR ID) -->
           <div id="ggb-container" aria-label="Lienzo de graficación">
-            <!-- HUD opcional para mostrar coordenadas del puntero (lo cablearemos en una iteración) -->
             <div id="coord-hud" class="coord-hud" hidden>(x, y)</div>
           </div>
 
-          <!-- Barra inferior con el mismo formulario y botones que usas -->
           <div class="graph-toolbar" role="group" aria-label="Controles de graficación">
             <form id="plot-form" class="form" autocomplete="off" aria-describedby="plotter-hint">
               <div class="form__field">
@@ -68,7 +60,7 @@
       </div>
     </div>
 
-    <!-- Modal: Historial (reutilizado) -->
+    <!-- Modal: Historial-->
     <div id="modal-history" class="modal" role="dialog" aria-modal="true" aria-labelledby="history-title" aria-hidden="true">
       <div class="modal__overlay" data-close="history" tabindex="-1" aria-hidden="true"></div>
       <div class="modal__dialog" role="document" tabindex="-1">
@@ -100,8 +92,6 @@
     <!-- Toasts para mensajes -->
     <div id="toasts" class="toasts" aria-live="polite" aria-atomic="true"></div>
 
- 
-    <!-- math.js (igual que en index) -->
 <script src="https://cdn.jsdelivr.net/npm/mathjs@11.11.0/lib/browser/math.js"></script>
 <script src="/static/plotter.js" type="module"></script>
 <script src="/static/graph-page.js" type="module"></script>

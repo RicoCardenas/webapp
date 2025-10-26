@@ -3,13 +3,13 @@ flask>=3.0
 python-dotenv>=1.0
 
 # Base de datos y ORM
-psycopg2-binary  # Driver para conectar Flask con PostgreSQL
+psycopg2-binary  
 Flask-SQLAlchemy
-Flask-Migrate    # Para manejar migraciones de la base de datos
+Flask-Migrate    
 
 # Seguridad y Utilidades
-Flask-Bcrypt     # Para hashear contraseñas
-Flask-Mail       # Para enviar correos de verificación (lo configuraremos)
-Flask-CORS      # Para manejar CORS si es necesario
+Flask-Bcrypt     
+Flask-Mail       
+Flask-CORS      
 
 pytest>=7.0  # Para testing

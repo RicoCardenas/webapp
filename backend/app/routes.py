@@ -1,11 +1,10 @@
-"""HTTP endpoints exposed by the backend service."""
 import secrets
 from datetime import datetime, timedelta, timezone
 from flask import Blueprint, current_app, jsonify, send_from_directory, request, redirect, url_for, g
 from .extensions import db, bcrypt, mail
 from .models import Users, Roles, UserTokens, UserSessions, PlotHistory
 from flask_mail import Message
-from sqlalchemy import and_, desc  # <- añadimos desc para ordenar historial
+from sqlalchemy import and_, desc 
 
 from .auth import require_session
 
@@ -20,7 +19,6 @@ def serve_frontend():
     return send_from_directory(current_app.template_folder, "index.html")
 
 @frontend.get("/graph")
-@frontend.get("/graph.html")  # alias opcional
 def graph():
     # sirve /graph y /graph.html -> graph.html
     return send_from_directory(current_app.template_folder, "graph.html")
@@ -259,7 +257,7 @@ def login_user():
         user_id=user.id
     ), 200
 
-# -------------------- Cerrar sesión --------------------
+# Cerrar sesión 
 @api.post("/logout")
 @require_session
 def logout_user():
@@ -273,7 +271,7 @@ def logout_user():
         current_app.logger.error(f"Error al cerrar sesión: {e}")
         return jsonify(error="No se pudo cerrar la sesión."), 500
 
-# -------------------- Plot: guardar (1 o varias) --------------------
+# Plot: guardar (1 o varias) 
 @api.post("/plot")
 @require_session
 def create_plot():
@@ -322,7 +320,7 @@ def create_plot():
         current_app.logger.error(f"Error al guardar plot_history: {e}")
         return jsonify(error="No se pudo guardar el historial."), 500
 
-# -------------------- Historial: listar (paginado + filtro) --------------------
+# Historial: listar (paginado + filtro) 
 @api.get("/plot/history")
 @require_session
 def plot_history_list():
@@ -333,7 +331,6 @@ def plot_history_list():
       - offset: int (por defecto 0)
       - q: texto a buscar dentro de 'expression' (opcional, case-insensitive)
     """
-    # saneamos limit/offset
     try:
         limit = min(max(int(request.args.get("limit", 50)), 1), 200)
     except Exception:

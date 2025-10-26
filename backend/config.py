@@ -27,7 +27,7 @@ class Config:
     # clave secreta de flask
     SECRET_KEY = os.getenv("SECRET_KEY", "dev-secret-key")
     
-    # --- configuracion de base de datos (Estricta) ---
+    # --- configuracion de base de datos ---
     db_url = os.getenv("DATABASE_URL")
     
     if not db_url:

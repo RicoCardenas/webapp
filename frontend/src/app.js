@@ -65,7 +65,6 @@ window.addEventListener('unhandledrejection', (e) => {
 
 const KEYS = {
   theme: 'ecup-theme',
-  lastSection: 'ecup-last-section',
   sessionToken: 'ecuplot_session_token',
 };
 
@@ -338,58 +337,19 @@ function createModalController(rootSelector) {
 const LoginModal = createModalController('#modal-login');
 const SignupModal = createModalController('#modal-signup');
 
-/** Scroll a anclas con offset por header fijo */
-function getHeaderOffset() {
-  const header = qs('#site-header');
-  const rect = header?.getBoundingClientRect();
-  const styles = header ? getComputedStyle(header) : null;
-  const marginTop = styles ? parseFloat(styles.marginTop || '0') : 0;
-  return (rect?.height || 0) + marginTop + 8;
-}
 
-function smoothScrollTo(targetEl) {
-  if (!targetEl) return;
-  const top =
-    window.scrollY +
-    targetEl.getBoundingClientRect().top -
-    getHeaderOffset();
-
-  const behavior = prefersReducedMotion() ? 'auto' : 'smooth';
-  window.scrollTo({ top, behavior });
-}
-
-
-function bindAnchorScrolling() {
-  on(document, 'click', (e) => {
-    const target = e.target instanceof Element ? e.target.closest('a') : null;
-    if (!target) return;
-
-    const href = target.getAttribute('href') || '';
-
-    if (!href.startsWith('#')) return;
-
-    const dest = qs(href);
-    if (!dest) return;
-
-    e.preventDefault();
-    smoothScrollTo(dest);
-    history.pushState(null, '', href);
-    DrawerController.close?.();
-  });
-
-  // Fallback explícito para los links del header 
-  qsa('.header .nav__link').forEach((a) => {
-    on(a, 'click', (e) => {
-      const href = a.getAttribute('href');
-      if (!href || !href.startsWith('#')) return;
-
-      const dest = qs(href);
-      if (!dest) return;
-
-      e.preventDefault();
-      smoothScrollTo(dest);
-      history.pushState(null, '', href);
-      DrawerController.close?.();
+function bindDrawerLinkClosing() {
+  const drawer = qs('#mobile-drawer');
+  if (!drawer) {
+    return;
+  }
+  const links = qsa('.drawer__link', drawer);
+  links.forEach((link) => {
+    on(link, 'click', () => {
+      const href = link.getAttribute('href') || '';
+      if (href.startsWith('#')) {
+        DrawerController.close?.();
+      }
     });
   });
 }
@@ -426,7 +386,7 @@ function initScrollSpy() {
       });
     },
     {
-      rootMargin: `-${Math.max(80, getHeaderOffset())}px 0px -70% 0px`,
+      rootMargin: `-80px 0px -70% 0px`,
       threshold: [0.1, 0.6],
     }
   );
@@ -622,16 +582,6 @@ function setCurrentYear() {
   const yEl = qs('[data-year]');
   if (!yEl) return;
   yEl.textContent = String(new Date().getFullYear());
-}
-
-
-function restoreLastSection() {
-  const last = localStorage.getItem(KEYS.lastSection);
-  if (!last) return;
-  const el = qs(last);
-  if (el) {
-    smoothScrollTo(el);
-  }
 }
 
 // Triggers
@@ -879,12 +829,12 @@ function init() {
   DrawerController.bind();
   LoginModal.bind?.();
   SignupModal.bind?.();
-  bindAnchorScrolling();  // navega a secciones (header y drawer)
+
+  bindDrawerLinkClosing();
   initScrollSpy();
   BackendStatus.check();
   initContactForm();
   setCurrentYear();
-  restoreLastSection();
   bindGlobalTriggers();
 
   restoreSessionAuth();

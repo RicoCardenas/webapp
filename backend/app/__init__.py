@@ -7,7 +7,6 @@ from backend.config import Config
 # Importamos las instancias de las extensiones
 from .extensions import db, migrate, bcrypt, mail, cors
 
-# Resolve project directories so Flask can serve the frontend assets.
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 PUBLIC_DIR = PROJECT_ROOT / "frontend" / "public" 
 STATIC_DIR = PROJECT_ROOT / "frontend" / "src" 
@@ -24,11 +23,10 @@ def create_app(config_object=Config) -> Flask:
         static_url_path="/static",
         template_folder=str(PUBLIC_DIR),
     )
-    
-    # Cargar la configuración desde el objeto Config
+
     app.config.from_object(config_object)
     
-    # --- Inicializar Extensiones ---
+    # Inicializar Extensiones
     # Vinculamos las instancias de 'extensions.py' con nuestra 'app'
     db.init_app(app)
     migrate.init_app(app, db)
@@ -39,15 +37,10 @@ def create_app(config_object=Config) -> Flask:
         resources={r"/api/*": {"origins": app.config.get("CORS_ORIGINS", "*")}},
         supports_credentials=True,
     )
-    
-    # --- Importar Modelos ---
-    # Es crucial importarlos *después* de inicializar 'db'
-    # para que SQLAlchemy los reconozca.
-    with app.app_context():
-        from . import models  # noqa: F401
 
-    # --- Registrar Rutas (Blueprints) ---
-    # Importamos y registramos los blueprints
+    with app.app_context():
+        from . import models 
+
     from .routes import api as api_blueprint
     from .routes import frontend as frontend_blueprint
     
