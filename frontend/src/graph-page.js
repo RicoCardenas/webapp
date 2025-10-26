@@ -1,31 +1,26 @@
-const THEME_KEY = 'ecup-theme';
+const VALUE_LIMIT = 20;
 
-function applyTheme(theme) {
-  const root = document.documentElement;
-  if (theme === 'dark') {
-    root.dataset.theme = 'dark';
-  } else {
-    delete root.dataset.theme;
-  }
-  window.dispatchEvent(new Event('themechange'));
-}
+const selectors = {
+  toggleFunctions: '#toggle-functions',
+  toggleValues: '#toggle-values',
+  valuePanel: '#value-panel',
+  closeValues: '#close-values',
+  clearValues: '#clear-values',
+  valueTableBody: '#value-table-body',
+  valueTableEmpty: '#value-table-empty',
+  coordHud: '#coord-hud',
+  graphContainer: '#ggb-container',
+};
 
-function initTheme() {
-  const btnTheme = document.querySelector('[data-theme-toggle]');
-  const stored = localStorage.getItem(THEME_KEY);
-  const preferDark = matchMedia('(prefers-color-scheme: dark)').matches;
-  const theme = stored || (preferDark ? 'dark' : 'light');
+const valueState = {
+  rows: [],
+};
 
-  applyTheme(theme);
-  if (btnTheme) btnTheme.setAttribute('aria-pressed', String(theme === 'dark'));
-
-  btnTheme?.addEventListener('click', () => {
-    const isDark = document.documentElement.dataset.theme === 'dark';
-    const next = isDark ? 'light' : 'dark';
-    applyTheme(next);
-    localStorage.setItem(THEME_KEY, next);
-    btnTheme.setAttribute('aria-pressed', String(next === 'dark'));
-  });
+function forceDarkTheme() {
+  document.documentElement.dataset.theme = 'dark';
+  try {
+    localStorage.setItem('ecup-theme', 'dark');
+  } catch {}
 }
 
 // Navegacion 
@@ -42,8 +37,15 @@ function initFullHeightCanvasSync() {
   const host = document.getElementById('ggb-container');
   if (!host) return;
 
-  const ro = new ResizeObserver(() => {
-    window.dispatchEvent(new Event('resize'));
+  const ro = new ResizeObserver((entries) => {
+    for (const entry of entries) {
+      const { width, height } = entry.contentRect;
+      host.style.setProperty('--ggb-width', `${width}px`);
+      host.style.setProperty('--ggb-height', `${height}px`);
+    }
+    window.requestAnimationFrame(() => {
+      window.dispatchEvent(new Event('resize'));
+    });
   });
   ro.observe(host);
 }
@@ -66,26 +68,146 @@ function initQueryExprBoot() {
 }
 
 function initCoordHUD() {
-  const hud = document.getElementById('coord-hud');
-  const canvas = document.querySelector('#ggb-container canvas');
-  if (!hud || !canvas) return;
+  const hud = document.querySelector(selectors.coordHud);
+  const container = document.querySelector(selectors.graphContainer);
+  if (!hud || !container) return;
 
-  canvas.addEventListener('mousemove', (e) => {
+  container.addEventListener('plotter:hover', (event) => {
+    const detail = event.detail || {};
+    if (typeof detail.x !== 'number' || typeof detail.y !== 'number') return;
     hud.hidden = false;
-    const rect = canvas.getBoundingClientRect();
-    const sx = (e.clientX - rect.left).toFixed(1);
-    const sy = (e.clientY - rect.top).toFixed(1);
-    hud.textContent = `(${sx}, ${sy})`;
+    hud.textContent = `(${detail.x.toFixed(3)}, ${detail.y.toFixed(3)})`;
   });
-  canvas.addEventListener('mouseleave', () => { hud.hidden = true; });
+
+  container.addEventListener('plotter:hover-end', () => {
+    hud.hidden = true;
+  });
+}
+
+function initFunctionPanelToggle() {
+  const btn = document.querySelector(selectors.toggleFunctions);
+  const panel = document.getElementById('functions-panel');
+  const closeBtn = document.getElementById('close-functions');
+  if (!btn || !panel) return;
+
+  const applyState = (open) => {
+    panel.hidden = !open;
+    btn.textContent = open ? 'Ocultar funciones' : 'Mostrar funciones';
+    btn.setAttribute('aria-pressed', String(open));
+  };
+
+  let isOpen = !panel.hidden;
+  btn.setAttribute('aria-pressed', String(isOpen));
+
+  btn.addEventListener('click', () => {
+    isOpen = !isOpen;
+    applyState(isOpen);
+    window.requestAnimationFrame(() => window.dispatchEvent(new Event('resize')));
+  });
+
+  closeBtn?.addEventListener('click', () => {
+    isOpen = false;
+    applyState(isOpen);
+    window.requestAnimationFrame(() => window.dispatchEvent(new Event('resize')));
+  });
+}
+
+function setValuePanelOpen(state) {
+  const panel = document.querySelector(selectors.valuePanel);
+  const btn = document.querySelector(selectors.toggleValues);
+  if (!panel || !btn) return;
+
+  panel.hidden = !state;
+  btn.setAttribute('aria-pressed', String(state));
+  btn.textContent = state ? 'Ocultar tabla' : 'Mostrar tabla';
+}
+
+function renderValueTable() {
+  const body = document.querySelector(selectors.valueTableBody);
+  const empty = document.querySelector(selectors.valueTableEmpty);
+  if (!body || !empty) return;
+
+  body.innerHTML = '';
+  if (valueState.rows.length === 0) {
+    empty.hidden = false;
+    return;
+  }
+
+  empty.hidden = true;
+  const fragment = document.createDocumentFragment();
+  valueState.rows.forEach((row) => {
+    const tr = document.createElement('tr');
+    const fx = document.createElement('td');
+    fx.innerHTML = `<span class="value-table__color" style="background:${row.color}"></span>${row.label}`;
+    const tdX = document.createElement('td');
+    tdX.textContent = row.x.toFixed(4);
+    const tdY = document.createElement('td');
+    tdY.textContent = row.y.toFixed(4);
+    const tdTime = document.createElement('td');
+    tdTime.textContent = row.timestamp;
+
+    tr.appendChild(fx);
+    tr.appendChild(tdX);
+    tr.appendChild(tdY);
+    tr.appendChild(tdTime);
+    fragment.appendChild(tr);
+  });
+  body.appendChild(fragment);
+}
+
+function addValueRow(point) {
+  valueState.rows.unshift({
+    ...point,
+    timestamp: new Date().toLocaleTimeString(),
+  });
+  if (valueState.rows.length > VALUE_LIMIT) valueState.rows.pop();
+  renderValueTable();
+}
+
+function initValuePanel() {
+  const toggleBtn = document.querySelector(selectors.toggleValues);
+  const closeBtn = document.querySelector(selectors.closeValues);
+  const clearBtn = document.querySelector(selectors.clearValues);
+
+  toggleBtn?.addEventListener('click', () => {
+    const panel = document.querySelector(selectors.valuePanel);
+    if (!panel) return;
+    const willOpen = panel.hidden;
+    setValuePanelOpen(willOpen);
+  });
+
+  closeBtn?.addEventListener('click', () => setValuePanelOpen(false));
+
+  clearBtn?.addEventListener('click', () => {
+    valueState.rows = [];
+    renderValueTable();
+  });
+}
+
+function initPlotterBridge() {
+  const container = document.querySelector(selectors.graphContainer);
+  if (!container) return;
+
+  container.addEventListener('plotter:point', (event) => {
+    const detail = event.detail;
+    if (!detail) return;
+    addValueRow(detail);
+    setValuePanelOpen(true);
+  });
 }
 
 // Init
 function init() {
-  initTheme();
+  forceDarkTheme();
   bindEscToBack();
   initFullHeightCanvasSync();
   initQueryExprBoot();
+  initCoordHUD();
+  initFunctionPanelToggle();
+  initValuePanel();
+  initPlotterBridge();
+  renderValueTable();
+  setValuePanelOpen(false);
 }
 
 document.addEventListener('DOMContentLoaded', init);

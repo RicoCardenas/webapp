@@ -192,13 +192,20 @@ function releaseFocus() {
 
 function lockScroll() {
   lastScrollTop = window.scrollY || document.documentElement.scrollTop;
+  const scrollbarComp = window.innerWidth - document.documentElement.clientWidth;
   document.body.style.top = `-${lastScrollTop}px`;
   document.body.style.position = 'fixed';
+  document.body.style.width = '100%';
+  if (scrollbarComp > 0) {
+    document.body.style.paddingRight = `${scrollbarComp}px`;
+  }
 }
 
 function unlockScroll() {
   document.body.style.position = '';
   document.body.style.top = '';
+  document.body.style.width = '';
+  document.body.style.paddingRight = '';
   window.scrollTo({ top: lastScrollTop, left: 0 });
 }
 

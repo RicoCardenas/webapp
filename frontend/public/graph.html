@@ -14,40 +14,77 @@
         <a class="btn btn--ghost graph-header__back" href="/" aria-label="Volver al inicio">← Volver</a>
         <div class="graph-header__title">Graficadora</div>
         <div class="graph-header__spacer"></div>
-        <button class="btn btn--icon" type="button" aria-pressed="false" aria-label="Cambiar tema claro/oscuro" data-theme-toggle>
-          <span aria-hidden="true">🌓</span>
-        </button>
       </header>
 
       <!-- Contenido principal -->
       <div class="graph-main">
-        <aside class="sidebar" aria-label="Expresiones activas">
-          <div class="sidebar__header">Funciones</div>
-          <div id="expr-list" class="sidebar__list" aria-live="polite" aria-atomic="true"></div>
-        </aside>
-
         <section class="stage" aria-label="Área de graficación">
-          <div id="ggb-container" aria-label="Lienzo de graficación">
-            <div id="coord-hud" class="coord-hud" hidden>(x, y)</div>
+          <div class="stage__canvas">
+            <div id="functions-panel" class="functions-panel" aria-label="Panel de funciones">
+              <header class="functions-panel__header">
+                <div>
+                  <p class="functions-panel__eyebrow">Funciones</p>
+                  <h2 class="functions-panel__title">Mis expresiones</h2>
+                </div>
+                <button id="close-functions" class="btn btn--icon" type="button" aria-label="Ocultar panel">✕</button>
+              </header>
+              <div class="functions-panel__body">
+                <div class="sidebar__header">Funciones</div>
+                <div id="expr-list" class="sidebar__list" aria-live="polite" aria-atomic="true"></div>
+              </div>
+            </div>
+            <div class="graph-floating-actions" role="toolbar" aria-label="Controles de paneles">
+              <button id="toggle-functions" class="btn btn--ghost btn--sm" type="button" aria-pressed="true">Ocultar funciones</button>
+              <button id="toggle-values" class="btn btn--ghost btn--sm" type="button" aria-pressed="false">Mostrar tabla</button>
+            </div>
+
+            <div id="value-panel" class="value-panel" hidden aria-live="polite" aria-label="Tabla de valores capturados">
+              <header class="value-panel__header">
+                <div>
+                  <p class="value-panel__eyebrow">Datos precisos</p>
+                  <h3 class="value-panel__title">Tabla de valores</h3>
+                </div>
+                <div class="value-panel__actions">
+                  <button id="clear-values" class="btn btn--ghost btn--sm" type="button">Limpiar</button>
+                  <button id="close-values" class="btn btn--icon" type="button" aria-label="Ocultar tabla">✕</button>
+                </div>
+              </header>
+              <div class="value-panel__body">
+                <table class="value-table">
+                  <thead>
+                    <tr>
+                      <th scope="col">Función</th>
+                      <th scope="col">x</th>
+                      <th scope="col">y</th>
+                      <th scope="col">Hora</th>
+                    </tr>
+                  </thead>
+                  <tbody id="value-table-body"></tbody>
+                </table>
+                <p id="value-table-empty" class="value-panel__empty">Haz clic sobre una curva para registrar valores.</p>
+              </div>
+            </div>
+
+            <div id="ggb-container" aria-label="Lienzo de graficación">
+              <div id="coord-hud" class="coord-hud" hidden>(x, y)</div>
+            </div>
           </div>
 
-          <div class="graph-toolbar" role="group" aria-label="Controles de graficación">
-            <form id="plot-form" class="form" autocomplete="off" aria-describedby="plotter-hint">
-              <div class="form__field">
-                <label class="sr-only" for="plot-input">Expresión</label>
-                <input
-                  class="form__input"
-                  id="plot-input"
-                  name="expr"
-                  type="text"
-                  placeholder="y = sin(x)"
-                  inputmode="text"
-                  spellcheck="false"
-                  autocomplete="off"
-                />
-                <p id="plotter-hint" class="sr-only">Tip: Ctrl + Enter para graficar rápidamente.</p>
-              </div>
-              <div class="form__actions">
+          <div class="controls-bar" role="group" aria-label="Acciones de graficación">
+            <form id="plot-form" class="controls-bar__form" autocomplete="off" aria-describedby="plotter-hint">
+              <label class="sr-only" for="plot-input">Expresión</label>
+              <input
+                class="controls-bar__input"
+                id="plot-input"
+                name="expr"
+                type="text"
+                placeholder="y = sin(x)"
+                inputmode="text"
+                spellcheck="false"
+                autocomplete="off"
+              />
+              <p id="plotter-hint" class="sr-only">Tip: Ctrl + Enter para graficar rápidamente.</p>
+              <div class="controls-bar__actions">
                 <button class="btn btn--primary" type="submit">Graficar</button>
                 <button id="btn-clear" class="btn btn--ghost" type="button">Limpiar</button>
                 <button id="btn-grid" class="btn btn--ghost" type="button" aria-pressed="true">Cuadrícula: ON</button>
@@ -97,4 +134,3 @@
 <script src="/static/graph-page.js" type="module"></script>
   </body>
 </html>
-

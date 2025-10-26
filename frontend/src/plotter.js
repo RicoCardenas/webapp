@@ -26,11 +26,16 @@ const COLORS = [
   '#22d3ee', '#f472b6', '#2dd4bf', '#f59e0b', '#ef4444'
 ];
 
-let canvas, ctx, dpi = 1, ro;
+const MARKER_LIMIT = 40;
+
+let canvas, ctx, dpi = 1, ro, containerEl = null;
 const view = { xmin:-10, xmax:10, ymin:-6, ymax:6, gridOn: true };
 const state = {
   expressions: /** @type {Array<{id:string,label:string,color:string,compiled:any,visible:boolean}>} */([]),
   isPanning:false, panStart:{x:0,y:0}, viewAtPanStart:null,
+  // Nuevo: flag para distinguir arrastre de click
+  panMoved:false,
+  markers: /** @type {Array<{exprId:string,label:string,color:string,x:number,y:number}>} */([]),
   // Historial UI
   history: { items: [], selected: new Set(), q: '', limit: 50, offset: 0, total: 0 },
 };
@@ -97,6 +102,22 @@ function requestRender() {
     _raf = 0;
     renderAll();
   });
+}
+
+function emitPlotterEvent(name, detail) {
+  if (!containerEl || !containerEl.isConnected) {
+    containerEl = document.querySelector(UI.container);
+  }
+  containerEl?.dispatchEvent(new CustomEvent(name, { detail }));
+}
+
+function eventToWorld(e) {
+  if (!canvas) return null;
+  const rect = canvas.getBoundingClientRect();
+  const sx = (e.clientX - rect.left) * dpi;
+  const sy = (e.clientY - rect.top) * dpi;
+  const [wx, wy] = screenToWorld(sx, sy);
+  return { sx, sy, wx, wy };
 }
 
 // Escala 1 * 1
@@ -170,23 +191,41 @@ function renderAll(){
   drawGridAndAxes();
   ctx.lineJoin='round'; ctx.lineCap='round';
   for(const f of state.expressions){ if(!f.visible)continue; drawFunction(f); }
+  drawMarkers();
 }
 
 function drawFunction(f){
   const w=width()*dpi;
-  const pxTol=1.25;
+  const pxTol=1.75; // un poco más permisivo para mejorar rendimiento
   const xSpan=view.xmax-view.xmin;
   const worldTol=(xSpan/(w||1))*(pxTol*2);
   const ySpan=view.ymax-view.ymin;
   const Y_LIMIT=ySpan*6;
+
+  // Presupuesto de segmentos para evitar casos patológicos
+  let segBudget = 8000; // por función
 
   ctx.save(); ctx.lineWidth=2*dpi; ctx.strokeStyle=f.color;
   const evalY=(x)=>{ try{ const y=f.compiled.evaluate({x}); return (typeof y==='number'&&isFinite(y))?y:null; }catch{ return null; } };
 
   const segments=[];
   function addSegment(x1,y1,x2,y2,depth){
+    if (segBudget <= 0) return;
+
     if(y1==null||Math.abs(y1)>Y_LIMIT) y1=null;
     if(y2==null||Math.abs(y2)>Y_LIMIT) y2=null;
+
+    // Si ambos extremos son nulos y el punto medio también, abortar subdivisión
+    if (y1==null && y2==null){
+      if (depth<=0) return;
+      const xm=0.5*(x1+x2), ym=evalY(xm);
+      if (ym==null || Math.abs(ym)>Y_LIMIT) return; // nada útil en este tramo
+      // sólo subdividir si el medio es válido
+      addSegment(x1,null,xm,ym,depth-1);
+      addSegment(xm,ym,x2,null,depth-1);
+      return;
+    }
+
     if(y1==null||y2==null){
       if(depth<=0) return;
       const xm=0.5*(x1+x2), ym=evalY(xm);
@@ -194,6 +233,7 @@ function drawFunction(f){
       addSegment(xm,ym,x2,y2,depth-1);
       return;
     }
+
     const xm=0.5*(x1+x2); let ym=evalY(xm);
     if(ym==null||Math.abs(ym)>Y_LIMIT){
       if(depth<=0) return;
@@ -206,7 +246,6 @@ function drawFunction(f){
     const px=x1+t*dx, py=y1+t*dy;
     const errWorld=Math.hypot(xm-px, ym-py);
 
-    // salto muy grande en pantalla 
     const [,sy1]=worldToScreen(0,y1); const [,sy2]=worldToScreen(0,y2);
     const bigScreenJump=Math.abs(sy2-sy1)>80*dpi;
 
@@ -214,17 +253,22 @@ function drawFunction(f){
       addSegment(x1,y1,xm,ym,depth-1);
       addSegment(xm,ym,x2,y2,depth-1);
     }else{
-      segments.push([x1,y1,x2,y2]);
+      if (segBudget > 0){
+        segments.push([x1,y1,x2,y2]);
+        segBudget--;
+      }
     }
   }
 
-  const baseN=Math.max(64, Math.floor(w/10)), maxDepth=12;
+  const baseN=Math.max(64, Math.floor(w/14)); // ligeramente menos denso
+  const maxDepth=9;                            // menor profundidad máxima
   let prevX=view.xmin, prevY=evalY(prevX);
   for(let i=1;i<=baseN;i++){
     const x=view.xmin+(i/baseN)*(view.xmax-view.xmin);
     const y=evalY(x);
     addSegment(prevX,prevY,x,y,maxDepth);
     prevX=x; prevY=y;
+    if (segBudget<=0) break;
   }
 
   ctx.beginPath();
@@ -238,29 +282,70 @@ function drawFunction(f){
   ctx.stroke(); ctx.restore();
 }
 
+function drawMarkers(){
+  if (!state.markers.length) return;
+  ctx.save();
+  for (const marker of state.markers) {
+    const [sx, sy] = worldToScreen(marker.x, marker.y);
+    if (!isFinite(sx) || !isFinite(sy)) continue;
+    if (sx < 0 || sy < 0 || sx > width()*dpi || sy > height()*dpi) continue;
+    ctx.fillStyle = marker.color;
+    ctx.strokeStyle = 'rgba(15,23,42,0.8)';
+    ctx.lineWidth = 1.5 * dpi;
+    ctx.beginPath();
+    ctx.arc(sx, sy, 5 * dpi, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
 function normalizeExpr(raw){
-  let s=(raw||'').trim(); if(!s) return '';
-  s=s.replace(/^\s*y\s*=\s*/i,'f(x)=');
-  if(!s.includes('=')) s=`f(x)=${s}`;
-  return s;
+  let s = (raw || '').trim();
+  if (!s) return '';
+  // normaliza "y=" a "f(x)="
+  s = s.replace(/^\s*y\s*=\s*/i, 'f(x)=');
+  // normaliza variable y símbolos comunes
+  s = s.replace(/X/g, 'x');      // 3X -> 3x
+  s = s.replace(/[×·]/g, '*');   // "3×x" o "3·x" -> "3*x"
+  if (!s.includes('=')) s = `f(x)=${s}`;
+  const [lhs, ...rest] = s.split('=');
+  const rhsRaw = rest.join('=');
+  const lhsClean = (lhs || '').replace(/X/g,'x').trim() || 'f(x)';
+  const rhsClean = rhsRaw.trim();
+  return `${lhsClean}=${rhsClean}`;
 }
 
 async function addExpression(raw){
-  const label=normalizeExpr(raw);
+  const label = normalizeExpr(raw);
   if(!label){ toast?.warn?.('Escribe una expresión.'); return; }
-  const rhs=label.split('=').slice(1).join('=').trim();
+  const rhs = label.split('=').slice(1).join('=').trim();
 
   let compiled;
   try{
-    compiled=math.compile(rhs);
-    try{ void compiled.evaluate({x:0}); }catch{}
+    compiled = math.compile(rhs);
   }catch{
     toast?.error?.('Expresión inválida. Tip: para trozos usa if(cond, expr1, expr2).');
     return;
   }
 
-  const id=`${Date.now()}-${Math.random().toString(16).slice(2)}`;
-  const color=COLORS[state.expressions.length % COLORS.length];
+  // Validación: la expresión debe poder evaluarse al menos en algún punto del rango visible
+  const samples = 9;
+  let ok = 0;
+  for (let i=0;i<samples;i++){
+    const x = view.xmin + (i/(samples-1))*(view.xmax - view.xmin);
+    try{
+      const y = compiled.evaluate({ x });
+      if (typeof y === 'number' && isFinite(y)) ok++;
+    }catch{/* ignore */}
+  }
+  if (ok === 0){
+    toast?.error?.('La expresión no depende de x o tiene variables desconocidas.');
+    return;
+  }
+
+  const id = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  const color = COLORS[state.expressions.length % COLORS.length];
   state.expressions.push({id,label,color,compiled,visible:true});
   renderChip({id,label,color});
   requestRender();
@@ -271,6 +356,13 @@ async function addExpression(raw){
     }catch{}
   }
   toast?.success?.('Expresión añadida.');
+}
+
+function addMarker(marker){
+  state.markers.unshift(marker);
+  if (state.markers.length > MARKER_LIMIT) state.markers.pop();
+  emitPlotterEvent('plotter:point', marker);
+  requestRender();
 }
 
 function renderChip({id,label,color}){
@@ -286,9 +378,17 @@ function renderChip({id,label,color}){
 
 function removeExpression(id){
   const i=state.expressions.findIndex(e=>e.id===id);
-  if(i>=0){ state.expressions.splice(i,1); requestRender(); }
+  if(i>=0){
+    state.expressions.splice(i,1);
+    state.markers = state.markers.filter((m) => m.exprId !== id);
+    requestRender();
+  }
 }
-function clearAll(){ state.expressions.splice(0); requestRender(); }
+function clearAll(){
+  state.expressions.splice(0);
+  state.markers = [];
+  requestRender();
+}
 function toggleGrid(btn){
   view.gridOn=!view.gridOn;
   btn?.setAttribute('aria-pressed', String(view.gridOn));
@@ -377,11 +477,20 @@ function onWheel(e){
   requestRender();
 }
 function onMouseDown(e){
-  state.isPanning=true; state.panStart.x=e.clientX; state.panStart.y=e.clientY;
-  state.viewAtPanStart={...view}; canvas.style.cursor='grabbing';
+  state.isPanning=true; 
+  state.panStart.x=e.clientX; 
+  state.panStart.y=e.clientY;
+  state.panMoved=false; // reset del ciclo de interacción
+  state.viewAtPanStart={...view}; 
+  canvas.style.cursor='grabbing';
 }
 function onMouseMove(e){
   if(!state.isPanning) return;
+  // marca arrastre si supera umbral (en píxeles de pantalla)
+  if (!state.panMoved) {
+    const moved = Math.hypot(e.clientX - state.panStart.x, e.clientY - state.panStart.y);
+    if (moved > 3) state.panMoved = true;
+  }
   const dx=(e.clientX-state.panStart.x)*dpi, dy=(e.clientY-state.panStart.y)*dpi;
   const [wx1,wy1]=screenToWorld(0,0), [wx2,wy2]=screenToWorld(dx,dy);
   const ddx=wx1-wx2, ddy=wy1-wy2;
@@ -391,6 +500,61 @@ function onMouseMove(e){
   requestRender();
 }
 function onMouseUp(){ state.isPanning=false; canvas.style.cursor='default'; }
+
+function handlePointerMove(e){
+  const coords = eventToWorld(e);
+  if (!coords) return;
+  emitPlotterEvent('plotter:hover', { x: coords.wx, y: coords.wy });
+}
+
+function handlePointerLeave(){
+  emitPlotterEvent('plotter:hover-end');
+}
+
+function handleCanvasClick(e){
+  // si hubo arrastre en este ciclo, ignorar este click
+  if (state.isPanning || state.panMoved || state.expressions.length === 0) return;
+  if (e.currentTarget !== canvas) return;
+  const rect = canvas.getBoundingClientRect();
+  if (
+    e.clientX < rect.left ||
+    e.clientX > rect.right ||
+    e.clientY < rect.top ||
+    e.clientY > rect.bottom
+  ) {
+    return;
+  }
+  const coords = eventToWorld(e);
+  if (!coords) return;
+  const { wx, wy, sx, sy } = coords;
+  let best = null;
+  for (const expr of state.expressions) {
+    let yVal;
+    try {
+      yVal = expr.compiled.evaluate({ x: wx });
+    } catch {
+      yVal = null;
+    }
+    if (typeof yVal !== 'number' || !isFinite(yVal)) continue;
+    const [gx, gy] = worldToScreen(wx, yVal);
+    const distPx = Math.hypot(gx - sx, gy - sy);
+    if (!best || distPx < best.distPx) {
+      best = { expr, x: wx, y: yVal, distPx };
+    }
+  }
+  // tolerancia más estricta y sin toast al fallar
+  const tolerance = 10 * dpi;
+  if (!best || best.distPx > tolerance) {
+    return; // silencio cuando no está sobre la curva
+  }
+  addMarker({
+    exprId: best.expr.id,
+    label: best.expr.label,
+    color: best.expr.color,
+    x: best.x,
+    y: best.y,
+  });
+}
 
 // FullScreen
 function enterPlotFullscreen() {
@@ -421,6 +585,7 @@ function fixDpi(){
 }
 function bootCanvas(){
   const host=document.querySelector(UI.container); if(!host) return;
+  containerEl = host;
   canvas=host.querySelector('canvas');
   if(!canvas){
     canvas=document.createElement('canvas');
@@ -432,9 +597,16 @@ function bootCanvas(){
   }
   ctx=canvas.getContext('2d');
   fixDpi(); requestRender();
-  ro=new ResizeObserver(()=>{ fixDpi(); requestRender(); }); ro.observe(host);
+  ro=new ResizeObserver((entries)=>{
+    if(!entries.length)return;
+    window.requestAnimationFrame(()=>{ fixDpi(); requestRender(); });
+  });
+  ro.observe(host);
   canvas.addEventListener('wheel', onWheel, {passive:false});
   canvas.addEventListener('mousedown', onMouseDown);
+  canvas.addEventListener('mousemove', handlePointerMove);
+  canvas.addEventListener('mouseleave', handlePointerLeave);
+  canvas.addEventListener('click', handleCanvasClick);
   window.addEventListener('mousemove', onMouseMove);
   window.addEventListener('mouseup', onMouseUp);
 }
