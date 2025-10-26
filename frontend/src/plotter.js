@@ -8,14 +8,15 @@ const UI = {
   btnClear: '#btn-clear',
   btnGrid: '#btn-grid',
   btnExport: '#btn-export',
-  btnHistory: '#btn-history',            
-  modalHistory: '#modal-history',       
+  btnHistory: '#btn-history',
+  modalHistory: '#modal-history',
   historySearch: '#history-search',
   historyList: '#history-list',
   historySelectAll: '#history-select-all',
   historyPlotSelected: '#history-plot-selected',
   historyClose: '[data-close="history"]',
   toasts: '#toasts',
+  btnFullscreen: '#btn-fullscreen' 
 };
 
 const KEYS = { sessionToken: 'ecuplot_session_token' };
@@ -34,7 +35,26 @@ const state = {
   history: { items: [], selected: new Set(), q: '', limit: 50, offset: 0, total: 0 },
 };
 
-// ---------------- Utilidades & toasts ----------------
+// Inyeccion de CSS para fullscreen
+(function injectPlotterCSS(){
+  const css = `
+  .plotter--fullscreen {
+    position: fixed !important;
+    inset: 0 !important;        /* top/right/bottom/left: 0 */
+    width: 100vw !important;
+    height: 100vh !important;
+    z-index: 1000 !important;
+    background: var(--color-bg, #0b1020);
+  }
+  body.plotter-no-scroll { overflow: hidden !important; }
+  `;
+  const tag = document.createElement('style');
+  tag.setAttribute('data-plotter-style','fullscreen');
+  tag.textContent = css;
+  document.head.appendChild(tag);
+})();
+
+// Utilidades
 
 function width()  { return canvas?.clientWidth  || 800; }
 function height() { return canvas?.clientHeight || 500; }
@@ -59,8 +79,42 @@ function niceStep(span) {
   if (base < 1.5) step = 1; else if (base < 3.5) step = 2; else if (base < 7.5) step = 5; else step = 10;
   return step * pow10;
 }
-// ---------------- Render ----------------
 
+function formatTick(v){
+  if(!isFinite(v))return'';
+  const a=Math.abs(v);
+  if(a===0) return '0';
+  if(a>=1000||a<0.01) return v.toExponential(0);
+  if(a<1)   return v.toFixed(2);
+  if(a<10)  return v.toFixed(1);
+  return v.toFixed(0);
+}
+
+let _raf = 0;
+function requestRender() {
+  if (_raf) return;
+  _raf = requestAnimationFrame(() => {
+    _raf = 0;
+    renderAll();
+  });
+}
+
+// Escala 1 * 1
+function enforceSquareScale() {
+  
+  const w = width();
+  const h = height();
+  if (!w || !h) return;
+
+  const xSpan = view.xmax - view.xmin;
+  const ySpanTarget = xSpan * (h / w);  
+  const yCenter = (view.ymin + view.ymax) / 2;
+
+  view.ymin = yCenter - ySpanTarget / 2;
+  view.ymax = yCenter + ySpanTarget / 2;
+}
+
+// Render
 function drawGridAndAxes() {
   const w = width()*dpi, h = height()*dpi;
   ctx.clearRect(0,0,w,h);
@@ -68,42 +122,58 @@ function drawGridAndAxes() {
   ctx.fillRect(0,0,w,h);
 
   if (view.gridOn) {
-    const stepX = niceStep(view.xmax - view.xmin);
-    const stepY = niceStep(view.ymax - view.ymin);
+    // Cuadrícula
+    const step = niceStep(view.xmax - view.xmin);
     ctx.lineWidth = 1; ctx.strokeStyle = 'rgba(148,163,184,0.15)';
-    let x0 = Math.ceil(view.xmin/stepX)*stepX;
-    for (let x=x0; x<=view.xmax; x+=stepX) {
-      const [sx] = worldToScreen(x,0); ctx.beginPath(); ctx.moveTo(sx,0); ctx.lineTo(sx,h); ctx.stroke();
+
+    // Líneas verticales
+    let x0 = Math.ceil(view.xmin/step)*step;
+    for (let x=x0; x<=view.xmax+1e-9; x+=step) {
+      const [sx] = worldToScreen(x,0);
+      ctx.beginPath(); ctx.moveTo(sx,0); ctx.lineTo(sx,h); ctx.stroke();
     }
-    let y0 = Math.ceil(view.ymin/stepY)*stepY;
-    for (let y=y0; y<=view.ymax; y+=stepY) {
-      const [,sy] = worldToScreen(0,y); ctx.beginPath(); ctx.moveTo(0,sy); ctx.lineTo(w,sy); ctx.stroke();
+
+    // Líneas horizontales 
+    let y0 = Math.ceil(view.ymin/step)*step;
+    for (let y=y0; y<=view.ymax+1e-9; y+=step) {
+      const [,sy] = worldToScreen(0,y);
+      ctx.beginPath(); ctx.moveTo(0,sy); ctx.lineTo(w,sy); ctx.stroke();
     }
+
+    // Etiquetas
     ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--color-text-muted').trim() || '#94a3b8';
     ctx.font = `${12*dpi}px system-ui, -apple-system, Segoe UI, Roboto, Arial`;
     ctx.textAlign='left'; ctx.textBaseline='top';
-    for (let x=x0; x<=view.xmax; x+=stepX) { const [sx,sy0]=worldToScreen(x,0); ctx.fillText(formatTick(x), sx+2, sy0+2); }
+    for (let x=x0; x<=view.xmax+1e-9; x+=step) {
+      const [sx,sy0]=worldToScreen(x,0);
+      ctx.fillText(formatTick(x), sx+2, sy0+2);
+    }
     ctx.textAlign='right';
-    for (let y=y0; y<=view.ymax; y+=stepY) { const [sx0,sy]=worldToScreen(0,y); ctx.fillText(formatTick(y), sx0-2, sy+2); }
+    for (let y=y0; y<=view.ymax+1e-9; y+=step) {
+      const [sx0,sy]=worldToScreen(0,y);
+      ctx.fillText(formatTick(y), sx0-2, sy+2);
+    }
   }
 
+  // Ejes
   ctx.lineWidth = 1.5*dpi; ctx.strokeStyle='rgba(148,163,184,0.35)';
   let [sx1,syX]=worldToScreen(view.xmin,0); let [sx2]=worldToScreen(view.xmax,0);
   ctx.beginPath(); ctx.moveTo(sx1,syX); ctx.lineTo(sx2,syX); ctx.stroke();
   let [sxY,sy1]=worldToScreen(0,view.ymin); let [,sy2]=worldToScreen(0,view.ymax);
   ctx.beginPath(); ctx.moveTo(sxY,sy1); ctx.lineTo(sxY,sy2); ctx.stroke();
 }
-function formatTick(v){ if(!isFinite(v))return''; const a=Math.abs(v); if(a===0)return'0'; if(a>=1000||a<0.01)return v.toExponential(0); if(a<1)return v.toFixed(2); if(a<10)return v.toFixed(1); return v.toFixed(0); }
 
 function renderAll(){
   if(!canvas||!ctx)return;
-  fixDpi(); drawGridAndAxes();
+  enforceSquareScale();
+  fixDpi();
+  drawGridAndAxes();
   ctx.lineJoin='round'; ctx.lineCap='round';
   for(const f of state.expressions){ if(!f.visible)continue; drawFunction(f); }
 }
 
 function drawFunction(f){
-  const w=width()*dpi, h=height()*dpi;
+  const w=width()*dpi;
   const pxTol=1.25;
   const xSpan=view.xmax-view.xmin;
   const worldTol=(xSpan/(w||1))*(pxTol*2);
@@ -135,8 +205,11 @@ function drawFunction(f){
     const t=((xm-x1)*dx+(ym-y1)*dy)/(dx*dx+dy*dy+1e-12);
     const px=x1+t*dx, py=y1+t*dy;
     const errWorld=Math.hypot(xm-px, ym-py);
+
+    // salto muy grande en pantalla 
     const [,sy1]=worldToScreen(0,y1); const [,sy2]=worldToScreen(0,y2);
     const bigScreenJump=Math.abs(sy2-sy1)>80*dpi;
+
     if((errWorld>worldTol||bigScreenJump)&&depth>0){
       addSegment(x1,y1,xm,ym,depth-1);
       addSegment(xm,ym,x2,y2,depth-1);
@@ -165,8 +238,6 @@ function drawFunction(f){
   ctx.stroke(); ctx.restore();
 }
 
-// ---------------- Expresiones actuales ----------------
-
 function normalizeExpr(raw){
   let s=(raw||'').trim(); if(!s) return '';
   s=s.replace(/^\s*y\s*=\s*/i,'f(x)=');
@@ -176,7 +247,7 @@ function normalizeExpr(raw){
 
 async function addExpression(raw){
   const label=normalizeExpr(raw);
-  if(!label){ toast.warn?.('Escribe una expresión.'); return; }
+  if(!label){ toast?.warn?.('Escribe una expresión.'); return; }
   const rhs=label.split('=').slice(1).join('=').trim();
 
   let compiled;
@@ -184,7 +255,7 @@ async function addExpression(raw){
     compiled=math.compile(rhs);
     try{ void compiled.evaluate({x:0}); }catch{}
   }catch{
-    toast.error?.('Expresión inválida. Tip: para trozos usa if(cond, expr1, expr2).');
+    toast?.error?.('Expresión inválida. Tip: para trozos usa if(cond, expr1, expr2).');
     return;
   }
 
@@ -192,17 +263,14 @@ async function addExpression(raw){
   const color=COLORS[state.expressions.length % COLORS.length];
   state.expressions.push({id,label,color,compiled,visible:true});
   renderChip({id,label,color});
-  renderAll();
+  requestRender();
 
   if(localStorage.getItem(KEYS.sessionToken)){
     try{
-      await authFetch('/api/plot',{
-        method:'POST',
-        body:JSON.stringify({expression:label})
-      });
+      await authFetch('/api/plot',{ method:'POST', body:JSON.stringify({expression:label}) });
     }catch{}
   }
-  toast.success?.('Expresión añadida.');
+  toast?.success?.('Expresión añadida.');
 }
 
 function renderChip({id,label,color}){
@@ -218,38 +286,34 @@ function renderChip({id,label,color}){
 
 function removeExpression(id){
   const i=state.expressions.findIndex(e=>e.id===id);
-  if(i>=0){ state.expressions.splice(i,1); renderAll(); }
+  if(i>=0){ state.expressions.splice(i,1); requestRender(); }
 }
-function clearAll(){ state.expressions.splice(0); renderAll(); }
+function clearAll(){ state.expressions.splice(0); requestRender(); }
 function toggleGrid(btn){
   view.gridOn=!view.gridOn;
   btn?.setAttribute('aria-pressed', String(view.gridOn));
   if(btn) btn.textContent=`Cuadrícula: ${view.gridOn?'ON':'OFF'}`;
-  renderAll();
+  requestRender();
 }
 function exportPNG(){
   const url=canvas.toDataURL('image/png');
   const a=document.createElement('a'); a.download='ecuplot.png'; a.href=url; document.body.appendChild(a); a.click(); a.remove();
 }
 
-// ---------------- Historial (modal + API) ----------------
-
+// Historial
 function openHistoryModal(){ const m=document.querySelector(UI.modalHistory); m?.classList.add('is-open'); }
 function closeHistoryModal(){ const m=document.querySelector(UI.modalHistory); m?.classList.remove('is-open'); }
 
 async function fetchHistory(q=''){
   const token=localStorage.getItem(KEYS.sessionToken);
-  if(!token){ toast.warn?.('Inicia sesión para ver tu historial.'); return; }
+  if(!token){ toast?.warn?.('Inicia sesión para ver tu historial.'); return; }
   const params=new URLSearchParams();
   if(q) params.set('q', q);
   params.set('limit', String(state.history.limit));
   params.set('offset', String(state.history.offset));
 
   const res=await authFetch(`/api/plot/history?${params.toString()}`);
-  if(!res.ok){
-    toast.error?.('No se pudo cargar el historial.');
-    return;
-  }
+  if(!res.ok){ toast?.error?.('No se pudo cargar el historial.'); return; }
   const data=await res.json();
   state.history.items=data.items||[];
   state.history.total=data.total||0;
@@ -266,7 +330,7 @@ function renderHistoryList(){
     const cb=document.createElement('input');
     cb.type='checkbox'; cb.className='history__check';
     cb.value=it.expression;
-    cb.addEventListener('change', (e)=>{
+    cb.addEventListener('change', ()=>{
       if(cb.checked) state.history.selected.add(it.expression);
       else state.history.selected.delete(it.expression);
     });
@@ -294,15 +358,12 @@ function selectAllHistory(checked){
 }
 
 function plotSelectedFromHistory(){
-  if(state.history.selected.size===0){ toast.warn?.('No hay expresiones seleccionadas.'); return; }
-  for(const expr of state.history.selected){
-    addExpression(expr);
-  }
+  if(state.history.selected.size===0){ toast?.warn?.('No hay expresiones seleccionadas.'); return; }
+  for(const expr of state.history.selected){ addExpression(expr); }
   closeHistoryModal();
 }
 
-// ---------------- Interacción (zoom/pan) ----------------
-
+// Interaccion usuario
 function onWheel(e){
   e.preventDefault();
   const rect=canvas.getBoundingClientRect();
@@ -312,9 +373,13 @@ function onWheel(e){
   const nx=(view.xmax-view.xmin)*z, ny=(view.ymax-view.ymin)*z;
   view.xmin=wx-(wx-view.xmin)*z; view.xmax=view.xmin+nx;
   view.ymin=wy-(wy-view.ymin)*z; view.ymax=view.ymin+ny;
-  renderAll();
+  enforceSquareScale();
+  requestRender();
 }
-function onMouseDown(e){ state.isPanning=true; state.panStart.x=e.clientX; state.panStart.y=e.clientY; state.viewAtPanStart={...view}; canvas.style.cursor='grabbing'; }
+function onMouseDown(e){
+  state.isPanning=true; state.panStart.x=e.clientX; state.panStart.y=e.clientY;
+  state.viewAtPanStart={...view}; canvas.style.cursor='grabbing';
+}
 function onMouseMove(e){
   if(!state.isPanning) return;
   const dx=(e.clientX-state.panStart.x)*dpi, dy=(e.clientY-state.panStart.y)*dpi;
@@ -322,11 +387,32 @@ function onMouseMove(e){
   const ddx=wx1-wx2, ddy=wy1-wy2;
   view.xmin=state.viewAtPanStart.xmin+ddx; view.xmax=state.viewAtPanStart.xmax+ddx;
   view.ymin=state.viewAtPanStart.ymin+ddy; view.ymax=state.viewAtPanStart.ymax+ddy;
-  renderAll();
+  enforceSquareScale();
+  requestRender();
 }
 function onMouseUp(){ state.isPanning=false; canvas.style.cursor='default'; }
 
-// ---------------- Boot ----------------
+// FullScreen
+function enterPlotFullscreen() {
+  const host = document.querySelector(UI.container);
+  if (!host) return;
+  host.classList.add('plotter--fullscreen');
+  document.body.classList.add('plotter-no-scroll');
+  fixDpi();
+  requestRender();
+  window.addEventListener('keydown', _onEscToExit);
+}
+function exitPlotFullscreen() {
+  const host = document.querySelector(UI.container);
+  if (!host) return;
+  host.classList.remove('plotter--fullscreen');
+  document.body.classList.remove('plotter-no-scroll');
+  fixDpi();
+  requestRender();
+  window.removeEventListener('keydown', _onEscToExit);
+}
+function _onEscToExit(e) { if (e.key === 'Escape') exitPlotFullscreen(); }
+
 
 function fixDpi(){
   const w=width(), h=height(), dpr=window.devicePixelRatio||1; dpi=dpr;
@@ -339,14 +425,14 @@ function bootCanvas(){
   if(!canvas){
     canvas=document.createElement('canvas');
     canvas.style.width='100%';
-    canvas.style.height='min(65vh, 560px)';
+    canvas.style.height='100%';   
     canvas.style.display='block';
     canvas.className='plotter-canvas';
     host.appendChild(canvas);
   }
   ctx=canvas.getContext('2d');
-  fixDpi(); renderAll();
-  ro=new ResizeObserver(()=>{ fixDpi(); renderAll(); }); ro.observe(host);
+  fixDpi(); requestRender();
+  ro=new ResizeObserver(()=>{ fixDpi(); requestRender(); }); ro.observe(host);
   canvas.addEventListener('wheel', onWheel, {passive:false});
   canvas.addEventListener('mousedown', onMouseDown);
   window.addEventListener('mousemove', onMouseMove);
@@ -360,13 +446,23 @@ function bindUI(){
   const btnGrid=document.querySelector(UI.btnGrid);
   const btnExport=document.querySelector(UI.btnExport);
   const btnHistory=document.querySelector(UI.btnHistory);
+  const btnFs = document.querySelector(UI.btnFullscreen); 
 
-  form?.addEventListener('submit',(e)=>{ e.preventDefault(); addExpression(input?.value||''); if(input) input.value=''; input?.focus(); });
+  form?.addEventListener('submit',(e)=>{
+    e.preventDefault();
+    addExpression(input?.value||'');
+    if(input) input.value='';
+    input?.focus();
+  });
   btnClear?.addEventListener('click', clearAll);
   btnGrid?.addEventListener('click', ()=>toggleGrid(btnGrid));
   btnExport?.addEventListener('click', exportPNG);
 
-  input?.addEventListener('keydown',(e)=>{ if((e.ctrlKey||e.metaKey)&&e.key==='Enter'){ e.preventDefault(); addExpression(input.value||''); input.value=''; }});
+  input?.addEventListener('keydown',(e)=>{
+    if((e.ctrlKey||e.metaKey)&&e.key==='Enter'){
+      e.preventDefault(); addExpression(input.value||''); input.value='';
+    }
+  });
 
   // Historial
   btnHistory?.addEventListener('click', async ()=>{
@@ -382,9 +478,21 @@ function bindUI(){
     await fetchHistory(state.history.q);
   });
   const selAll=document.querySelector(UI.historySelectAll);
-  selAll?.addEventListener('change', (e)=> selectAllHistory(/** @type {HTMLInputElement} */(selAll).checked));
+  selAll?.addEventListener('change', ()=> selectAllHistory(/** @type {HTMLInputElement} */(selAll).checked));
   const btnPlotSel=document.querySelector(UI.historyPlotSelected);
   btnPlotSel?.addEventListener('click', plotSelectedFromHistory);
+
+  // Fullscreen (si existe el botón)
+  btnFs?.addEventListener('click', ()=>{
+    const host = document.querySelector(UI.container);
+    if (!host) return;
+    if (host.classList.contains('plotter--fullscreen')) exitPlotFullscreen();
+    else enterPlotFullscreen();
+  });
 }
 
 (function start(){ bindUI(); bootCanvas(); })();
+
+// Por si es necesario usarlo desde consola
+window.enterPlotFullscreen = enterPlotFullscreen;
+window.exitPlotFullscreen  = exitPlotFullscreen;

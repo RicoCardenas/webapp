@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>EcuPlot – Graficadora</title>
+
+    <!-- Reutiliza tus estilos globales (tema oscuro/claro y tipografías) -->
+    <link rel="stylesheet" href="/static/styles.css" />
+
+  </head>
+  <body class="page page--graph">
+    <div class="graph-shell">
+      <!-- Header compacto -->
+      <header class="graph-header" role="banner" aria-label="Cabecera">
+        <a class="btn btn--ghost graph-header__back" href="/" aria-label="Volver al inicio">← Volver</a>
+        <div class="graph-header__title">Graficadora</div>
+        <div class="graph-header__spacer"></div>
+        <!-- Si quieres, el toggle de tema -->
+        <button class="btn btn--icon" type="button" aria-pressed="false" aria-label="Cambiar tema claro/oscuro" data-theme-toggle>
+          <span aria-hidden="true">🌓</span>
+        </button>
+      </header>
+
+      <!-- Contenido principal -->
+      <div class="graph-main">
+        <!-- Sidebar: lista de expresiones activas -->
+        <aside class="sidebar" aria-label="Expresiones activas">
+          <div class="sidebar__header">Funciones</div>
+          <div id="expr-list" class="sidebar__list" aria-live="polite" aria-atomic="true"></div>
+        </aside>
+
+        <!-- Stage: canvas + toolbar -->
+        <section class="stage" aria-label="Área de graficación">
+          <!-- Contenedor que usa tu plotter (NO CAMBIAR ID) -->
+          <div id="ggb-container" aria-label="Lienzo de graficación">
+            <!-- HUD opcional para mostrar coordenadas del puntero (lo cablearemos en una iteración) -->
+            <div id="coord-hud" class="coord-hud" hidden>(x, y)</div>
+          </div>
+
+          <!-- Barra inferior con el mismo formulario y botones que usas -->
+          <div class="graph-toolbar" role="group" aria-label="Controles de graficación">
+            <form id="plot-form" class="form" autocomplete="off" aria-describedby="plotter-hint">
+              <div class="form__field">
+                <label class="sr-only" for="plot-input">Expresión</label>
+                <input
+                  class="form__input"
+                  id="plot-input"
+                  name="expr"
+                  type="text"
+                  placeholder="y = sin(x)"
+                  inputmode="text"
+                  spellcheck="false"
+                  autocomplete="off"
+                />
+                <p id="plotter-hint" class="sr-only">Tip: Ctrl + Enter para graficar rápidamente.</p>
+              </div>
+              <div class="form__actions">
+                <button class="btn btn--primary" type="submit">Graficar</button>
+                <button id="btn-clear" class="btn btn--ghost" type="button">Limpiar</button>
+                <button id="btn-grid" class="btn btn--ghost" type="button" aria-pressed="true">Cuadrícula: ON</button>
+                <button id="btn-export" class="btn btn--ghost" type="button">Exportar PNG</button>
+                <button id="btn-history" class="btn btn--ghost" type="button">Historial</button>
+              </div>
+            </form>
+          </div>
+        </section>
+      </div>
+    </div>
+
+    <!-- Modal: Historial (reutilizado) -->
+    <div id="modal-history" class="modal" role="dialog" aria-modal="true" aria-labelledby="history-title" aria-hidden="true">
+      <div class="modal__overlay" data-close="history" tabindex="-1" aria-hidden="true"></div>
+      <div class="modal__dialog" role="document" tabindex="-1">
+        <header class="modal__header">
+          <h2 id="history-title" class="modal__title">Historial</h2>
+          <button class="modal__close btn btn--icon" type="button" data-close="history" aria-label="Cerrar">✕</button>
+        </header>
+
+        <div class="modal__body">
+          <div class="form__field">
+            <label class="form__label" for="history-search">Buscar</label>
+            <input class="form__input" id="history-search" type="text" placeholder="filtrar por texto..." />
+          </div>
+
+          <div class="form__field" style="display:flex;align-items:center;gap:.5rem;">
+            <input id="history-select-all" type="checkbox" />
+            <label for="history-select-all">Seleccionar todo</label>
+          </div>
+
+          <div id="history-list" class="history__list" role="list" style="max-height:45vh; overflow:auto;"></div>
+
+          <div class="form__actions" style="justify-content:flex-end;">
+            <button id="history-plot-selected" class="btn btn--primary" type="button">Graficar seleccionadas</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Toasts para mensajes -->
+    <div id="toasts" class="toasts" aria-live="polite" aria-atomic="true"></div>
+
+ 
+    <!-- math.js (igual que en index) -->
+<script src="https://cdn.jsdelivr.net/npm/mathjs@11.11.0/lib/browser/math.js"></script>
+<script src="/static/plotter.js" type="module"></script>
+<script src="/static/graph-page.js" type="module"></script>
+  </body>
+</html>
+

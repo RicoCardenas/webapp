@@ -70,6 +70,11 @@ select {
 /* --- Variables de tema (claro por defecto) --- */
 
 :root {
+  /* Dimensiones específicas de la gráfica */
+  --graph-header-h: 48px;
+  --graph-toolbar-h: 72px;
+  --graph-sidebar-w: 320px;
+
   /* Colores */
   --color-bg: #f8fafc;
   --color-surface: #ffffff;
@@ -187,6 +192,13 @@ body {
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
+
+.plotter--fullscreen{
+  position:fixed!important; inset:0!important;
+  width:100vw!important; height:100vh!important;
+  z-index:1000!important; background:var(--color-bg, #0b1020);
+}
+body.plotter-no-scroll{ overflow:hidden!important; }
 
 /* Enlaces y código */
 
@@ -349,8 +361,6 @@ ul, ol { padding-left: 1.2rem; }
 .contact__inner {
   text-align: center;
 }
-
-
 
 /* Espaciado vertical coherente */
 
@@ -588,7 +598,6 @@ ul, ol { padding-left: 1.2rem; }
   pointer-events: none;
 }
 
-
 .btn--icon {
   display: inline-grid;
   place-items: center;
@@ -654,6 +663,7 @@ html[data-theme="dark"] .icon--menu-dark {
     grid-auto-columns: max-content;
   }
 }
+
 .status {
   margin-top: var(--space-3);
   font-size: var(--fs-sm);
@@ -1069,7 +1079,6 @@ button,
    Header Nav: estilo "pill ghost" (OVERRIDES)
    ============================ */
 
-/* Nav links como píldoras (sin subrayado) */
 .header .nav__link {
   position: relative;
   display: inline-block;
@@ -1079,7 +1088,6 @@ button,
   transition: background var(--dur-1) var(--easing), color var(--dur-1) var(--easing);
 }
 
-/* Hover / foco: velo primario suave */
 .header .nav__link:hover,
 .header .nav__link:focus-visible {
   text-decoration: none;
@@ -1088,7 +1096,6 @@ button,
   outline: none;
 }
 
-/* Activo (aria-current) más marcado */
 .header .nav__link[aria-current="page"] {
   font-weight: 700;
   color: var(--color-primary);
@@ -1096,7 +1103,6 @@ button,
   border-bottom-color: transparent !important;
 }
 
-/* Modo oscuro: poquito más de velo */
 html[data-theme="dark"] .header .nav__link:hover,
 html[data-theme="dark"] .header .nav__link:focus-visible {
   background: color-mix(in srgb, var(--color-primary) 18%, transparent);
@@ -1140,7 +1146,6 @@ html[data-theme="dark"] .header .nav__link[aria-current="page"] {
 html[data-theme="dark"] .header__btn--account:hover,
 html[data-theme="dark"] #btn-account:hover {
   background: color-mix(in srgb, var(--color-primary) 16%, transparent);
-  
 }
 
 /* --- Ajustes de impresión --- */
@@ -1223,3 +1228,197 @@ html[data-theme="dark"] #btn-account:hover {
 .history__check { width: 1rem; height: 1rem; accent-color: var(--color-primary); }
 .history__expr { font-size: var(--fs-sm); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .history__date { font-size: var(--fs-xs); color: var(--color-text-muted); }
+
+/* ============================
+   Graph (fullscreen page) 
+   ============================ */
+
+.page--graph,
+.page--graph html,
+.page--graph body {
+  height: 100%;
+  min-height: 100%;
+  background: var(--color-bg);
+  color: var(--color-text);
+}
+
+/* Shell general: header compacto arriba + contenido */
+.page--graph .graph-shell {
+  display: grid;
+  grid-template-rows: var(--graph-header-h) 1fr;
+  height: 100vh;
+  width: 100vw;
+  overflow: hidden;
+  background: var(--color-bg);
+}
+
+/* Header compacto de la graficadora */
+.page--graph .graph-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: 0 var(--space-3);
+  background: var(--color-surface);
+  border-bottom: 1px solid var(--color-border);
+}
+html[data-theme="dark"] .page--graph .graph-header {
+  background: color-mix(in oklab, var(--color-surface) 90%, black 8%);
+  border-bottom-color: color-mix(in srgb, var(--color-border) 60%, transparent);
+}
+.page--graph .graph-header__title { font-weight: 600; }
+.page--graph .graph-header__spacer { flex: 1; }
+
+/* Área principal: sidebar izquierda + stage (canvas) */
+.page--graph .graph-main {
+  display: grid;
+  grid-template-columns: var(--graph-sidebar-w) 1fr;
+  height: 100%;
+  overflow: hidden;
+}
+
+/* Sidebar (lista de expresiones) */
+.page--graph .sidebar {
+  min-width: 240px;
+  display: flex;
+  flex-direction: column;
+  background: color-mix(in oklab, var(--color-surface), black 6%);
+  border-right: 1px solid var(--color-border);
+}
+html[data-theme="dark"] .page--graph .sidebar {
+  background: color-mix(in oklab, var(--color-surface), black 10%);
+  border-right-color: color-mix(in srgb, var(--color-border) 70%, transparent);
+}
+.page--graph .sidebar__header {
+  padding: .75rem .75rem .25rem;
+  font-weight: 600;
+  opacity: .9;
+}
+
+/* ✅ CONSOLIDADO: Lista vertical apilada y desplazable */
+.page--graph .sidebar__list {
+  flex: 1;
+  overflow: auto;
+  padding: .5rem .75rem 1rem;
+
+  /* (de la versión redundante) */
+  display: grid;
+  grid-auto-rows: max-content;
+  align-content: start;
+  gap: var(--space-3);
+
+  background: color-mix(in srgb, var(--color-muted) 30%, transparent);
+  border: 1px solid color-mix(in srgb, var(--color-border) 60%, transparent);
+  border-radius: var(--radius-lg);
+}
+
+/* Cada tarjeta/ítem: tamaño contenido, no ocupar toda la columna */
+.page--graph .sidebar__list > * {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: .75rem;
+  padding: .9rem 1rem;
+  border-radius: var(--radius-md);
+  background: linear-gradient(
+    150deg,
+    color-mix(in srgb, var(--color-surface) 92%, transparent) 0%,
+    color-mix(in srgb, var(--color-muted) 40%, transparent) 100%
+  );
+  border: 1px solid color-mix(in srgb, var(--color-border) 70%, transparent);
+  box-shadow: var(--shadow-sm);
+  min-height: 0;
+}
+
+/* Punto de color, texto y botón "X" dentro del ítem */
+.page--graph .sidebar__list > * .dot {
+  inline-size: .8rem;
+  block-size: .8rem;
+  border-radius: 999px;
+}
+.page--graph .sidebar__list > * .label {
+  font-size: var(--fs-sm);
+  color: var(--color-text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.page--graph .sidebar__list > * .close {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  font-weight: 700;
+  line-height: 1;
+  opacity: .7;
+}
+.page--graph .sidebar__list > * .close:hover,
+.page--graph .sidebar__list > * .close:focus-visible {
+  opacity: 1;
+  outline: none;
+}
+
+/* Stage: canvas a 100% + toolbar inferior */
+.page--graph .stage {
+  position: relative;
+  height: 100%;
+  display: grid;
+  grid-template-rows: 1fr var(--graph-toolbar-h);
+  overflow: hidden;
+}
+
+/* Tu contenedor real del plotter */
+.page--graph #ggb-container {
+  position: relative;
+  width: 100%;
+  height: 100%;
+}
+
+/* MUY IMPORTANTE: fuerza el canvas del plotter a ocupar todo el alto en esta página */
+.page--graph .plotter-canvas {
+  width: 100% !important;
+  height: 100% !important;
+  display: block;
+}
+
+/* Barra inferior de controles (reusa tu markup del form) */
+.page--graph .graph-toolbar {
+  display: flex;
+  align-items: center;
+  gap: .5rem;
+  padding: .5rem;
+  background: color-mix(in oklab, var(--color-surface), black 12%);
+  border-top: 1px solid var(--color-border);
+}
+html[data-theme="dark"] .page--graph .graph-toolbar {
+  background: color-mix(in oklab, var(--color-surface), black 18%);
+  border-top-color: color-mix(in srgb, var(--color-border) 60%, transparent);
+}
+.page--graph .graph-toolbar .form { display: contents; }
+.page--graph .graph-toolbar .form__field {
+  flex: 1; display: flex; align-items: center; gap: .5rem;
+}
+.page--graph .graph-toolbar .form__input {
+  width: 100%; height: 40px; border-radius: .5rem;
+}
+.page--graph .graph-toolbar .form__actions {
+  display: flex; gap: .5rem; align-items: center;
+}
+.page--graph .graph-toolbar .btn { height: 40px; padding: 0 .9rem; }
+
+/* HUD opcional de coordenadas */
+.page--graph .coord-hud {
+  position: absolute;
+  right: .5rem; top: .5rem;
+  background: rgba(2,6,23,.6);
+  border: 1px solid rgba(148,163,184,.2);
+  border-radius: .4rem;
+  padding: .25rem .5rem;
+  font-size: .875rem;
+  pointer-events: none;
+}
+
+/* Responsive: oculta sidebar en pantallas estrechas */
+@media (max-width: 920px) {
+  .page--graph .graph-main { grid-template-columns: 1fr; }
+  .page--graph .sidebar { display: none; }
+}

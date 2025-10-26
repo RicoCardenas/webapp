@@ -1,5 +1,3 @@
-// ====== Selectores / Constantes ============================================
-
 const SELECTORS = {
   siteHeader: '#site-header',
   primaryNav: '#primary-nav',
@@ -24,24 +22,51 @@ const SELECTORS = {
   errorMessage: '#error-contact-message',
   toasts: '#toasts',
   year: '[data-year]',
-  rootFallback: '#root', // compatibilidad con markup antiguo
-  // --- ¡NUEVOS SELECTORES! ---
+  rootFallback: '#root',
+
   signupForm: '#modal-signup .form',
   signupEmail: '#signup-email',
   signupPassword: '#signup-password',
-  signupTerms: '#signup-terms', // <-- Casilla de términos
+  signupTerms: '#signup-terms',
   loginForm: '#modal-login .form',
   loginEmail: '#login-email',
   loginPassword: '#login-password',
-  // Para manejo de sesión en UI:
   btnLogout: '#btn-logout',
   btnAccount: '#btn-account',
 };
 
+window.addEventListener('error', (e) => {
+  try {
+    const msg =
+      e?.error?.message ||
+      e?.message ||
+      'Error de script';
+
+    const file = e?.filename
+      ? ` @ ${e.filename}:${e.lineno}:${e.colno}`
+      : '';
+
+    console.error('[EcuPlot] Error:', e.error || e);
+    toast?.error?.(`Error JS: ${msg}${file}`);
+  } catch {}
+});
+
+window.addEventListener('unhandledrejection', (e) => {
+  try {
+    const msg =
+      e?.reason?.message ||
+      String(e.reason) ||
+      'Promise rechazada';
+
+    console.error('[EcuPlot] Rechazo no manejado:', e.reason);
+    toast?.error?.(`Error async: ${msg}`);
+  } catch {}
+});
+
 const KEYS = {
   theme: 'ecup-theme',
   lastSection: 'ecup-last-section',
-  sessionToken: 'ecuplot_session_token', // Para guardar el token
+  sessionToken: 'ecuplot_session_token',
 };
 
 const CLASSNAMES = {
@@ -52,76 +77,57 @@ const CLASSNAMES = {
   statusError: 'status--error',
 };
 
-const STATUS_CLASSES = [CLASSNAMES.statusLoading, CLASSNAMES.statusOk, CLASSNAMES.statusError];
+const STATUS_CLASSES = [
+  CLASSNAMES.statusLoading,
+  CLASSNAMES.statusOk,
+  CLASSNAMES.statusError,
+];
 
-// ====== Utilidades DOM / Eventos ===========================================
+/** Utils DOM */
+const qs = (sel, ctx = document) =>
+  /** @type {any} */ (ctx.querySelector(sel));
 
-/** @template {Element} T */
-const qs = (sel, ctx = document) => /** @type {T|null} */ (ctx.querySelector(sel));
-/** @template {Element} T */
-const qsa = (sel, ctx = document) => /** @type {NodeListOf<T>} */ (ctx.querySelectorAll(sel));
+const qsa = (sel, ctx = document) =>
+  /** @type {any} */ (ctx.querySelectorAll(sel));
 
-const on = (el, type, handler, opts) => el?.addEventListener?.(type, handler, opts);
-const off = (el, type, handler, opts) => el?.removeEventListener?.(type, handler, opts);
+const on = (el, type, handler, opts) =>
+  el?.addEventListener?.(type, handler, opts);
 
-/** @param {HTMLElement} el @param {Record<string, string|boolean|null|undefined>} obj */
+const off = (el, type, handler, opts) =>
+  el?.removeEventListener?.(type, handler, opts);
+
 function setAria(el, obj) {
-  if (!el || !obj) return;
+  if (!el) return;
   for (const [k, v] of Object.entries(obj)) {
-    if (v === null || v === undefined) el.removeAttribute(`aria-${k}`);
-    else el.setAttribute(`aria-${k}`, String(v));
+    v == null
+      ? el.removeAttribute(`aria-${k}`)
+      : el.setAttribute(`aria-${k}`, String(v));
   }
 }
 
-/** @param {HTMLElement} btn @param {boolean} state */
 function toggleAriaExpanded(btn, state) {
   if (!btn) return;
   btn.setAttribute('aria-expanded', String(state));
 }
 
-/** @param {Element} el @param {string} name @param {boolean} [state] */
 function toggleClass(el, name, state) {
   if (!el) return;
   el.classList.toggle(name, state ?? !el.classList.contains(name));
 }
 
-/** @returns {boolean} */
 const prefersReducedMotion = () =>
   matchMedia('(prefers-reduced-motion: reduce)').matches;
 
-/** @template T */
 function debounce(fn, delay = 150) {
   let t;
-  return /** @param {T} args */ (...args) => {
+  return (...a) => {
     clearTimeout(t);
-    t = setTimeout(() => fn(...args), delay);
+    t = setTimeout(() => fn(...a), delay);
   };
 }
 
-/** @template T */
-function throttle(fn, limit = 200) {
-  let inThrottle = false;
-  let lastArgs = null;
-  return /** @param {T} args */ (...args) => {
-    if (inThrottle) {
-      lastArgs = args;
-      return;
-    }
-    fn(...args);
-    inThrottle = true;
-    setTimeout(() => {
-      inThrottle = false;
-      if (lastArgs) {
-        fn(...lastArgs);
-        lastArgs = null;
-      }
-    }, limit);
-  };
-}
-
-// ====== Focus Trap / Scroll Lock ===========================================
-
-let focusTrapStack = /** @type {Array<{container: HTMLElement, lastActive: HTMLElement|null}>} */([]);
+/** Focus trap / Scroll lock */
+let focusTrapStack = [];
 let lastScrollTop = 0;
 
 function getFocusable(container) {
@@ -134,22 +140,25 @@ function getFocusable(container) {
     'textarea:not([disabled])',
     '[tabindex]:not([tabindex="-1"])',
   ].join(',');
-  return /** @type {HTMLElement[]} */ (Array.from(container.querySelectorAll(sel)))
+
+  return Array
+    .from(container.querySelectorAll(sel))
     .filter(el => el.offsetParent !== null || el === document.activeElement);
 }
 
-/** Bloquea foco dentro del contenedor. */
 function trapFocus(container) {
   if (!container) return;
-  const lastActive = /** @type {HTMLElement|null} */ (document.activeElement || null);
+
+  const lastActive = document.activeElement || null;
   focusTrapStack.push({ container, lastActive });
 
   const focusables = getFocusable(container);
   const first = focusables[0];
-  const last = focusables[last ? (focusables.length - 1) : 0];
+  const last = focusables[focusables.length - 1];
 
   const handler = (e) => {
     if (e.key !== 'Tab') return;
+
     if (focusables.length === 0) {
       e.preventDefault();
       return;
@@ -162,60 +171,50 @@ function trapFocus(container) {
       first?.focus();
     }
   };
+
   on(container, 'keydown', handler);
-  container.dataset.trapHandler = 'true';
   container.__trapHandler = handler;
 
   (first || container).focus({ preventScroll: true });
 }
 
-/** Libera el trap actual y retorna el foco al último elemento activo. */
 function releaseFocus() {
   const ctx = focusTrapStack.pop();
   if (!ctx) return;
+
   const { container, lastActive } = ctx;
   const handler = container.__trapHandler;
+
   if (handler) off(container, 'keydown', handler);
   delete container.__trapHandler;
+
   lastActive?.focus?.({ preventScroll: true });
 }
 
-/** Evita scroll del body (para modales/drawer). */
 function lockScroll() {
   lastScrollTop = window.scrollY || document.documentElement.scrollTop;
   document.body.style.top = `-${lastScrollTop}px`;
   document.body.style.position = 'fixed';
 }
 
-/** Restaura el scroll del body. */
 function unlockScroll() {
   document.body.style.position = '';
   document.body.style.top = '';
   window.scrollTo({ top: lastScrollTop, left: 0 });
 }
 
-// ====== Fetch seguro con timeout ===========================================
-
-/**
- * Fetch con AbortController + timeout seguro.
- * @param {RequestInfo} url
- * @param {RequestInit} [opts]
- * @param {number} [timeoutMs=3000]
- */
-async function safeFetch(url, opts = {}, timeoutMs = 5000) { // Aumentado a 5s
+/** Fetch con timeout */
+async function safeFetch(url, opts = {}, timeoutMs = 5000) {
   const ctrl = new AbortController();
   const id = setTimeout(() => ctrl.abort(), timeoutMs);
   try {
-    const res = await fetch(url, { ...opts, signal: ctrl.signal, cache: 'no-store' });
-    return res;
+    return await fetch(url, { ...opts, signal: ctrl.signal, cache: 'no-store' });
   } finally {
     clearTimeout(id);
   }
 }
 
-// ====== Gestor de Tema ======================================================
-
-/** Aplica tema y emite evento. */
+/** Tema */
 function applyTheme(theme) {
   const root = document.documentElement;
   if (theme === 'dark') {
@@ -226,67 +225,69 @@ function applyTheme(theme) {
   window.dispatchEvent(new CustomEvent('themechange', { detail: { theme } }));
 }
 
-/** Lee preferencia de storage o media query. */
 function initTheme() {
-  const btn = qs(SELECTORS.themeToggle);
+  const btn = qs('[data-theme-toggle]');
   const stored = localStorage.getItem(KEYS.theme);
   const mqDark = matchMedia('(prefers-color-scheme: dark)').matches;
   const theme = stored || (mqDark ? 'dark' : 'light');
+
   applyTheme(theme);
-  if (btn instanceof HTMLElement) {
-    btn.setAttribute('aria-pressed', String(theme === 'dark'));
-  }
+  if (btn) btn.setAttribute('aria-pressed', String(theme === 'dark'));
 }
 
-/** Alterna y guarda tema. */
 function toggleTheme() {
   const isDark = document.documentElement.dataset.theme === 'dark';
   const next = isDark ? 'light' : 'dark';
   applyTheme(next);
   localStorage.setItem(KEYS.theme, next);
-  const btn = qs(SELECTORS.themeToggle);
+
+  const btn = qs('[data-theme-toggle]');
   if (btn) btn.setAttribute('aria-pressed', String(next === 'dark'));
 }
 
-// ====== Drawer Móvil ========================================================
-
+/** Drawer móvil */
 const DrawerController = (() => {
-  let drawer, toggleBtn, overlay, openerBtn = /** @type {HTMLElement|null} */(null);
+  let drawer, toggleBtn, overlay, openerBtn = null;
 
   function bind() {
-    drawer = qs(SELECTORS.drawer);
-    toggleBtn = qs(SELECTORS.drawerToggle);
-    overlay = qs(SELECTORS.drawerOverlay, drawer || undefined);
+    drawer = qs('#mobile-drawer');
+    toggleBtn = qs('[data-drawer-toggle]');
+    overlay = qs('.drawer__overlay', drawer || undefined);
 
     if (!drawer || !toggleBtn) return;
 
     on(toggleBtn, 'click', open);
     on(overlay, 'click', close);
     on(document, 'keydown', (e) => {
-      if (drawer?.classList.contains(CLASSNAMES.isOpen) && e.key === 'Escape') close();
+      if (drawer?.classList.contains('is-open') && e.key === 'Escape') close();
     });
   }
 
   function open() {
     if (!drawer || !toggleBtn) return;
-    openerBtn = /** @type {HTMLElement} */(document.activeElement);
-    toggleClass(drawer, CLASSNAMES.isOpen, true);
+
+    openerBtn = document.activeElement;
+    toggleClass(drawer, 'is-open', true);
     setAria(drawer, { hidden: false });
     toggleAriaExpanded(toggleBtn, true);
     lockScroll();
+
     const firstLink = qs('.drawer__link', drawer);
-    const panel = qs(SELECTORS.drawerOverlay, drawer)?.nextElementSibling;
+    const panel = qs('.drawer__overlay', drawer)?.nextElementSibling;
     if (panel instanceof HTMLElement) trapFocus(panel);
-    (/** @type {HTMLElement} */(firstLink) || drawer).focus({ preventScroll: true });
+
+    (firstLink || drawer).focus({ preventScroll: true });
   }
 
   function close() {
     if (!drawer || !toggleBtn) return;
-    toggleClass(drawer, CLASSNAMES.isOpen, false);
+
+    toggleClass(drawer, 'is-open', false);
     setAria(drawer, { hidden: true });
     toggleAriaExpanded(toggleBtn, false);
     releaseFocus();
     unlockScroll();
+
     openerBtn?.focus?.({ preventScroll: true });
     openerBtn = null;
   }
@@ -294,31 +295,29 @@ const DrawerController = (() => {
   return { bind, open, close };
 })();
 
-// ====== Modales (Login / Signup) ===========================================
-
+// Modales
 function createModalController(rootSelector) {
-  /** @type {HTMLElement|null} */
   const modal = qs(rootSelector);
   if (!modal) return { open: () => {}, close: () => {}, bind: () => {} };
 
-  let openerBtn = /** @type {HTMLElement|null} */(null);
-  const overlay = qs(SELECTORS.modalOverlay, modal);
-  const dialog = qs(SELECTORS.modalDialog, modal);
-  const closeBtns = qsa(SELECTORS.modalClose, modal);
+  let openerBtn = null;
+  const overlay = qs('.modal__overlay', modal);
+  const dialog = qs('.modal__dialog', modal);
+  const closeBtns = qsa('[data-close="modal"]', modal);
 
   function open() {
-    openerBtn = /** @type {HTMLElement} */(document.activeElement);
-    toggleClass(modal, CLASSNAMES.isOpen, true);
+    openerBtn = document.activeElement;
+    toggleClass(modal, 'is-open', true);
     setAria(modal, { hidden: false });
-    document.body.classList.add(CLASSNAMES.hasModal);
+    document.body.classList.add('has-modal');
     lockScroll();
     if (dialog instanceof HTMLElement) trapFocus(dialog);
   }
 
   function close() {
-    toggleClass(modal, CLASSNAMES.isOpen, false);
+    toggleClass(modal, 'is-open', false);
     setAria(modal, { hidden: true });
-    document.body.classList.remove(CLASSNAMES.hasModal);
+    document.body.classList.remove('has-modal');
     releaseFocus();
     unlockScroll();
     openerBtn?.focus?.({ preventScroll: true });
@@ -327,118 +326,127 @@ function createModalController(rootSelector) {
 
   function bind() {
     on(overlay, 'click', close);
-    closeBtns.forEach(btn => on(btn, 'click', close));
+    closeBtns.forEach((btn) => on(btn, 'click', close));
     on(document, 'keydown', (e) => {
-      if (modal.classList.contains(CLASSNAMES.isOpen) && e.key === 'Escape') close();
+      if (modal.classList.contains('is-open') && e.key === 'Escape') close();
     });
   }
 
   return { open, close, bind };
 }
 
-const LoginModal = createModalController(SELECTORS.modalLogin);
-const SignupModal = createModalController(SELECTORS.modalSignup);
+const LoginModal = createModalController('#modal-login');
+const SignupModal = createModalController('#modal-signup');
 
-/** Funciones públicas para pruebas manuales */
-function openLogin() { LoginModal.open(); }
-function openSignup() { SignupModal.open(); }
-
-// ====== Smooth Scroll + ScrollSpy ==========================================
-
+/** Scroll a anclas con offset por header fijo */
 function getHeaderOffset() {
-  const header = qs(SELECTORS.siteHeader);
+  const header = qs('#site-header');
   const rect = header?.getBoundingClientRect();
   const styles = header ? getComputedStyle(header) : null;
   const marginTop = styles ? parseFloat(styles.marginTop || '0') : 0;
-  return (rect?.height || 0) + marginTop + 8; // espacio extra
+  return (rect?.height || 0) + marginTop + 8;
 }
 
 function smoothScrollTo(targetEl) {
   if (!targetEl) return;
-  const top = window.scrollY + targetEl.getBoundingClientRect().top - getHeaderOffset();
+  const top =
+    window.scrollY +
+    targetEl.getBoundingClientRect().top -
+    getHeaderOffset();
+
   const behavior = prefersReducedMotion() ? 'auto' : 'smooth';
   window.scrollTo({ top, behavior });
 }
 
+
 function bindAnchorScrolling() {
   on(document, 'click', (e) => {
-    const t = /** @type {HTMLElement} */(e.target);
-    if (!(t instanceof Element)) return;
-    const link = t.closest('a[href^="#"]');
-    if (!link) return;
+    const target = e.target instanceof Element ? e.target.closest('a') : null;
+    if (!target) return;
 
-    const href = link.getAttribute('href');
-    if (!href || href === '#') return;
+    const href = target.getAttribute('href') || '';
+
+    if (!href.startsWith('#')) return;
 
     const dest = qs(href);
-    if (dest) {
+    if (!dest) return;
+
+    e.preventDefault();
+    smoothScrollTo(dest);
+    history.pushState(null, '', href);
+    DrawerController.close?.();
+  });
+
+  // Fallback explícito para los links del header 
+  qsa('.header .nav__link').forEach((a) => {
+    on(a, 'click', (e) => {
+      const href = a.getAttribute('href');
+      if (!href || !href.startsWith('#')) return;
+
+      const dest = qs(href);
+      if (!dest) return;
+
       e.preventDefault();
       smoothScrollTo(dest);
       history.pushState(null, '', href);
-      localStorage.setItem(KEYS.lastSection, href);
       DrawerController.close?.();
-    }
+    });
   });
 }
 
+/** ScrollSpy */
 function initScrollSpy() {
-  const nav = qs(SELECTORS.primaryNav);
+  const nav = qs('#primary-nav');
   if (!nav) return;
-  const links = /** @type {HTMLAnchorElement[]} */(Array.from(qsa('.nav__link', nav)));
+
+  const links = Array
+    .from(qsa('.nav__link', nav))
+    .filter((a) => (a.getAttribute('href') || '').startsWith('#'));
+
+  if (links.length === 0) return;
+
   const map = new Map();
-  links.forEach(l => {
-    const hash = l.getAttribute('href');
+  links.forEach((l) => {
+    const hash = l.getAttribute('href'); 
     const sec = hash ? qs(hash) : null;
     if (sec) map.set(sec, l);
   });
 
   const setCurrent = (el) => {
-    links.forEach(a => a.removeAttribute('aria-current'));
+    links.forEach((a) => a.removeAttribute('aria-current'));
     el?.setAttribute('aria-current', 'page');
   };
 
-  const obs = new IntersectionObserver((entries) => {
-    entries.forEach(entry => {
-      const link = map.get(entry.target);
-      if (!link) return;
-      if (entry.isIntersecting) setCurrent(link);
-    });
-  }, { rootMargin: `-${Math.max(80, getHeaderOffset())}px 0px -70% 0px`, threshold: [0.1, 0.6] });
+  const obs = new IntersectionObserver(
+    (entries) => {
+      entries.forEach((entry) => {
+        const link = map.get(entry.target);
+        if (!link) return;
+        if (entry.isIntersecting) setCurrent(link);
+      });
+    },
+    {
+      rootMargin: `-${Math.max(80, getHeaderOffset())}px 0px -70% 0px`,
+      threshold: [0.1, 0.6],
+    }
+  );
 
   map.forEach((_, sec) => obs.observe(sec));
 }
 
-// ====== Estado del Backend ==================================================
-
-/**
- * Actualiza el indicador de estado con clase modificadora y mensaje.
- * @param {HTMLElement} element
- * @param {string|null} modifierClass
- * @param {string} message
- */
+/** Estado backend: solo si hay [data-status] en la página */
 function setStatus(element, modifierClass, message) {
   if (!element) return;
   element.textContent = message;
-  STATUS_CLASSES.forEach((name) => element.classList.remove(name));
+  STATUS_CLASSES.forEach((n) => element.classList.remove(n));
   if (modifierClass) element.classList.add(modifierClass);
 }
 
 const BackendStatus = (() => {
-  /** Root compatible: primero #app, si no existe usar #root */
-  const host = qs('#app') || qs(SELECTORS.rootFallback) || document.body;
-  /** @type {HTMLElement|null} */
-  let statusEl = qs(SELECTORS.backendStatus, host);
+  const statusEl = qs('[data-status]'); // si no hay, no hace nada
+  if (!statusEl) return { check: () => {} };
 
-  if (!statusEl) {
-    statusEl = document.createElement('p');
-    statusEl.dataset.status = '';
-    statusEl.className = `status ${CLASSNAMES.statusLoading}`;
-    statusEl.textContent = 'Verificando estado del backend...';
-    host.append(statusEl);
-  } else {
-    setStatus(statusEl, CLASSNAMES.statusLoading, 'Verificando estado del backend...');
-  }
-
+  setStatus(statusEl, CLASSNAMES.statusLoading, 'Verificando estado del backend…');
   setAria(statusEl, { live: 'polite' });
   statusEl.setAttribute('role', 'status');
 
@@ -446,20 +454,20 @@ const BackendStatus = (() => {
     try {
       const res = await safeFetch('/api/health', {}, 3000);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
+
       let message = 'Backend operativo';
       try {
         const payload = await res.json();
         const label = payload?.status ?? 'desconocido';
         message = `Estado del backend: ${label}`;
-      } catch {
-        // si no es JSON válido, mantenemos mensaje genérico
-      }
+      } catch {}
+
       setStatus(statusEl, CLASSNAMES.statusOk, message);
       return true;
     } catch (err) {
       if (attempt < 3) {
         const backoff = Math.min(4000, Math.floor(1500 * Math.pow(1.5, attempt)));
-        await new Promise(r => setTimeout(r, backoff));
+        await new Promise((r) => setTimeout(r, backoff));
         return check(attempt + 1);
       }
       console.error('No se pudo verificar el backend', err);
@@ -471,40 +479,30 @@ const BackendStatus = (() => {
   return { check };
 })();
 
-// ====== Toasts =============================================================
-
+// notificaciones/toasts
 const toast = (() => {
-  const container = qs(SELECTORS.toasts);
+  const container = qs('#toasts');
 
-  /**
-   * Crea un toast.
-   * @param {'success'|'error'|'info'|'warn'} type
-   * @param {string} message
-   * @param {number} [timeoutMs=6000]
-   */
   function show(type, message, timeoutMs = 6000) {
     if (!container) return;
 
     const card = document.createElement('div');
     card.setAttribute('role', type === 'error' || type === 'warn' ? 'alert' : 'status');
     card.setAttribute('aria-atomic', 'true');
-    if (type === 'success') card.classList.add('is-success');
-    if (type === 'error') card.classList.add('is-danger');
-    if (type === 'info') card.classList.add('is-info');
-    if (type === 'warn') card.classList.add('is-warning');
+
+    card.classList.add(
+      type === 'success'
+        ? 'is-success'
+        : type === 'error'
+        ? 'is-danger'
+        : type === 'info'
+        ? 'is-info'
+        : 'is-warning'
+    );
 
     const text = document.createElement('span');
     text.textContent = message;
-
-    const closeBtn = document.createElement('button');
-    closeBtn.type = 'button';
-    closeBtn.className = 'btn btn--icon';
-    closeBtn.setAttribute('aria-label', 'Cerrar notificación');
-    closeBtn.textContent = '✕';
-    on(closeBtn, 'click', () => remove());
-
     card.appendChild(text);
-    // card.appendChild(closeBtn); // Opcional: botón de cierre
     container.appendChild(card);
 
     let timer = setTimeout(remove, timeoutMs);
@@ -518,23 +516,22 @@ const toast = (() => {
   }
 
   return {
-    /** @param {string} m */ success: (m) => show('success', m),
-    /** @param {string} m */ error: (m) => show('error', m, 7000),
-    /** @param {string} m */ info: (m) => show('info', m),
-    /** @param {string} m */ warn: (m) => show('warn', m, 7000),
+    success: (m) => show('success', m),
+    error: (m) => show('error', m, 7000),
+    info: (m) => show('info', m),
+    warn: (m) => show('warn', m, 7000),
   };
 })();
 
-// ====== Formulario de Contacto =============================================
-
+// Contacto
 function initContactForm() {
-  const form = qs(SELECTORS.contactForm);
+  const form = qs('#contact-form');
   if (!form) return;
 
-  const errGlobal = qs(SELECTORS.contactErrorsGlobal);
-  const errName = qs(SELECTORS.errorName);
-  const errEmail = qs(SELECTORS.errorEmail);
-  const errMsg = qs(SELECTORS.errorMessage);
+  const errGlobal = qs('#contact-form-errors');
+  const errName = qs('#error-contact-name');
+  const errEmail = qs('#error-contact-email');
+  const errMsg = qs('#error-contact-message');
 
   function showFieldError(pEl, msg) {
     if (!pEl) return;
@@ -542,6 +539,7 @@ function initContactForm() {
     pEl.classList.add('is-visible');
     pEl.setAttribute('aria-hidden', 'false');
   }
+
   function hideFieldError(pEl) {
     if (!pEl) return;
     pEl.textContent = '';
@@ -550,13 +548,17 @@ function initContactForm() {
   }
 
   const validators = {
-    name: (v) => (v && v.trim().length >= 2) ? '' : 'Ingresa tu nombre (mín. 2 caracteres)',
-    email: (v) => (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v || '')) ? '' : 'Ingresa un correo válido',
-    message: (v) => (v && v.trim().length >= 10) ? '' : 'Escribe un mensaje (mín. 10 caracteres)',
+    name: (v) =>
+      v && v.trim().length >= 2 ? '' : 'Ingresa tu nombre (mín. 2 caracteres)',
+    email: (v) =>
+      /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v || '') ? '' : 'Ingresa un correo válido',
+    message: (v) =>
+      v && v.trim().length >= 10 ? '' : 'Escribe un mensaje (mín. 10 caracteres)',
   };
 
   on(form, 'submit', async (e) => {
     e.preventDefault();
+
     const fd = new FormData(form);
     const name = String(fd.get('name') || '');
     const email = String(fd.get('email') || '');
@@ -565,6 +567,7 @@ function initContactForm() {
     hideFieldError(errName);
     hideFieldError(errEmail);
     hideFieldError(errMsg);
+
     if (errGlobal) {
       errGlobal.textContent = '';
       errGlobal.classList.remove('is-visible');
@@ -592,15 +595,19 @@ function initContactForm() {
     }
 
     try {
-      const res = await safeFetch('/contact', { // placeholder
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, email, message }),
-      }, 5000);
+      const res = await safeFetch(
+        '/contact',
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name, email, message }),
+        },
+        5000
+      );
 
       if (res.ok) {
         toast.success('Mensaje enviado (simulación)');
-        /** @type {HTMLFormElement} */(form).reset();
+        form.reset();
       } else {
         toast.error('No se pudo enviar tu mensaje (simulación)');
       }
@@ -610,68 +617,62 @@ function initContactForm() {
   });
 }
 
-// ====== CTA Graficar ========================================================
-
-function initCTA() {
-  const cta = qs(SELECTORS.ctaGraficar);
-  const docs = qs('#docs');
-  if (!cta || !docs) return;
-  on(cta, 'click', (e) => {
-    e.preventDefault();
-    const ev = new CustomEvent('plot:start', { bubbles: true });
-    cta.dispatchEvent(ev);
-    smoothScrollTo(docs);
-  });
-}
-
-// ====== Footer Año ==========================================================
-
+// Footer
 function setCurrentYear() {
-  const yEl = qs(SELECTORS.year);
+  const yEl = qs('[data-year]');
   if (!yEl) return;
-  const now = new Date().getFullYear();
-  yEl.textContent = String(now);
+  yEl.textContent = String(new Date().getFullYear());
 }
 
-// ====== Guardar/restaurar última sección (opcional) ========================
 
 function restoreLastSection() {
   const last = localStorage.getItem(KEYS.lastSection);
   if (!last) return;
   const el = qs(last);
   if (el) {
-    // (opcional) smoothScrollTo(el);
+    smoothScrollTo(el);
   }
 }
 
-// ====== Enlaces de modales / tema ==========================================
-
+// Triggers
 function bindGlobalTriggers() {
-  const themeBtn = qs(SELECTORS.themeToggle);
+  const themeBtn = qs('[data-theme-toggle]');
   on(themeBtn, 'click', toggleTheme);
 
-  const drawerBtn = qs(SELECTORS.drawerToggle);
+  const drawerBtn = qs('[data-drawer-toggle]');
   on(drawerBtn, 'click', (e) => {
     e.preventDefault();
     DrawerController.open();
-  });
+    });
 
-  qsa(SELECTORS.modalOpenLogin).forEach(btn =>
-    on(btn, 'click', (e) => { e.preventDefault(); LoginModal.open(); }),
+  qsa('[data-open="modal-login"]').forEach((btn) =>
+    on(btn, 'click', (e) => {
+      e.preventDefault();
+      LoginModal.open();
+    })
   );
-  qsa(SELECTORS.modalOpenSignup).forEach(btn =>
-    on(btn, 'click', (e) => { e.preventDefault(); SignupModal.open(); }),
+
+  qsa('[data-open="modal-signup"]').forEach((btn) =>
+    on(btn, 'click', (e) => {
+      e.preventDefault();
+      SignupModal.open();
+    })
   );
 }
 
-// ====== AUTENTICACIÓN (UI + Fetch) =========================================
+// Utilidades de autenticación
+function getSessionToken() {
+  return localStorage.getItem(KEYS.sessionToken);
+}
 
-// Helpers de sesión en localStorage
-function getSessionToken() { return localStorage.getItem(KEYS.sessionToken); }
-function setSessionToken(token) { if (token) localStorage.setItem(KEYS.sessionToken, token); }
-function clearSessionToken() { localStorage.removeItem(KEYS.sessionToken); }
+function setSessionToken(token) {
+  if (token) localStorage.setItem(KEYS.sessionToken, token);
+}
 
-/** fetch que añade Authorization: Bearer <token> */
+function clearSessionToken() {
+  localStorage.removeItem(KEYS.sessionToken);
+}
+
 async function authFetch(url, options = {}) {
   const token = getSessionToken();
   const headers = new Headers(options.headers || {});
@@ -680,10 +681,10 @@ async function authFetch(url, options = {}) {
   return fetch(url, { ...options, headers });
 }
 
-// Crea/ubica botón “Mi Cuenta” (si algún día lo necesitas crear por JS)
 function ensureAccountButton() {
   const actions = qs('.header__actions');
   if (!actions) return null;
+
   let btnAccount = qs('#btn-account', actions);
   if (!btnAccount) {
     btnAccount = document.createElement('a');
@@ -692,166 +693,155 @@ function ensureAccountButton() {
     btnAccount.href = '#docs';
     btnAccount.textContent = 'Mi Cuenta';
     btnAccount.style.display = 'none';
-    const themeBtn = qs(SELECTORS.themeToggle, actions);
+
+    const themeBtn = qs('[data-theme-toggle]', actions);
     actions.insertBefore(btnAccount, themeBtn || actions.lastChild);
   }
   return btnAccount;
 }
 
-// Mostrar/ocultar UI según sesión
 function setAuthUI(isLogged) {
   const btnLogin = qsa('[data-open="modal-login"]');
   const btnSignup = qsa('[data-open="modal-signup"]');
-  const btnAccount = qs(SELECTORS.btnAccount) || ensureAccountButton();
-  const btnLogout = qs(SELECTORS.btnLogout);
+  const btnAccount = qs('#btn-account') || ensureAccountButton();
+  const btnLogout = qs('#btn-logout');
 
-  btnLogin.forEach(b => (b instanceof HTMLElement) && (b.style.display = isLogged ? 'none' : ''));
-  btnSignup.forEach(b => (b instanceof HTMLElement) && (b.style.display = isLogged ? 'none' : ''));
+  btnLogin.forEach(
+    (b) => b instanceof HTMLElement && (b.style.display = isLogged ? 'none' : '')
+  );
+  btnSignup.forEach(
+    (b) => b instanceof HTMLElement && (b.style.display = isLogged ? 'none' : '')
+  );
+
   if (btnAccount) btnAccount.style.display = isLogged ? '' : 'none';
   if (btnLogout) btnLogout.style.display = isLogged ? '' : 'none';
 }
 
-// Pinta estado al cargar
 function restoreSessionAuth() {
   const hasToken = !!getSessionToken();
   setAuthUI(hasToken);
 }
 
-// ====== ¡NUEVA FUNCIÓN! Formularios de Autenticación =======================
-
 function initAuthForms() {
-  const signupForm = qs(SELECTORS.signupForm);
-  const loginForm = qs(SELECTORS.loginForm);
+  const signupForm = qs('#modal-signup .form');
+  const loginForm = qs('#modal-login .form');
 
-  // --- Manejador de Registro (Signup) ---
   if (signupForm) {
     on(signupForm, 'submit', async (e) => {
       e.preventDefault();
+
       const btn = qs('button[type="submit"]', signupForm);
-      const emailEl = qs(SELECTORS.signupEmail, signupForm);
-      const passwordEl = qs(SELECTORS.signupPassword, signupForm);
-      const termsCheckbox = /** @type {HTMLInputElement|null} */ (qs(SELECTORS.signupTerms, signupForm));
-      
-      if (!emailEl || !passwordEl || !btn || !termsCheckbox) return;
+      const emailEl = qs('#signup-email', signupForm);
+      const passwordEl = qs('#signup-password', signupForm);
+      const terms = qs('#signup-terms', signupForm);
 
-      const email = emailEl.value;
-      const password = passwordEl.value;
-
-      if (!email || !password) {
-        toast.error('Email y contraseña son requeridos.');
-        return;
-      }
-      if (!termsCheckbox.checked) {
+      if (!emailEl || !passwordEl || !btn || !terms) return;
+      if (!terms.checked) {
         toast.error('Debes aceptar los términos y condiciones.');
         return;
       }
-      
-      btn.setAttribute('disabled', 'true');
+
+      btn.disabled = true;
       btn.textContent = 'Registrando...';
 
       try {
-        const res = await safeFetch('/api/register', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ email, password, terms: true }),
-        });
-        
-        const data = await res.json();
+        const res = await safeFetch(
+          '/api/register',
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              email: emailEl.value,
+              password: passwordEl.value,
+              terms: true,
+            }),
+          }
+        );
 
+        const data = await res.json();
         if (res.ok) {
           toast.success(data.message || '¡Registro exitoso! Revisa tu correo.');
           SignupModal.close();
-          /** @type {HTMLFormElement} */(signupForm).reset();
+          signupForm.reset();
         } else {
           toast.error(data.error || `Error (${res.status}): No se pudo registrar.`);
         }
-      } catch (err) {
-        console.error('Error en fetch de registro:', err);
-        toast.error('Error de red. No se pudo contactar al servidor.');
+      } catch {
+        toast.error('Error de red.');
       } finally {
-        btn.removeAttribute('disabled');
+        btn.disabled = false;
         btn.textContent = 'Crear cuenta';
       }
     });
   }
 
-  // --- Manejador de Inicio de Sesión (Login) ---
   if (loginForm) {
     on(loginForm, 'submit', async (e) => {
       e.preventDefault();
+
       const btn = qs('button[type="submit"]', loginForm);
-      const emailEl = qs(SELECTORS.loginEmail, loginForm);
-      const passwordEl = qs(SELECTORS.loginPassword, loginForm);
+      const emailEl = qs('#login-email', loginForm);
+      const passwordEl = qs('#login-password', loginForm);
 
       if (!emailEl || !passwordEl || !btn) return;
 
-      const email = emailEl.value;
-      const password = passwordEl.value;
-      
-      if (!email || !password) {
-        toast.error('Email y contraseña son requeridos.');
-        return;
-      }
-
-      btn.setAttribute('disabled', 'true');
+      btn.disabled = true;
       btn.textContent = 'Entrando...';
 
       try {
-        const res = await safeFetch('/api/login', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ email, password }),
-        });
+        const res = await safeFetch(
+          '/api/login',
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              email: emailEl.value,
+              password: passwordEl.value,
+            }),
+          }
+        );
 
         const data = await res.json();
-
         if (res.ok) {
           toast.success(data.message || '¡Bienvenido de nuevo!');
           if (data.session_token) setSessionToken(data.session_token);
-          setAuthUI(true); // <-- actualizar UI
+          setAuthUI(true);
           LoginModal.close();
-          /** @type {HTMLFormElement} */(loginForm).reset();
-          // Si quieres recargar para forzar estado: location.reload();
+          loginForm.reset();
         } else {
           toast.error(data.error || `Error (${res.status}): Credenciales inválidas.`);
         }
-      } catch (err) {
-        console.error('Error en fetch de login:', err);
-        toast.error('Error de red. No se pudo contactar al servidor.');
+      } catch {
+        toast.error('Error de red.');
       } finally {
-        btn.removeAttribute('disabled');
+        btn.disabled = false;
         btn.textContent = 'Entrar';
       }
     });
   }
 }
 
-// ====== Manejar Verificación de Email ======================================
-
 function checkEmailVerification() {
   const params = new URLSearchParams(window.location.search);
-  
+
   if (params.has('verified') && params.get('verified') === 'true') {
     toast.success('¡Correo verificado! Ya puedes iniciar sesión.', 8000);
     history.replaceState(null, '', window.location.pathname);
     LoginModal.open();
   }
-  
+
   const error = params.get('error');
   if (error) {
     let message = 'Ocurrió un error de verificación.';
     if (error === 'invalid_token') message = 'El enlace de verificación no es válido.';
     if (error === 'token_used') message = 'El enlace de verificación ya fue utilizado.';
     if (error === 'token_expired') message = 'El enlace de verificación ha expirado.';
-    
     toast.error(message, 8000);
     history.replaceState(null, '', window.location.pathname);
   }
 }
 
-// ====== Helpers de sesión para rutas protegidas =============================
-
-/** Llama a la API protegida para guardar una expresión en el historial */
+// Proteccion de historial de graficas
 async function savePlot(expression, plot_parameters = null, plot_metadata = null) {
   const res = await authFetch('/api/plot', {
     method: 'POST',
@@ -859,52 +849,50 @@ async function savePlot(expression, plot_parameters = null, plot_metadata = null
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data?.error || 'No se pudo guardar el historial');
-  return data; // { id, message }
+  return data;
 }
 
-// ====== Logout (cliente + servidor) ========================================
-
+// Cierre de sesión
 async function logout() {
   try {
     await authFetch('/api/logout', { method: 'POST' });
   } catch (e) {
-    console.warn('Logout request failed (se limpia igual):', e);
+    console.warn('Logout request failed:', e);
   } finally {
-    clearSessionToken();
+    localStorage.removeItem(KEYS.sessionToken);
     setAuthUI(false);
-    toast?.success?.('Sesión cerrada.');
+    toast.success('Sesión cerrada.');
   }
 }
 
 function bindLogout() {
-  const btn = qs(SELECTORS.btnLogout);
-  if (btn) on(btn, 'click', (e) => { e.preventDefault(); logout(); });
+  const btn = qs('#btn-logout');
+  if (btn) on(btn, 'click', (e) => {
+    e.preventDefault();
+    logout();
+  });
 }
 
-// ====== Punto de entrada ====================================================
-
+// Iniciador
 function init() {
   initTheme();
   DrawerController.bind();
   LoginModal.bind?.();
   SignupModal.bind?.();
-  bindAnchorScrolling();
+  bindAnchorScrolling();  // navega a secciones (header y drawer)
   initScrollSpy();
   BackendStatus.check();
   initContactForm();
-  initCTA();
   setCurrentYear();
   restoreLastSection();
   bindGlobalTriggers();
 
-  // --- NUEVO: estado de sesión + cableado de logout ---
   restoreSessionAuth();
   initAuthForms();
   bindLogout();
   checkEmailVerification();
 }
 
-// Inicia la aplicación
 init();
 
-export { openLogin, openSignup, toggleTheme, authFetch, savePlot, logout, toast };
+export { toggleTheme, authFetch, savePlot, logout, toast };

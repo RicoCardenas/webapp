@@ -9,8 +9,8 @@ from .extensions import db, migrate, bcrypt, mail, cors
 
 # Resolve project directories so Flask can serve the frontend assets.
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
-PUBLIC_DIR = PROJECT_ROOT / "frontend" / "public"
-STATIC_DIR = PROJECT_ROOT / "frontend" / "src"
+PUBLIC_DIR = PROJECT_ROOT / "frontend" / "public" 
+STATIC_DIR = PROJECT_ROOT / "frontend" / "src" 
 
 
 def create_app(config_object=Config) -> Flask:

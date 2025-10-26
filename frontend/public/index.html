@@ -15,6 +15,8 @@
     <link rel="mask-icon" href="/static/icons/safari-pinned-tab.svg" color="#0f172a" />
     <meta name="msapplication-TileColor" content="#0f172a" />
     <link rel="stylesheet" href="/static/styles.css" />
+
+    
   </head>
   <body class="page page--landing">
     <a class="skip-link" href="#app">Saltar al contenido principal</a>
@@ -39,7 +41,7 @@
             <li class="nav__item"><a class="nav__link" href="#about">Acerca de</a></li>
             <li class="nav__item"><a class="nav__link" href="#how-it-works">Cómo funciona</a></li>
             <li class="nav__item"><a class="nav__link" href="#docs">Documentación</a></li>
-            <li class="nav__item"><a class="nav__link" href="#plotter">Graficadora</a></li>
+            <li class="nav__item"><a class="nav__link" href="/graph">Graficadora</a></li>
             <li class="nav__item"><a class="nav__link" href="#contact">Contacto</a></li>
           </ul>
         </nav>
@@ -87,7 +89,7 @@
             <li class="drawer__item"><a class="drawer__link" href="#about">Acerca de</a></li>
             <li class="drawer__item"><a class="drawer__link" href="#how-it-works">Cómo funciona</a></li>
             <li class="drawer__item"><a class="drawer__link" href="#docs">Documentación</a></li>
-            <li class="drawer__item"><a class="drawer__link" href="#plotter">Graficadora</a></li>
+            <li class="drawer__item"><a class="drawer__link" href="/graph">Graficadora</a></li>
             <li class="drawer__item"><a class="drawer__link" href="#contact">Contacto</a></li>
           </ul>
           <div class="drawer__actions">
@@ -107,7 +109,8 @@
           <p class="hero__subtitle">Graficadora matemática en la web: funciones, vista previa instantánea y exportación.</p>
 
           <div class="hero__ctas">
-            <a id="cta-graficar" class="btn btn--primary hero__cta" href="#plotter" role="button">Graficar ahora</a>
+            <!-- FIX: id único y correcto -->
+            <a id="cta-graficar" class="btn btn--primary hero__cta" href="/graph" role="button">Graficar ahora</a>
             <a class="btn btn--ghost hero__cta" href="#docs" role="button">Ver documentación</a>
           </div>
         </div>
@@ -220,57 +223,6 @@
                 <li><kbd>G</kbd> activa la cuadrícula para comparar valores.</li>
                 <li>Exporta la imagen en PNG o SVG con fondo transparente.</li>
               </ul>
-            </article>
-          </div>
-        </div>
-      </section>
-
-      <!-- PLOTTER (Motor propio) -->
-      <section id="plotter" class="docs" aria-labelledby="plotter-title">
-        <div class="docs__inner">
-          <h2 id="plotter-title" class="section-title">Graficadora</h2>
-
-          <div class="docs__grid">
-            <!-- Panel de entrada -->
-            <article class="docs__card" style="grid-column: 1 / -1;">
-              <h3 class="docs__card-title">Ingresa expresiones</h3>
-              <p class="docs__card-text">
-                Ejemplos: <code>y = sin(x)</code>, <code>f(x) = x^2 + 2x + 1</code>, <code>cos(x)</code>
-              </p>
-
-              <form id="plot-form" class="form" autocomplete="off" aria-describedby="plotter-hint">
-                <div class="form__field">
-                  <label class="form__label" for="plot-input">Expresión</label>
-                  <input
-                    class="form__input"
-                    id="plot-input"
-                    name="expr"
-                    type="text"
-                    placeholder="y = sin(x)"
-                    inputmode="text"
-                    spellcheck="false"
-                    autocomplete="off"
-                  />
-                  <p id="plotter-hint" class="form__hint">Tip: <kbd>Ctrl</kbd> + <kbd>Enter</kbd> para graficar rápidamente.</p>
-                </div>
-
-                <div class="form__actions">
-                  <button class="btn btn--primary" type="submit">Graficar</button>
-                  <button id="btn-clear" class="btn btn--ghost" type="button">Limpiar</button>
-                  <button id="btn-grid" class="btn btn--ghost" type="button" aria-pressed="true">Cuadrícula: ON</button>
-                  <button id="btn-export" class="btn btn--ghost" type="button">Exportar PNG</button>
-                  <button id="btn-history" class="btn btn--ghost" type="button">Historial</button>
-                </div>
-              </form>
-
-              <!-- Lista de expresiones activas -->
-              <div id="expr-list" class="docs__chips" aria-live="polite" aria-atomic="true" style="margin-top:.5rem;"></div>
-            </article>
-
-            <!-- Lienzo -->
-            <article class="docs__card" style="grid-column: 1 / -1;">
-              <h3 class="docs__card-title">Vista</h3>
-              <div id="ggb-container" style="width:100%; aspect-ratio:16/9; min-height:380px;" aria-label="Lienzo de graficación"></div>
             </article>
           </div>
         </div>
@@ -413,35 +365,6 @@
       </div>
     </div>
 
-    <!-- Modal: Historial -->
-    <div id="modal-history" class="modal" role="dialog" aria-modal="true" aria-labelledby="history-title" aria-hidden="true">
-      <div class="modal__overlay" data-close="history" tabindex="-1" aria-hidden="true"></div>
-      <div class="modal__dialog" role="document" tabindex="-1">
-        <header class="modal__header">
-          <h2 id="history-title" class="modal__title">Historial</h2>
-          <button class="modal__close btn btn--icon" type="button" data-close="history" aria-label="Cerrar">✕</button>
-        </header>
-
-        <div class="modal__body">
-          <div class="form__field">
-            <label class="form__label" for="history-search">Buscar</label>
-            <input class="form__input" id="history-search" type="text" placeholder="filtrar por texto..." />
-          </div>
-
-          <div class="form__field" style="display:flex;align-items:center;gap:.5rem;">
-            <input id="history-select-all" type="checkbox" />
-            <label for="history-select-all">Seleccionar todo</label>
-          </div>
-
-          <div id="history-list" class="history__list" role="list" style="max-height:45vh; overflow:auto;"></div>
-
-          <div class="form__actions" style="justify-content:flex-end;">
-            <button id="history-plot-selected" class="btn btn--primary" type="button">Graficar seleccionadas</button>
-          </div>
-        </div>
-      </div>
-    </div>
-
     <!-- Toasts -->
     <div id="toasts" class="toasts" aria-live="polite" aria-atomic="true"></div>
 
@@ -449,11 +372,8 @@
       <div class="noscript">Para utilizar EcuPlot necesitas habilitar JavaScript. Actívalo en tu navegador y recarga la página.</div>
     </noscript>
 
-    <!-- math.js -->
-    <script src="https://cdn.jsdelivr.net/npm/mathjs@11.11.0/lib/browser/math.js"></script>
-    <!-- plotter propio -->
-    <script src="/static/plotter.js" type="module" defer></script>
     <!-- app.js general -->
     <script src="/static/app.js" type="module" defer></script>
+
   </body>
 </html>

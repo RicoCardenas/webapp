@@ -19,6 +19,13 @@ def serve_frontend():
     """Sirve el index.html principal."""
     return send_from_directory(current_app.template_folder, "index.html")
 
+@frontend.get("/graph")
+@frontend.get("/graph.html")  # alias opcional
+def graph():
+    # sirve /graph y /graph.html -> graph.html
+    return send_from_directory(current_app.template_folder, "graph.html")
+
+
 # --- Rutas de la API ---
 
 @api.get("/health")
