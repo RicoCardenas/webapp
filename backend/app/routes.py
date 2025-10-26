@@ -23,6 +23,10 @@ def graph():
     # sirve /graph y /graph.html -> graph.html
     return send_from_directory(current_app.template_folder, "graph.html")
 
+@frontend.get("/account")
+def account():
+    # sirve /account -> account.html
+    return send_from_directory(current_app.template_folder, "account.html")
 
 # --- Rutas de la API ---
 
@@ -86,9 +90,13 @@ def register_user():
     email = data.get('email')
     password = data.get('password')
     terms = data.get('terms')
+    name = data.get('name')  
 
-    if not email or not password:
-        return jsonify(error="Email y contraseña son requeridos."), 400
+    if not email or not password or not name:
+        return jsonify(error="Nombre, email y contraseña son requeridos."), 400
+    if len(name) < 2:
+         return jsonify(error="El nombre debe tener al menos 2 caracteres"), 400
+
 
     if not terms:
         return jsonify(error="Debes aceptar los términos y condiciones para registrarte."), 400
@@ -100,6 +108,7 @@ def register_user():
     if existing_user:
         return jsonify(error="El correo electrónico ya está registrado."), 409
 
+    # Esto está perfecto, busca el rol 'user' que creamos en seed-roles
     user_role = db.session.execute(
         db.select(Roles).where(Roles.name == 'user')
     ).scalar_one_or_none()
@@ -113,6 +122,7 @@ def register_user():
     try:
         new_user = Users(
             email=email,
+            name=name,  # <--- NUEVO: Añadimos el nombre
             password_hash=hashed_password,
             role_id=user_role.id
         )
@@ -137,7 +147,7 @@ def register_user():
             sender=sender,
             recipients=[email]
         )
-        msg.body = f"""¡Hola!
+        msg.body = f"""¡Hola {name}! 
 
 Gracias por registrarte en EcuPlot.
 
@@ -270,6 +280,26 @@ def logout_user():
         db.session.rollback()
         current_app.logger.error(f"Error al cerrar sesión: {e}")
         return jsonify(error="No se pudo cerrar la sesión."), 500
+
+
+@api.get("/user/me")
+@require_session
+def get_current_user_details():
+    """
+    Devuelve los detalles del usuario actualmente autenticado.
+    Usa el decorador @require_session que puebla g.current_user.
+    """  
+  
+    user = g.current_user 
+
+    return jsonify({
+        "id": str(user.id),
+        "name": user.name,
+        "email": user.email,
+        "role": user.role.name,  
+        "is_verified": user.is_verified,
+        "created_at": user.created_at.isoformat()
+    }), 200
 
 # Plot: guardar (1 o varias) 
 @api.post("/plot")

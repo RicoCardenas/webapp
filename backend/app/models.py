@@ -19,6 +19,7 @@ class Users(db.Model):
 
     id = db.Column(UUID(as_uuid=True), primary_key=True, server_default=func.gen_random_uuid())
     role_id = db.Column(UUID(as_uuid=True), db.ForeignKey('roles.id'), nullable=False)
+    name = db.Column(db.String(100), nullable=False, default="Usuario")
     
     email = db.Column(db.String(255), nullable=False, unique=True)
     password_hash = db.Column(db.Text, nullable=False)

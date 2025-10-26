@@ -654,7 +654,7 @@ function ensureAccountButton() {
     btnAccount = document.createElement('a');
     btnAccount.id = 'btn-account';
     btnAccount.className = 'btn header__btn';
-    btnAccount.href = '#docs';
+    btnAccount.href = '/account';
     btnAccount.textContent = 'Mi Cuenta';
     btnAccount.style.display = 'none';
 
@@ -698,6 +698,8 @@ function initAuthForms() {
       v && v.length >= 8 ? '' : 'La contraseña debe tener al menos 8 caracteres',
     loginPassword: (v) =>
       v && v.length > 0 ? '' : 'Ingresa tu contraseña',
+    name: (v) => // <-- NUEVO
+      v && v.length >= 2 ? '' : 'El nombre debe tener al menos 2 caracteres',
   };
 
   if (signupForm) {
@@ -705,36 +707,44 @@ function initAuthForms() {
       e.preventDefault();
 
       const btn = qs('button[type="submit"]', signupForm);
+      const nameEl = qs('#signup-name', signupForm); // <-- NUEVO
       const emailEl = qs('#signup-email', signupForm);
       const passwordEl = qs('#signup-password', signupForm);
       const terms = qs('#signup-terms', signupForm);
 
       // 2. Obtener elementos de error
+      const errName = qs('#error-signup-name', signupForm); // <-- NUEVO
       const errEmail = qs('#error-signup-email', signupForm);
       const errPass = qs('#error-signup-password', signupForm);
       const errTerms = qs('#error-signup-terms', signupForm);
 
-      if (!emailEl || !passwordEl || !btn || !terms || !errEmail || !errPass || !errTerms) return;
+      // <-- MODIFICADO
+      if (!emailEl || !passwordEl || !btn || !terms || !errEmail || !errPass || !errTerms || !nameEl || !errName) return;
 
       // 3. Ocultar errores previos
+      hideFieldError(errName); // <-- NUEVO
       hideFieldError(errEmail);
       hideFieldError(errPass);
       hideFieldError(errTerms);
 
       // 4. Ejecutar validaciones
       const errors = {
+        name: authValidators.name(nameEl.value), // <-- NUEVO
         email: authValidators.email(emailEl.value),
         password: authValidators.password(passwordEl.value),
         terms: !terms.checked ? 'Debes aceptar los términos' : ''
       };
 
       let invalid = false;
+      if (errors.name) { showFieldError(errName, errors.name); invalid = true; } // <-- NUEVO
       if (errors.email) { showFieldError(errEmail, errors.email); invalid = true; }
       if (errors.password) { showFieldError(errPass, errors.password); invalid = true; }
       if (errors.terms) { showFieldError(errTerms, errors.terms); invalid = true; }
 
+      // 5. Detener si hay errores
       if (invalid) return;
 
+    
       btn.disabled = true;
       btn.textContent = 'Registrando...';
 
@@ -745,6 +755,7 @@ function initAuthForms() {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
+              name: nameEl.value, // <-- NUEVO
               email: emailEl.value,
               password: passwordEl.value,
               terms: true,
@@ -800,6 +811,7 @@ function initAuthForms() {
       // 5. Detener si hay errores
       if (invalid) return;
 
+      // --- Solo si la validación pasa, continuamos ---
       btn.disabled = true;
       btn.textContent = 'Entrando...';
 
@@ -821,6 +833,7 @@ function initAuthForms() {
           toast.success(data.message || '¡Bienvenido de nuevo!');
           if (data.session_token) setSessionToken(data.session_token);
           setAuthUI(true);
+          window.dispatchEvent(new CustomEvent('ecuplot:login'));
           LoginModal.close();
           loginForm.reset();
         } else {
@@ -835,6 +848,8 @@ function initAuthForms() {
     });
   }
 }
+
+// Verificación de correo
 function checkEmailVerification() {
   const params = new URLSearchParams(window.location.search);
 
@@ -875,6 +890,7 @@ async function logout() {
   } finally {
     localStorage.removeItem(KEYS.sessionToken);
     setAuthUI(false);
+    window.dispatchEvent(new CustomEvent('ecuplot:logout'));
     toast.success('Sesión cerrada.');
   }
 }
