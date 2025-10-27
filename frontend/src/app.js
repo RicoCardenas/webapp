@@ -68,6 +68,14 @@ const KEYS = {
   sessionToken: 'ecuplot_session_token',
 };
 
+const HEADER_ICON_PATHS = {
+  account: {
+    light: '/static/images/userclaro.png',
+    dark: '/static/images/useroscuro.png',
+    label: 'Mi Cuenta',
+  },
+};
+
 const CLASSNAMES = {
   isOpen: 'is-open',
   hasModal: 'has-modal',
@@ -259,11 +267,13 @@ const DrawerController = (() => {
     drawer = qs('#mobile-drawer');
     toggleBtn = qs('[data-drawer-toggle]');
     overlay = qs('.drawer__overlay', drawer || undefined);
+    const closeBtn = drawer ? qs('.drawer__close', drawer) : null;
 
     if (!drawer || !toggleBtn) return;
 
     on(toggleBtn, 'click', open);
     on(overlay, 'click', close);
+    on(closeBtn, 'click', close);
     on(document, 'keydown', (e) => {
       if (drawer?.classList.contains('is-open') && e.key === 'Escape') close();
     });
@@ -644,6 +654,19 @@ function clearSessionToken() {
   localStorage.removeItem(KEYS.sessionToken);
 }
 
+function buildHeaderButtonMarkup(config, options = {}) {
+  if (!config) return '';
+  const { light, dark, label } = config;
+  const showLabel = options.showLabel ?? false;
+  return `
+    <span class="btn__icon" aria-hidden="true">
+      <img class="btn__icon-img btn__icon-img--light" src="${light}" alt="" decoding="async" />
+      <img class="btn__icon-img btn__icon-img--dark" src="${dark}" alt="" decoding="async" />
+    </span>
+    ${showLabel && label ? `<span class="btn__label">${label}</span>` : ''}
+  `;
+}
+
 async function authFetch(url, options = {}) {
   const token = getSessionToken();
   const headers = new Headers(options.headers || {});
@@ -660,13 +683,20 @@ function ensureAccountButton() {
   if (!btnAccount) {
     btnAccount = document.createElement('a');
     btnAccount.id = 'btn-account';
-    btnAccount.className = 'btn header__btn';
+    btnAccount.className = 'btn header__btn header__btn--account btn--has-icon btn--icon-only';
     btnAccount.href = '/account';
-    btnAccount.textContent = 'Mi Cuenta';
+    btnAccount.setAttribute('aria-label', HEADER_ICON_PATHS.account.label);
+    btnAccount.innerHTML = buildHeaderButtonMarkup(HEADER_ICON_PATHS.account);
     btnAccount.style.display = 'none';
 
     const themeBtn = qs('[data-theme-toggle]', actions);
     actions.insertBefore(btnAccount, themeBtn || actions.lastChild);
+  } else {
+    btnAccount.classList.add('btn--has-icon', 'header__btn--account', 'btn--icon-only');
+    btnAccount.setAttribute('aria-label', HEADER_ICON_PATHS.account.label);
+    if (!btnAccount.querySelector('.btn__icon')) {
+      btnAccount.innerHTML = buildHeaderButtonMarkup(HEADER_ICON_PATHS.account);
+    }
   }
   return btnAccount;
 }

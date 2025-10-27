@@ -12,38 +12,112 @@
   <body class="page page-account">
     <header id="site-header" class="header" role="banner" aria-label="Cabecera del sitio">
       <div class="header__inner">
-        <!-- Logo -->
-        <a href="/" class="header__logo" aria-label="Ir al inicio">
-          <img
-            src="/static/images/logo.jpg"
-            alt="EcuPlot logo"
-            class="header__logo-img img-responsive"
-            decoding="async"
-          />
-          <span class="header__logo-text">EcuPlot</span>
-        </a>
-        <!-- Navegación primaria -->
+        <div class="header__brand">
+          <a href="/" class="header__logo" aria-label="Ir al inicio">
+            <img
+              src="/static/images/logo.jpg"
+              alt="EcuPlot logo"
+              class="header__logo-img img-responsive"
+              decoding="async"
+            />
+            <span class="header__logo-text">EcuPlot</span>
+          </a>
+        </div>
         <nav id="primary-nav" class="nav header__nav" aria-label="Navegación principal">
           <ul class="nav__list" role="list">
             <li class="nav__item"><a class="nav__link" href="/" aria-current="page">Inicio</a></li>
             <li class="nav__item"><a class="nav__link" href="/graph">Graficadora</a></li>
           </ul>
         </nav>
-
-        <!-- Acciones -->
         <div class="header__actions">
-          <button class="btn btn--ghost header__btn" type="button" data-open="modal-login" aria-haspopup="dialog" aria-controls="modal-login">Iniciar sesión</button>
-          <button class="btn btn--primary header__btn" type="button" data-open="modal-signup" aria-haspopup="dialog" aria-controls="modal-signup">Crear cuenta</button>
-          <button id="btn-logout" class="btn header__btn--logout" type="button" style="display:none">
-          Cerrar sesión
+            <button
+              class="btn btn--ghost header__btn btn--has-icon btn--icon-only"
+              type="button"
+              data-open="modal-login"
+              aria-haspopup="dialog"
+            aria-controls="modal-login"
+            aria-label="Iniciar sesión"
+          >
+            <span class="btn__icon" aria-hidden="true">
+              <img class="btn__icon-img btn__icon-img--light" src="/static/images/loginclaro.png" alt="" decoding="async" />
+              <img class="btn__icon-img btn__icon-img--dark" src="/static/images/loginoscuro.png" alt="" decoding="async" />
+            </span>
+          </button>
+          <button
+            class="btn btn--primary header__btn btn--has-icon btn--icon-only"
+            type="button"
+            data-open="modal-signup"
+            aria-haspopup="dialog"
+            aria-controls="modal-signup"
+            aria-label="Crear cuenta"
+          >
+            <span class="btn__icon" aria-hidden="true">
+              <img class="btn__icon-img btn__icon-img--light" src="/static/images/signinclaro.png" alt="" decoding="async" />
+              <img class="btn__icon-img btn__icon-img--dark" src="/static/images/signinoscuro.png" alt="" decoding="async" />
+            </span>
+          </button>
+          <button
+            id="btn-logout"
+            class="btn header__btn header__btn--logout btn--has-icon btn--icon-only"
+            type="button"
+            aria-label="Cerrar sesión"
+            style="display:none"
+          >
+            <span class="btn__icon" aria-hidden="true">
+              <img class="btn__icon-img btn__icon-img--light" src="/static/images/logoutclaro.png" alt="" decoding="async" />
+              <img class="btn__icon-img btn__icon-img--dark" src="/static/images/logoutoscuro.png" alt="" decoding="async" />
+            </span>
           </button>
           <button class="btn btn--icon header__btn" type="button" aria-pressed="false" aria-label="Cambiar tema claro/oscuro" data-theme-toggle>
             <img class="icon icon--theme icon--theme-light" src="/static/images/luna.png" alt="" decoding="async" />
             <img class="icon icon--theme icon--theme-dark" src="/static/images/sol.png" alt="" decoding="async" />
           </button>
+          <button
+            class="btn btn--icon header__btn header__btn--menu"
+            type="button"
+            aria-label="Abrir menú"
+            aria-controls="mobile-drawer"
+            aria-expanded="false"
+            data-drawer-toggle
+          >
+            <img class="icon icon--menu icon--menu-light" src="/static/images/hamburgblack.png" alt="" decoding="async" />
+            <img class="icon icon--menu icon--menu-dark" src="/static/images/hamburgwhite.png" alt="" decoding="async" />
+          </button>
         </div>
+
+        <!-- Navegación primaria -->
       </div>
     </header>
+
+    <aside id="mobile-drawer" class="drawer" aria-hidden="true" aria-labelledby="mobile-drawer-title" role="dialog">
+      <div class="drawer__overlay" data-drawer-toggle tabindex="-1" aria-hidden="true"></div>
+      <div class="drawer__panel" role="document">
+        <div class="drawer__header">
+          <h2 id="mobile-drawer-title" class="drawer__title">Menú</h2>
+          <button class="drawer__close btn btn--icon" type="button" data-drawer-toggle aria-label="Cerrar menú">
+            <span class="btn__icon" aria-hidden="true">
+              <img class="btn__icon-img btn__icon-img--light" src="/static/images/closeclaro.png" alt="" decoding="async" />
+              <img class="btn__icon-img btn__icon-img--dark" src="/static/images/closeoscuro.png" alt="" decoding="async" />
+            </span>
+          </button>
+        </div>
+        <nav class="drawer__nav" aria-label="Navegación móvil">
+          <ul class="drawer__list" role="list">
+            <li class="drawer__item"><a class="drawer__link" href="/#hero">Inicio</a></li>
+            <li class="drawer__item"><a class="drawer__link" href="/#about">Acerca de</a></li>
+            <li class="drawer__item"><a class="drawer__link" href="/#how-it-works">Cómo funciona</a></li>
+            <li class="drawer__item"><a class="drawer__link" href="/#docs">Documentación</a></li>
+            <li class="drawer__item"><a class="drawer__link" href="/graph">Graficadora</a></li>
+            <li class="drawer__item"><a class="drawer__link" href="/account" aria-current="page">Mi cuenta</a></li>
+            <li class="drawer__item"><a class="drawer__link" href="/#contact">Contacto</a></li>
+          </ul>
+          <div class="drawer__actions">
+            <button class="btn btn--ghost drawer__btn" type="button" data-open="modal-login" aria-haspopup="dialog" aria-controls="modal-login">Iniciar sesión</button>
+            <button class="btn btn--primary drawer__btn" type="button" data-open="modal-signup" aria-haspopup="dialog" aria-controls="modal-signup">Crear cuenta</button>
+          </div>
+        </nav>
+      </div>
+    </aside>
 
     <main class="account-main">
       <div id="account-authenticated" class="account-shell">
@@ -139,7 +213,12 @@
         <header class="modal__header">
           <h2 id="login-title" class="modal__title">Iniciar sesión</h2>
           <p id="login-desc" class="modal__desc">Accede a tu cuenta para gestionar tus funciones y exportaciones.</p>
-          <button class="modal__close btn btn--icon" type="button" data-close="modal" aria-label="Cerrar">✕</button>
+          <button class="modal__close btn btn--icon" type="button" data-close="modal" aria-label="Cerrar">
+            <span class="btn__icon" aria-hidden="true">
+              <img class="btn__icon-img btn__icon-img--light" src="/static/images/closeclaro.png" alt="" decoding="async" />
+              <img class="btn__icon-img btn__icon-img--dark" src="/static/images/closeoscuro.png" alt="" decoding="async" />
+            </span>
+          </button>
         </header>
         <div class="modal__body">
           <form class="form" action="/login" method="post" novalidate data-form-validate>
@@ -173,7 +252,12 @@
         <header class="modal__header">
           <h2 id="signup-title" class="modal__title">Crear cuenta</h2>
           <p id="signup-desc" class="modal__desc">Regístrate para guardar funciones, historiales y exportaciones.</p>
-          <button class="modal__close btn btn--icon" type="button" data-close="modal" aria-label="Cerrar">✕</button>
+          <button class="modal__close btn btn--icon" type="button" data-close="modal" aria-label="Cerrar">
+            <span class="btn__icon" aria-hidden="true">
+              <img class="btn__icon-img btn__icon-img--light" src="/static/images/closeclaro.png" alt="" decoding="async" />
+              <img class="btn__icon-img btn__icon-img--dark" src="/static/images/closeoscuro.png" alt="" decoding="async" />
+            </span>
+          </button>
         </header>
 
         <div class="modal__body">

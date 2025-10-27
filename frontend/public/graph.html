@@ -26,7 +26,12 @@
                   <p class="functions-panel__eyebrow">Funciones</p>
                   <h2 class="functions-panel__title">Mis expresiones</h2>
                 </div>
-                <button id="close-functions" class="btn btn--icon" type="button" aria-label="Ocultar panel">✕</button>
+                <button id="close-functions" class="btn btn--icon" type="button" aria-label="Ocultar panel">
+                  <span class="btn__icon" aria-hidden="true">
+                    <img class="btn__icon-img btn__icon-img--light" src="/static/images/closeclaro.png" alt="" decoding="async" />
+                    <img class="btn__icon-img btn__icon-img--dark" src="/static/images/closeoscuro.png" alt="" decoding="async" />
+                  </span>
+                </button>
               </header>
               <div class="functions-panel__body">
                 <div class="sidebar__header">Funciones</div>
@@ -46,7 +51,12 @@
                 </div>
                 <div class="value-panel__actions">
                   <button id="clear-values" class="btn btn--ghost btn--sm" type="button">Limpiar</button>
-                  <button id="close-values" class="btn btn--icon" type="button" aria-label="Ocultar tabla">✕</button>
+                  <button id="close-values" class="btn btn--icon" type="button" aria-label="Ocultar tabla">
+                    <span class="btn__icon" aria-hidden="true">
+                      <img class="btn__icon-img btn__icon-img--light" src="/static/images/closeclaro.png" alt="" decoding="async" />
+                      <img class="btn__icon-img btn__icon-img--dark" src="/static/images/closeoscuro.png" alt="" decoding="async" />
+                    </span>
+                  </button>
                 </div>
               </header>
               <div class="value-panel__body">
@@ -85,11 +95,25 @@
               />
               <p id="plotter-hint" class="sr-only">Tip: Ctrl + Enter para graficar rápidamente.</p>
               <div class="controls-bar__actions">
-                <button class="btn btn--primary" type="submit">Graficar</button>
-                <button id="btn-clear" class="btn btn--ghost" type="button">Limpiar</button>
-                <button id="btn-grid" class="btn btn--ghost" type="button" aria-pressed="true">Cuadrícula: ON</button>
-                <button id="btn-export" class="btn btn--ghost" type="button">Exportar PNG</button>
-                <button id="btn-history" class="btn btn--ghost" type="button">Historial</button>
+                <div class="controls-bar__primary">
+                  <button class="btn btn--primary controls-bar__submit" type="submit">Graficar</button>
+                  <button
+                    id="controls-actions-toggle"
+                    class="btn btn--ghost controls-bar__toggle"
+                    type="button"
+                    aria-expanded="false"
+                    aria-controls="controls-secondary"
+                  >
+                    Opciones
+                    <span class="controls-bar__toggle-icon" aria-hidden="true"></span>
+                  </button>
+                </div>
+                <div id="controls-secondary" class="controls-bar__secondary">
+                  <button id="btn-clear" class="btn btn--ghost" type="button">Limpiar</button>
+                  <button id="btn-grid" class="btn btn--ghost" type="button" aria-pressed="true">Cuadrícula: ON</button>
+                  <button id="btn-export" class="btn btn--ghost" type="button">Exportar PNG</button>
+                  <button id="btn-history" class="btn btn--ghost" type="button">Historial</button>
+                </div>
               </div>
             </form>
           </div>
@@ -103,7 +127,12 @@
       <div class="modal__dialog" role="document" tabindex="-1">
         <header class="modal__header">
           <h2 id="history-title" class="modal__title">Historial</h2>
-          <button class="modal__close btn btn--icon" type="button" data-close="history" aria-label="Cerrar">✕</button>
+          <button class="modal__close btn btn--icon" type="button" data-close="history" aria-label="Cerrar">
+            <span class="btn__icon" aria-hidden="true">
+              <img class="btn__icon-img btn__icon-img--light" src="/static/images/closeclaro.png" alt="" decoding="async" />
+              <img class="btn__icon-img btn__icon-img--dark" src="/static/images/closeoscuro.png" alt="" decoding="async" />
+            </span>
+          </button>
         </header>
 
         <div class="modal__body">

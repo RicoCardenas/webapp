@@ -10,6 +10,8 @@ const selectors = {
   valueTableEmpty: '#value-table-empty',
   coordHud: '#coord-hud',
   graphContainer: '#ggb-container',
+  controlsToggle: '#controls-actions-toggle',
+  controlsSecondary: '#controls-secondary',
 };
 
 const valueState = {
@@ -90,25 +92,38 @@ function initFunctionPanelToggle() {
   const closeBtn = document.getElementById('close-functions');
   if (!btn || !panel) return;
 
+  const notifyResize = () => window.requestAnimationFrame(() => window.dispatchEvent(new Event('resize')));
   const applyState = (open) => {
     panel.hidden = !open;
     btn.textContent = open ? 'Ocultar funciones' : 'Mostrar funciones';
     btn.setAttribute('aria-pressed', String(open));
+    notifyResize();
   };
 
+  const mq = window.matchMedia('(max-width: 768px)');
   let isOpen = !panel.hidden;
-  btn.setAttribute('aria-pressed', String(isOpen));
+
+  const setState = (next) => {
+    isOpen = next;
+    applyState(isOpen);
+  };
+
+  const syncToViewport = (isMobile) => {
+    setState(isMobile ? false : true);
+  };
+
+  syncToViewport(mq.matches);
 
   btn.addEventListener('click', () => {
-    isOpen = !isOpen;
-    applyState(isOpen);
-    window.requestAnimationFrame(() => window.dispatchEvent(new Event('resize')));
+    setState(!isOpen);
   });
 
   closeBtn?.addEventListener('click', () => {
-    isOpen = false;
-    applyState(isOpen);
-    window.requestAnimationFrame(() => window.dispatchEvent(new Event('resize')));
+    setState(false);
+  });
+
+  mq.addEventListener('change', (event) => {
+    syncToViewport(event.matches);
   });
 }
 
@@ -184,6 +199,48 @@ function initValuePanel() {
   });
 }
 
+function initControlsCollapse() {
+  const toggle = document.querySelector(selectors.controlsToggle);
+  const secondary = document.querySelector(selectors.controlsSecondary);
+  if (!toggle || !secondary) return;
+
+  const mq = window.matchMedia('(max-width: 640px)');
+  let manualOpen = false;
+
+  const applyState = (open) => {
+    const shouldOpen = mq.matches ? open : true;
+    secondary.classList.toggle('is-open', shouldOpen);
+    toggle.setAttribute('aria-expanded', String(shouldOpen));
+    toggle.classList.toggle('is-active', shouldOpen && mq.matches);
+  };
+
+  const syncLayout = () => {
+    if (mq.matches) {
+      toggle.hidden = false;
+      applyState(manualOpen);
+    } else {
+      toggle.hidden = true;
+      applyState(true);
+    }
+  };
+
+  toggle.addEventListener('click', () => {
+    if (!mq.matches) return;
+    const next = !secondary.classList.contains('is-open');
+    manualOpen = next;
+    applyState(next);
+  });
+
+  mq.addEventListener('change', (event) => {
+    if (event.matches) {
+      manualOpen = false;
+    }
+    syncLayout();
+  });
+
+  syncLayout();
+}
+
 function initPlotterBridge() {
   const container = document.querySelector(selectors.graphContainer);
   if (!container) return;
@@ -204,6 +261,7 @@ function init() {
   initQueryExprBoot();
   initCoordHUD();
   initFunctionPanelToggle();
+  initControlsCollapse();
   initValuePanel();
   initPlotterBridge();
   renderValueTable();
