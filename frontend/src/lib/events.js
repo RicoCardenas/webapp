@@ -1,5 +1,4 @@
 /**
- * Attach an event listener if the target supports it.
  * @param {EventTarget|null|undefined} target
  * @param {string} type
  * @param {EventListenerOrEventListenerObject} listener
@@ -10,7 +9,6 @@ export function on(target, type, listener, options) {
 }
 
 /**
- * Detach an event listener if the target supports it.
  * @param {EventTarget|null|undefined} target
  * @param {string} type
  * @param {EventListenerOrEventListenerObject} listener
@@ -21,7 +19,6 @@ export function off(target, type, listener, options) {
 }
 
 /**
- * Debounce a function call.
  * @template {(...args: any[]) => void} T
  * @param {T} handler
  * @param {number} [delay=150]

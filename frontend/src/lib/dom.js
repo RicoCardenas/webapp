@@ -1,5 +1,4 @@
 /**
- * Query a single element within a context.
  * @template {Element} T
  * @param {string} selector
  * @param {ParentNode} [context=document]
@@ -10,7 +9,6 @@ export function qs(selector, context = document) {
 }
 
 /**
- * Query a NodeList of elements within a context.
  * @param {string} selector
  * @param {ParentNode} [context=document]
  * @returns {NodeListOf<Element>}

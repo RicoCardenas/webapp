@@ -1,8 +1,5 @@
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
-/**
- * Common validation helpers.
- */
 export const contactValidators = {
   name(value) {
     return value && value.trim().length >= 2 ? '' : 'Ingresa tu nombre (mín. 2 caracteres)';
@@ -34,8 +31,7 @@ export const authValidators = {
 };
 
 /**
- * Execute a validation schema against supplied values.
- * @template T extends Record<string, any>
+ * @template T 
  * @param {Record<keyof T, (value: T[keyof T]) => string>} schema
  * @param {T} values
  * @returns {Record<keyof T, string>}

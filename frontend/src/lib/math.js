@@ -1,7 +1,6 @@
 /* global math */
 
 /**
- * Clamp a value within a range.
  * @param {number} value
  * @param {number} min
  * @param {number} max
@@ -11,7 +10,6 @@ export function clamp(value, min, max) {
 }
 
 /**
- * Return a "nice" step for axis ticks given a span.
  * @param {number} span
  */
 export function niceStep(span) {
@@ -27,7 +25,6 @@ export function niceStep(span) {
 }
 
 /**
- * Format a tick label for axis rendering.
  * @param {number} value
  */
 export function formatTick(value) {
@@ -41,7 +38,6 @@ export function formatTick(value) {
 }
 
 /**
- * Distance between two points.
  * @param {number} x1
  * @param {number} y1
  * @param {number} x2
@@ -52,7 +48,6 @@ export function distance2D(x1, y1, x2, y2) {
 }
 
 /**
- * Compile a mathematical expression using math.js.
  * @param {string} expression
  */
 export function compileExpression(expression) {
@@ -60,7 +55,6 @@ export function compileExpression(expression) {
 }
 
 /**
- * Evaluate a compiled math.js expression.
  * @param {import('mathjs').MathNode} compiled
  * @param {Record<string, number>} scope
  */
