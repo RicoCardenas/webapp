@@ -18,6 +18,9 @@ const ui = {
   historyEmpty: qs('#history-empty'),
   historyList: qs('#plot-history-list'),
   historyLoading: qs('#history-loading'),
+  userVisibleId: qs('#user-visible-id'),
+  userInternalId: qs('#user-internal-id'),
+  userInternalIdRow: qs('#user-internal-id-row'),
   teacherPanel: qs('#teacher-panel'),
   teacherCreateGroupBtn: qs('#teacher-create-group'),
   teacherGroupList: qs('#teacher-group-list'),
@@ -27,6 +30,7 @@ const ui = {
   adminGroupList: qs('#admin-group-list'),
   adminAssignForm: qs('#admin-assign-teacher-form'),
   adminAssignUserId: qs('#admin-assign-user-id'),
+  adminAssignVisibleId: qs('#admin-assign-visible-id'),
   developmentPanel: qs('#development-panel'),
   developmentAssignForm: qs('#development-assign-admin-form'),
   developmentUserId: qs('#development-user-id'),
@@ -63,6 +67,8 @@ function resetAccountUI() {
     '#user-role': '—',
     '#user-created-at': '—',
     '#user-status': '—',
+    '#user-visible-id': '—',
+    '#user-internal-id': '—',
   };
   Object.entries(placeholders).forEach(([sel, value]) => {
     const el = qs(sel);
@@ -70,6 +76,7 @@ function resetAccountUI() {
   });
   const avatar = qs('#user-avatar');
   if (avatar) avatar.textContent = 'EC';
+  if (ui.userInternalIdRow) ui.userInternalIdRow.hidden = true;
   if (ui.historyCount) ui.historyCount.textContent = '—';
   if (ui.historyList) ui.historyList.innerHTML = '';
   if (ui.historyEmpty) {
@@ -80,11 +87,25 @@ function resetAccountUI() {
   toggleHistoryPanel(false);
 }
 
+function getNormalizedRoles(user) {
+  const roles = new Set();
+  if (!user) return roles;
+  if (Array.isArray(user.roles)) {
+    user.roles.forEach((role) => {
+      if (!role) return;
+      roles.add(String(role).toLowerCase());
+    });
+  }
+  if (user.role) roles.add(String(user.role).toLowerCase());
+  return roles;
+}
+
 function renderAccountDetails(user) {
   if (!user) return;
 
   unauthorizedHandled = false;
   setAuthVisibility(true);
+  const roles = getNormalizedRoles(user);
 
   const nameEl = qs('#user-name');
   if (nameEl) nameEl.textContent = user.name ?? '—';
@@ -108,10 +129,15 @@ function renderAccountDetails(user) {
   const labelEl = qs('.account-user__label');
   if (labelEl) labelEl.textContent = user.is_verified ? 'Cuenta verificada' : 'Cuenta pendiente';
 
+  if (ui.userVisibleId) ui.userVisibleId.textContent = user.public_id ?? '—';
+  const showInternalId = roles.has('admin') || roles.has('development');
+  if (ui.userInternalIdRow) ui.userInternalIdRow.hidden = !showInternalId;
+  if (ui.userInternalId) ui.userInternalId.textContent = showInternalId ? user.id ?? '—' : '—';
+
   const avatar = qs('#user-avatar');
   if (avatar) avatar.textContent = initialsFrom(user.name, user.email);
 
-  renderRolePanels(user);
+  renderRolePanels(user, roles);
 }
 
 function hideRolePanels() {
@@ -134,16 +160,11 @@ function hideRolePanels() {
   }
 }
 
-function renderRolePanels(user) {
+function renderRolePanels(user, precomputedRoles) {
   hideRolePanels();
   if (!user) return;
 
-  const roles = new Set(
-    Array.isArray(user.roles)
-      ? user.roles.map((role) => String(role || '').toLowerCase())
-      : []
-  );
-  if (user.role) roles.add(String(user.role).toLowerCase());
+  const roles = precomputedRoles ?? getNormalizedRoles(user);
 
   if (roles.has('teacher')) renderTeacherPanel();
   if (roles.has('admin')) renderAdminPanel();
@@ -203,14 +224,31 @@ async function loadTeacherGroups() {
   const res = await requestWithAuth('/api/groups');
   if (!res) {
     if (ui.teacherGroupsEmpty) {
-      ui.teacherGroupsEmpty.textContent = 'No se pudieron cargar los grupos.';
+      ui.teacherGroupsEmpty.textContent = 'No se pudieron cargar los grupos. Intenta nuevamente.';
       ui.teacherGroupsEmpty.hidden = false;
     }
     return;
   }
 
+  if (res.status === 403) {
+    if (ui.teacherGroupsEmpty) {
+      ui.teacherGroupsEmpty.textContent = 'Esta sección es exclusiva para cuentas con rol docente.';
+      ui.teacherGroupsEmpty.hidden = false;
+    }
+    return;
+  }
+
+  if (res.status === 204) {
+    renderTeacherGroups([]);
+    return;
+  }
+
   if (!res.ok) {
     toast?.error?.('No se pudieron cargar los grupos.');
+    if (ui.teacherGroupsEmpty) {
+      ui.teacherGroupsEmpty.textContent = 'Se produjo un error al consultar los grupos.';
+      ui.teacherGroupsEmpty.hidden = false;
+    }
     return;
   }
 
@@ -456,27 +494,37 @@ function bindAdminPanel() {
 
 function onAdminAssignTeacher(event) {
   event.preventDefault();
-  const input = ui.adminAssignUserId;
-  if (!(input instanceof HTMLInputElement)) return;
-  const userId = input.value.trim();
-  if (!userId) {
-    toast?.error?.('Ingresa el ID del usuario.');
+  const userIdInput = ui.adminAssignUserId;
+  const visibleIdInput = ui.adminAssignVisibleId;
+  const userId = userIdInput instanceof HTMLInputElement ? userIdInput.value.trim() : '';
+  const visibleId = visibleIdInput instanceof HTMLInputElement ? visibleIdInput.value.trim() : '';
+
+  if (!userId && !visibleId) {
+    toast?.error?.('Ingresa el ID del usuario o su ID visible.');
     return;
   }
 
   const submit = ui.adminAssignForm?.querySelector('button[type="submit"]');
   if (submit instanceof HTMLButtonElement) submit.disabled = true;
-  input.disabled = true;
+  if (userIdInput instanceof HTMLInputElement) userIdInput.disabled = true;
+  if (visibleIdInput instanceof HTMLInputElement) visibleIdInput.disabled = true;
 
-  handleAdminAssignTeacher(userId).finally(() => {
-    input.disabled = false;
+  const payload = {};
+  if (userId) payload.user_id = userId;
+  if (visibleId) payload.visible_id = visibleId;
+
+  handleAdminAssignTeacher(payload).finally(() => {
+    if (userIdInput instanceof HTMLInputElement) userIdInput.disabled = false;
+    if (visibleIdInput instanceof HTMLInputElement) visibleIdInput.disabled = false;
     if (submit instanceof HTMLButtonElement) submit.disabled = false;
   });
 }
 
-async function handleAdminAssignTeacher(userId) {
-  const res = await requestWithAuth(`/api/admin/users/${userId}/assign-teacher`, {
+async function handleAdminAssignTeacher(payload) {
+  const res = await requestWithAuth('/api/admin/users/assign-teacher', {
     method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
   });
   if (!res) return;
 
@@ -487,7 +535,8 @@ async function handleAdminAssignTeacher(userId) {
   }
 
   toast?.success?.('Rol docente asignado.');
-  ui.adminAssignUserId?.value && (ui.adminAssignUserId.value = '');
+  if (ui.adminAssignUserId instanceof HTMLInputElement) ui.adminAssignUserId.value = '';
+  if (ui.adminAssignVisibleId instanceof HTMLInputElement) ui.adminAssignVisibleId.value = '';
   loadAdminUsers();
   loadAdminGroups();
 }
@@ -501,14 +550,35 @@ async function loadAdminUsers() {
   ui.adminUserList.appendChild(loading);
 
   const res = await requestWithAuth('/api/admin/teachers');
-  if (!res) return;
+  if (!res) {
+    ui.adminUserList.innerHTML = '';
+    const errorMsg = document.createElement('p');
+    errorMsg.className = 'role-panel__empty';
+    errorMsg.textContent = 'No se pudo cargar el listado de usuarios.';
+    ui.adminUserList.appendChild(errorMsg);
+    return;
+  }
+
+  if (res.status === 403) {
+    ui.adminUserList.innerHTML = '';
+    const errorMsg = document.createElement('p');
+    errorMsg.className = 'role-panel__empty';
+    errorMsg.textContent = 'Esta sección está limitada a cuentas con rol administrador.';
+    ui.adminUserList.appendChild(errorMsg);
+    return;
+  }
+
+  if (res.status === 204) {
+    renderAdminUsers([]);
+    return;
+  }
 
   if (!res.ok) {
     toast?.error?.('No se pudo obtener el listado de usuarios.');
     ui.adminUserList.innerHTML = '';
     const errorMsg = document.createElement('p');
     errorMsg.className = 'role-panel__empty';
-    errorMsg.textContent = 'No se pudo cargar el listado de usuarios.';
+    errorMsg.textContent = 'Se produjo un error al cargar los usuarios.';
     ui.adminUserList.appendChild(errorMsg);
     return;
   }
@@ -572,12 +642,26 @@ async function loadAdminGroups() {
     return;
   }
 
+  if (res.status === 403) {
+    ui.adminGroupList.innerHTML = '';
+    const errorMsg = document.createElement('p');
+    errorMsg.className = 'role-panel__empty';
+    errorMsg.textContent = 'Necesitas privilegios de administrador para ver los grupos docentes.';
+    ui.adminGroupList.appendChild(errorMsg);
+    return;
+  }
+
+  if (res.status === 204) {
+    renderAdminGroups([]);
+    return;
+  }
+
   if (!res.ok) {
     toast?.error?.('No se pudieron cargar los grupos.');
     ui.adminGroupList.innerHTML = '';
     const errorMsg = document.createElement('p');
     errorMsg.className = 'role-panel__empty';
-    errorMsg.textContent = 'No se pudieron cargar los grupos.';
+    errorMsg.textContent = 'Se produjo un error al consultar los grupos.';
     ui.adminGroupList.appendChild(errorMsg);
     return;
   }
@@ -675,7 +759,7 @@ function onDevelopmentAssignAdmin(event) {
 }
 
 async function handleDevelopmentAssignAdmin(payload) {
-  const res = await requestWithAuth('/development/users/assign-admin', {
+  const res = await requestWithAuth('/api/development/users/assign-admin', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
@@ -698,17 +782,22 @@ function onDevelopmentCreateBackup() {
 }
 
 async function handleDevelopmentCreateBackup() {
-  const res = await requestWithAuth('/development/backups/run', {
-    method: 'POST',
-  });
+  const desiredName = ui.developmentBackupName instanceof HTMLInputElement ? ui.developmentBackupName.value.trim() : '';
+  const options = { method: 'POST' };
+  if (desiredName) options.body = JSON.stringify({ backup_name: desiredName });
+
+  const res = await requestWithAuth('/api/development/backups/run', options);
   if (!res) return;
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
-    toast?.error?.(err?.error || 'No se pudo iniciar el backup.');
+    const message = err?.error || 'No se pudo iniciar el backup.';
+    if (res.status === 403) toast?.info?.(message);
+    else toast?.error?.(message);
     return;
   }
   const data = await res.json().catch(() => ({}));
-  toast?.success?.(data?.message || 'Backup encolado.');
+  const label = data?.backup?.filename ? ` (${data.backup.filename})` : '';
+  toast?.success?.(`${data?.message || 'Backup generado.'}${label}`);
 }
 
 function onDevelopmentRestore(event) {
@@ -724,7 +813,12 @@ function onDevelopmentRestore(event) {
 }
 
 async function handleDevelopmentRestore(backupName) {
-  const res = await requestWithAuth('/development/backups/restore', {
+  if (!backupName) {
+    toast?.error?.('Ingresa el nombre del backup a restaurar.');
+    return;
+  }
+
+  const res = await requestWithAuth('/api/development/backups/restore', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ backup_name: backupName || undefined }),
@@ -732,11 +826,15 @@ async function handleDevelopmentRestore(backupName) {
   if (!res) return;
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
-    toast?.error?.(err?.error || 'No se pudo iniciar la restauración.');
+    const message = err?.error || 'No se pudo iniciar la restauración.';
+    if (res.status === 403) toast?.info?.(message);
+    else toast?.error?.(message);
     return;
   }
   const data = await res.json().catch(() => ({}));
-  toast?.success?.(data?.message || 'Restauración encolada.');
+  const label = data?.backup?.filename ? ` (${data.backup.filename})` : '';
+  toast?.success?.(`${data?.message || 'Restauración completada.'}${label}`);
+  if (ui.developmentRestoreForm instanceof HTMLFormElement) ui.developmentRestoreForm.reset();
 }
 
 async function loadDevelopmentRequests() {
@@ -747,7 +845,7 @@ async function loadDevelopmentRequests() {
   loading.textContent = 'Cargando solicitudes...';
   ui.developmentRequestsList.appendChild(loading);
 
-  const res = await requestWithAuth('/development/role-requests');
+  const res = await requestWithAuth('/api/development/role-requests');
   if (!res) {
     ui.developmentRequestsList.innerHTML = '';
     const errorMsg = document.createElement('p');
@@ -756,12 +854,27 @@ async function loadDevelopmentRequests() {
     ui.developmentRequestsList.appendChild(errorMsg);
     return;
   }
+
+  if (res.status === 403) {
+    ui.developmentRequestsList.innerHTML = '';
+    const errorMsg = document.createElement('p');
+    errorMsg.className = 'role-panel__empty';
+    errorMsg.textContent = 'Esta sección es exclusiva para el equipo de desarrollo.';
+    ui.developmentRequestsList.appendChild(errorMsg);
+    return;
+  }
+
+  if (res.status === 204) {
+    renderDevelopmentRequests([]);
+    return;
+  }
+
   if (!res.ok) {
     toast?.error?.('No se pudieron cargar las solicitudes de roles.');
     ui.developmentRequestsList.innerHTML = '';
     const errorMsg = document.createElement('p');
     errorMsg.className = 'role-panel__empty';
-    errorMsg.textContent = 'No se pudieron cargar las solicitudes.';
+    errorMsg.textContent = 'Se produjo un error al consultar las solicitudes.';
     ui.developmentRequestsList.appendChild(errorMsg);
     return;
   }
@@ -860,7 +973,7 @@ function onDevelopmentResolveRequest(event) {
 }
 
 async function handleDevelopmentResolveRequest(requestId, action) {
-  const res = await requestWithAuth(`/development/role-requests/${requestId}/resolve`, {
+  const res = await requestWithAuth(`/api/development/role-requests/${requestId}/resolve`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ action }),

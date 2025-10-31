@@ -10,6 +10,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 BASE_DIR = Path(__file__).resolve().parent
+PROJECT_ROOT = BASE_DIR.parent
 
 def parse_list_env(name: str) -> List[str]:
 
@@ -52,5 +53,10 @@ class Config:
     # CORS & contacto
     CORS_ORIGINS = parse_list_env('CORS_ORIGINS')
     CONTACT_RECIPIENTS = parse_list_env('CONTACT_RECIPIENTS')
-    CONTACT_RECIPIENT = CONTACT_RECIPIENTS[0]
+    CONTACT_RECIPIENT = CONTACT_RECIPIENTS[0] if CONTACT_RECIPIENTS else None
+
+    # --- backups ---
+    BACKUP_DIR = os.getenv('BACKUP_DIR', str(PROJECT_ROOT / "BackupsDB"))
+    PG_DUMP_BIN = os.getenv('PG_DUMP_BIN', 'pg_dump')
+    PG_RESTORE_BIN = os.getenv('PG_RESTORE_BIN', 'pg_restore')
     

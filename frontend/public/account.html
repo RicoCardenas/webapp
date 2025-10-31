@@ -149,6 +149,14 @@
 
             <dl class="account-stats">
               <div>
+                <dt>ID visible</dt>
+                <dd id="user-visible-id">—</dd>
+              </div>
+              <div id="user-internal-id-row" hidden>
+                <dt>ID interno (UUID)</dt>
+                <dd id="user-internal-id">—</dd>
+              </div>
+              <div>
                 <dt>Miembro desde</dt>
                 <dd id="user-created-at">Cargando...</dd>
               </div>
@@ -222,7 +230,12 @@
                 <div class="form__field">
                   <label class="form__label" for="admin-assign-user-id">ID del usuario (UUID)</label>
                   <input class="form__input" type="text" id="admin-assign-user-id" autocomplete="off" placeholder="Ej. 123e4567-e89b-12d3-a456-426614174000" />
-                  <p class="form__hint">Ingresa el identificador del usuario al que deseas otorgar el rol docente.</p>
+                  <p class="form__hint">Ingresa el identificador del usuario al que deseas otorgar el rol docente. Puedes dejarlo vacío si usas el ID visible.</p>
+                </div>
+                <div class="form__field">
+                  <label class="form__label" for="admin-assign-visible-id">ID visible</label>
+                  <input class="form__input" type="text" id="admin-assign-visible-id" autocomplete="off" placeholder="Ej. d2XBK2p6" />
+                  <p class="form__hint">Alternativamente, escribe el ID visible mostrado al usuario.</p>
                 </div>
                 <div class="form__actions">
                   <button class="btn btn--primary btn--sm" type="submit">Asignar rol docente</button>

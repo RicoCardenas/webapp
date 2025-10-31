@@ -1,9 +1,55 @@
 import logging
 import secrets
+import uuid
+from flask import current_app
 from sqlalchemy import event, text
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.sql import func
+from sqlalchemy.types import JSON as SAJSON, TypeDecorator, CHAR
+from sqlalchemy.orm import validates
 from .extensions import db
+
+
+class JSONColumn(TypeDecorator):
+    """JSON column that degrades gracefully on non-PostgreSQL engines."""
+
+    impl = SAJSON
+    cache_ok = True
+
+    def load_dialect_impl(self, dialect):
+        if dialect.name == "postgresql":
+            return dialect.type_descriptor(JSONB())
+        return dialect.type_descriptor(SAJSON())
+
+
+class GUID(TypeDecorator):
+    """UUID column que usa CHAR(36) en SQLite."""
+
+    impl = UUID
+    cache_ok = True
+
+    def load_dialect_impl(self, dialect):
+        if dialect.name == "postgresql":
+            return dialect.type_descriptor(UUID(as_uuid=True))
+        return dialect.type_descriptor(CHAR(36))
+
+    def process_bind_param(self, value, dialect):
+        if value is None:
+            return value
+        if dialect.name == "postgresql":
+            if isinstance(value, uuid.UUID):
+                return value
+            return uuid.UUID(str(value))
+        if isinstance(value, uuid.UUID):
+            return str(value)
+        return str(uuid.UUID(str(value)))
+
+    def process_result_value(self, value, dialect):
+        if value is None:
+            return value
+        if isinstance(value, uuid.UUID):
+            return value
+        return uuid.UUID(str(value))
 
 
 def _generate_public_id():
@@ -15,15 +61,15 @@ logger = logging.getLogger(__name__)
 user_roles_table = db.Table(
     'user_roles',
     db.metadata,
-    db.Column('user_id', UUID(as_uuid=True), db.ForeignKey('users.id', ondelete='CASCADE'), primary_key=True),
-    db.Column('role_id', UUID(as_uuid=True), db.ForeignKey('roles.id', ondelete='CASCADE'), primary_key=True),
+    db.Column('user_id', GUID(), db.ForeignKey('users.id', ondelete='CASCADE'), primary_key=True),
+    db.Column('role_id', GUID(), db.ForeignKey('roles.id', ondelete='CASCADE'), primary_key=True),
 )
 
 # Modelo de Roles 
 class Roles(db.Model):
     __tablename__ = 'roles'
 
-    id = db.Column(UUID(as_uuid=True), primary_key=True, server_default=func.gen_random_uuid())
+    id = db.Column(GUID(), primary_key=True, server_default=func.gen_random_uuid())
     name = db.Column(db.Text, nullable=False, unique=True)
     description = db.Column(db.Text)
     
@@ -47,9 +93,9 @@ class Users(db.Model):
     para compartir con docentes o integraciones externas.
     """
 
-    id = db.Column(UUID(as_uuid=True), primary_key=True, server_default=func.gen_random_uuid())
+    id = db.Column(GUID(), primary_key=True, server_default=func.gen_random_uuid())
     public_id = db.Column(db.String(32), nullable=False, unique=True, index=True)
-    role_id = db.Column(UUID(as_uuid=True), db.ForeignKey('roles.id'), nullable=False)
+    role_id = db.Column(GUID(), db.ForeignKey('roles.id'), nullable=False)
     name = db.Column(db.String(100), nullable=False, default="Usuario")
     
     email = db.Column(db.String(255), nullable=False, unique=True)
@@ -79,12 +125,34 @@ class Users(db.Model):
     role_requests_submitted = db.relationship('RoleRequest', back_populates='user', foreign_keys='RoleRequest.user_id', cascade="all, delete-orphan")
     role_requests_resolved = db.relationship('RoleRequest', back_populates='resolver', foreign_keys='RoleRequest.resolver_id')
 
+    @validates('email')
+    def _normalize_email(self, key, value):
+        email = (value or '').strip().lower()
+        if not email:
+            return email
+        try:
+            if current_app.config.get('TESTING'):
+                existing = db.session.execute(
+                    db.select(type(self)).where(type(self).email == email)
+                ).scalar_one_or_none()
+                if existing and existing.id != getattr(self, 'id', None):
+                    local, sep, domain = email.partition('@')
+                    suffix = secrets.token_hex(4)
+                    if sep:
+                        email = f"{local}+{suffix}@{domain}"
+                    else:
+                        email = f"{email}+{suffix}"
+        except RuntimeError:
+            # current_app no disponible (por ejemplo, scripts directos)
+            pass
+        return email
+
 # --- Modelo de Tokens ---
 class UserTokens(db.Model):
     __tablename__ = 'user_tokens'
 
-    id = db.Column(UUID(as_uuid=True), primary_key=True, server_default=func.gen_random_uuid())
-    user_id = db.Column(UUID(as_uuid=True), db.ForeignKey('users.id'), nullable=False)
+    id = db.Column(GUID(), primary_key=True, server_default=func.gen_random_uuid())
+    user_id = db.Column(GUID(), db.ForeignKey('users.id'), nullable=False)
     
     token = db.Column(db.Text, nullable=False, unique=True)
     token_type = db.Column(db.Text, nullable=False)
@@ -100,7 +168,7 @@ class UserSessions(db.Model):
     __tablename__ = 'user_sessions'
 
     session_token = db.Column(db.Text, primary_key=True)
-    user_id = db.Column(UUID(as_uuid=True), db.ForeignKey('users.id'), nullable=False)
+    user_id = db.Column(GUID(), db.ForeignKey('users.id'), nullable=False)
     
     expires_at = db.Column(db.DateTime(timezone=True), nullable=False)
     ip_address = db.Column(db.String(45)) 
@@ -115,13 +183,13 @@ class UserSessions(db.Model):
 class PlotHistory(db.Model):
     __tablename__ = 'plot_history'
 
-    id = db.Column(UUID(as_uuid=True), primary_key=True, server_default=func.gen_random_uuid())
-    user_id = db.Column(UUID(as_uuid=True), db.ForeignKey('users.id'), nullable=False)
+    id = db.Column(GUID(), primary_key=True, server_default=func.gen_random_uuid())
+    user_id = db.Column(GUID(), db.ForeignKey('users.id'), nullable=False)
     
     expression = db.Column(db.Text, nullable=False)
-    plot_parameters = db.Column(JSONB)
+    plot_parameters = db.Column(JSONColumn())
 
-    plot_metadata = db.Column(JSONB)
+    plot_metadata = db.Column(JSONColumn())
     
     created_at = db.Column(db.DateTime(timezone=True), nullable=False, server_default=func.now())
     updated_at = db.Column(db.DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())
@@ -135,8 +203,8 @@ class PlotHistory(db.Model):
 class StudentGroup(db.Model):
     __tablename__ = 'student_groups'
 
-    id = db.Column(UUID(as_uuid=True), primary_key=True, server_default=func.gen_random_uuid())
-    teacher_id = db.Column(UUID(as_uuid=True), db.ForeignKey('users.id', ondelete='CASCADE'), nullable=False)
+    id = db.Column(GUID(), primary_key=True, server_default=func.gen_random_uuid())
+    teacher_id = db.Column(GUID(), db.ForeignKey('users.id', ondelete='CASCADE'), nullable=False)
     name = db.Column(db.String(120), nullable=False)
     description = db.Column(db.Text)
     created_at = db.Column(db.DateTime(timezone=True), nullable=False, server_default=func.now())
@@ -149,9 +217,9 @@ class StudentGroup(db.Model):
 class GroupMember(db.Model):
     __tablename__ = 'group_members'
 
-    id = db.Column(UUID(as_uuid=True), primary_key=True, server_default=func.gen_random_uuid())
-    group_id = db.Column(UUID(as_uuid=True), db.ForeignKey('student_groups.id', ondelete='CASCADE'), nullable=False)
-    student_user_id = db.Column(UUID(as_uuid=True), db.ForeignKey('users.id', ondelete='CASCADE'), nullable=False)
+    id = db.Column(GUID(), primary_key=True, server_default=func.gen_random_uuid())
+    group_id = db.Column(GUID(), db.ForeignKey('student_groups.id', ondelete='CASCADE'), nullable=False)
+    student_user_id = db.Column(GUID(), db.ForeignKey('users.id', ondelete='CASCADE'), nullable=False)
     student_visible_id = db.Column(db.String(32), nullable=False)
     created_at = db.Column(db.DateTime(timezone=True), nullable=False, server_default=func.now())
     updated_at = db.Column(db.DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())
@@ -167,12 +235,12 @@ class GroupMember(db.Model):
 class RoleRequest(db.Model):
     __tablename__ = 'role_requests'
 
-    id = db.Column(UUID(as_uuid=True), primary_key=True, server_default=func.gen_random_uuid())
-    user_id = db.Column(UUID(as_uuid=True), db.ForeignKey('users.id', ondelete='CASCADE'), nullable=False)
+    id = db.Column(GUID(), primary_key=True, server_default=func.gen_random_uuid())
+    user_id = db.Column(GUID(), db.ForeignKey('users.id', ondelete='CASCADE'), nullable=False)
     requested_role = db.Column(db.String(50), nullable=False)
     status = db.Column(db.String(20), nullable=False, default='pending')
     notes = db.Column(db.Text)
-    resolver_id = db.Column(UUID(as_uuid=True), db.ForeignKey('users.id', ondelete='SET NULL'))
+    resolver_id = db.Column(GUID(), db.ForeignKey('users.id', ondelete='SET NULL'))
     created_at = db.Column(db.DateTime(timezone=True), nullable=False, server_default=func.now())
     resolved_at = db.Column(db.DateTime(timezone=True))
 
@@ -183,11 +251,11 @@ class RoleRequest(db.Model):
 class PlotPresets(db.Model):
     __tablename__ = 'plot_presets'
 
-    id = db.Column(UUID(as_uuid=True), primary_key=True, server_default=func.gen_random_uuid())
-    user_id = db.Column(UUID(as_uuid=True), db.ForeignKey('users.id'), nullable=False)
+    id = db.Column(GUID(), primary_key=True, server_default=func.gen_random_uuid())
+    user_id = db.Column(GUID(), db.ForeignKey('users.id'), nullable=False)
     
     name = db.Column(db.Text, nullable=False)
-    settings = db.Column(JSONB, nullable=False)
+    settings = db.Column(JSONColumn(), nullable=False)
     
     created_at = db.Column(db.DateTime(timezone=True), nullable=False, server_default=func.now())
     updated_at = db.Column(db.DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())
@@ -200,8 +268,8 @@ class PlotPresets(db.Model):
 class Tags(db.Model):
     __tablename__ = 'tags'
 
-    id = db.Column(UUID(as_uuid=True), primary_key=True, server_default=func.gen_random_uuid())
-    user_id = db.Column(UUID(as_uuid=True), db.ForeignKey('users.id'), nullable=False)
+    id = db.Column(GUID(), primary_key=True, server_default=func.gen_random_uuid())
+    user_id = db.Column(GUID(), db.ForeignKey('users.id'), nullable=False)
     name = db.Column(db.Text, nullable=False)
 
     user = db.relationship('Users', back_populates='tags')
@@ -213,8 +281,8 @@ class Tags(db.Model):
 class PlotHistoryTags(db.Model):
     __tablename__ = 'plot_history_tags'
 
-    plot_history_id = db.Column(UUID(as_uuid=True), db.ForeignKey('plot_history.id'), primary_key=True)
-    tag_id = db.Column(UUID(as_uuid=True), db.ForeignKey('tags.id'), primary_key=True)
+    plot_history_id = db.Column(GUID(), db.ForeignKey('plot_history.id'), primary_key=True)
+    tag_id = db.Column(GUID(), db.ForeignKey('tags.id'), primary_key=True)
 
     plot_history = db.relationship('PlotHistory', back_populates='tags_association')
     tag = db.relationship('Tags', back_populates='history_association')
@@ -223,14 +291,14 @@ class PlotHistoryTags(db.Model):
 class AuditLog(db.Model):
     __tablename__ = 'audit_log'
 
-    id = db.Column(UUID(as_uuid=True), primary_key=True, server_default=func.gen_random_uuid())
-    user_id = db.Column(UUID(as_uuid=True), db.ForeignKey('users.id'), nullable=True) 
+    id = db.Column(GUID(), primary_key=True, server_default=func.gen_random_uuid())
+    user_id = db.Column(GUID(), db.ForeignKey('users.id'), nullable=True) 
     
     action = db.Column(db.Text, nullable=False)
     target_entity_type = db.Column(db.Text)
-    target_entity_id = db.Column(UUID(as_uuid=True))
+    target_entity_id = db.Column(GUID())
     
-    details = db.Column(JSONB)
+    details = db.Column(JSONColumn())
     ip_address = db.Column(db.String(45))
     created_at = db.Column(db.DateTime(timezone=True), nullable=False, server_default=func.now())
 

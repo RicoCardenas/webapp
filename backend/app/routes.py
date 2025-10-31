@@ -1,11 +1,14 @@
 import secrets
+from dataclasses import asdict
 from datetime import datetime, timedelta, timezone
 from flask import Blueprint, current_app, jsonify, send_from_directory, request, redirect, url_for, g
 from .extensions import db, bcrypt, mail
 from .models import Users, Roles, UserTokens, UserSessions, PlotHistory, StudentGroup, GroupMember, RoleRequest
 from flask_mail import Message
-from sqlalchemy import and_, desc 
+from sqlalchemy import and_, desc, cast, String, or_ 
 from sqlalchemy.orm import selectinload
+
+from .backup import BackupError, RestoreError, run_backup, restore_backup
 
 from .auth import require_session
 
@@ -15,10 +18,47 @@ frontend = Blueprint("frontend", __name__)
 
 
 def _require_roles(allowed):
-    user_roles = {role.name for role in g.current_user.roles}
-    if user_roles.intersection(allowed):
+    allowed_norm = {r.lower() for r in allowed}
+    user_roles = {
+        (role.name or '').lower()
+        for role in getattr(g.current_user, 'roles', []) or []
+    }
+    primary_role = getattr(getattr(g.current_user, 'role', None), 'name', None)
+    if primary_role:
+        user_roles.add(primary_role.lower())
+
+    if user_roles.intersection(allowed_norm):
         return None
     return jsonify(error="No tienes permisos para realizar esta acción."), 403
+
+
+def _assign_teacher_role(user):
+    teacher_role = _get_role_by_name('teacher')
+    if not teacher_role:
+        current_app.logger.error("Rol 'teacher' no encontrado al intentar asignar desde admin.")
+        return jsonify(error="Rol 'teacher' no configurado en el sistema."), 500
+
+    if teacher_role not in user.roles:
+        user.roles.append(teacher_role)
+    user.role_id = teacher_role.id
+
+    try:
+        db.session.commit()
+    except Exception as exc:
+        db.session.rollback()
+        current_app.logger.error("Error al asignar rol teacher: %s", exc)
+        return jsonify(error="No se pudo asignar el rol."), 500
+
+    return jsonify(
+        message="Rol 'teacher' asignado.",
+        user={
+            "id": str(user.id),
+            "name": user.name,
+            "roles": [r.name for r in user.roles],
+            "primary_role": user.role.name if user.role else None,
+            "public_id": user.public_id,
+        },
+    )
 
 
 def _require_teacher():
@@ -102,25 +142,34 @@ def contact_message():
 @api.post("/register")
 def register_user():
     """Registro de nuevo usuario (envía correo de verificación)."""
-    data = request.get_json()
-    if not data:
+    data = request.get_json(silent=True)
+    if data is None:
         return jsonify(error="No se proporcionaron datos JSON."), 400
-        
-    email = data.get('email')
-    password = data.get('password')
+
+    if not isinstance(data, dict):
+        return jsonify(error="Formato JSON inválido."), 400
+
+    email = (data.get('email') or '').strip()
+    password = (data.get('password') or '').strip()
     terms = data.get('terms')
-    name = data.get('name')  
+    raw_name = (data.get('name') or '').strip()
     requested_role = (data.get('role') or 'user').strip().lower()
     allowed_roles = {'user', 'student'}
 
-    if not email or not password or not name:
-        return jsonify(error="Nombre, email y contraseña son requeridos."), 400
-    if len(name) < 2:
-         return jsonify(error="El nombre debe tener al menos 2 caracteres"), 400
-
-
+    if not email or not password:
+        return jsonify(error="Email y contraseña son requeridos."), 400
     if not terms:
         return jsonify(error="Debes aceptar los términos y condiciones para registrarte."), 400
+
+    name = raw_name
+    if raw_name and len(raw_name) < 2:
+        return jsonify(error="El nombre debe tener al menos 2 caracteres"), 400
+    if not name:
+        local_part = email.split('@')[0] if '@' in email else email
+        name = local_part or "Usuario"
+
+    if '@' not in email or len(email) < 5:
+        return jsonify(error="Proporciona un email válido."), 400
 
     if requested_role not in allowed_roles:
         return jsonify(error="Rol inválido. Solo se permiten 'user' o 'student'."), 400
@@ -221,11 +270,24 @@ def verify_email():
     if token_obj.used_at:
         return redirect(url_for('frontend.serve_frontend', error='token_used'))
 
-    if token_obj.expires_at < datetime.now(timezone.utc):
+    expires_at = token_obj.expires_at
+    if expires_at and expires_at.tzinfo is None:
+        expires_at = expires_at.replace(tzinfo=timezone.utc)
+
+    if expires_at and expires_at < datetime.now(timezone.utc):
         return redirect(url_for('frontend.serve_frontend', error='token_expired'))
 
     try:
         user = token_obj.user
+        if user is None and token_obj.user_id:
+            user = db.session.get(Users, token_obj.user_id)
+        if user is None and token_obj.user_id:
+            user = db.session.execute(
+                db.select(Users).where(cast(Users.id, String) == str(token_obj.user_id))
+            ).scalar_one_or_none()
+        if user is None:
+            raise AttributeError("Token sin usuario asociado")
+
         user.is_verified = True
         user.verified_at = datetime.now(timezone.utc)
         token_obj.used_at = datetime.now(timezone.utc)
@@ -402,7 +464,14 @@ def plot_history_list():
 
     base_q = db.session.query(PlotHistory).filter(PlotHistory.user_id == g.current_user.id)
     if q:
-        base_q = base_q.filter(PlotHistory.expression.ilike(f"%{q}%"))
+        terms = {q}
+        if " " in q:
+            terms.add(q.replace(" ", "+"))
+        if "+" in q:
+            terms.add(q.replace("+", " "))
+        filters = [PlotHistory.expression.ilike(f"%{term}%") for term in terms if term]
+        if filters:
+            base_q = base_q.filter(or_(*filters))
 
     total = base_q.count()
     rows = base_q.order_by(desc(PlotHistory.created_at)).offset(offset).limit(limit).all()
@@ -676,42 +745,47 @@ def admin_list_teachers():
     return jsonify(teachers=payload)
 
 
+# Compatibilidad con versiones anteriores: sigue aceptando UUID en la ruta.
 @api.post("/admin/users/<uuid:user_id>/assign-teacher")
 @require_session
-def admin_assign_teacher(user_id):
+def admin_assign_teacher_by_uuid(user_id):
     guard = _require_roles({'admin', 'development'})
     if guard:
         return guard
-
-    teacher_role = _get_role_by_name('teacher')
-    if not teacher_role:
-        current_app.logger.error("Rol 'teacher' no encontrado al intentar asignar desde admin.")
-        return jsonify(error="Rol 'teacher' no configurado en el sistema."), 500
 
     user = db.session.get(Users, user_id)
     if not user:
         return jsonify(error="Usuario no encontrado."), 404
 
-    if teacher_role not in user.roles:
-        user.roles.append(teacher_role)
-    user.role_id = teacher_role.id
+    return _assign_teacher_role(user)
 
-    try:
-        db.session.commit()
-    except Exception as exc:
-        db.session.rollback()
-        current_app.logger.error("Error al asignar rol teacher: %s", exc)
-        return jsonify(error="No se pudo asignar el rol."), 500
 
-    return jsonify(
-        message="Rol 'teacher' asignado.",
-        user={
-            "id": str(user.id),
-            "name": user.name,
-            "roles": [r.name for r in user.roles],
-            "primary_role": user.role.name if user.role else None,
-        },
-    )
+@api.post("/admin/users/assign-teacher")
+@require_session
+def admin_assign_teacher():
+    guard = _require_roles({'admin', 'development'})
+    if guard:
+        return guard
+
+    data = request.get_json() or {}
+    user = None
+
+    user_id = data.get("user_id")
+    visible_id = data.get("visible_id")
+
+    if user_id:
+        try:
+            user = db.session.get(Users, user_id)
+        except Exception:
+            user = None
+
+    if not user and visible_id:
+        user = db.session.query(Users).filter(Users.public_id == visible_id).first()
+
+    if not user:
+        return jsonify(error="Usuario no encontrado."), 404
+
+    return _assign_teacher_role(user)
 
 
 @api.get("/admin/teacher-groups")
@@ -947,10 +1021,22 @@ def development_backup():
     if guard:
         return guard
 
-    # Nota: Aquí debería invocarse el comando del sistema (pg_dump, etc.) para generar el backup.
-    # Ejemplo: subprocess.run(['pg_dump', ...]) con las credenciales apropiadas.
-    current_app.logger.info("Backup solicitado por %s. Acción real pendiente de implementación.", g.current_user.email)
-    return jsonify(message="Backup encolado. Pendiente: ejecutar comando del sistema."), 202
+    data = request.get_json(silent=True) or {}
+    backup_name = data.get("backup_name")
+
+    try:
+        metadata = run_backup(backup_name)
+    except BackupError as exc:
+        current_app.logger.error("Backup fallido: %s", exc)
+        return jsonify(error=str(exc)), 500
+
+    current_app.logger.info(
+        "Backup '%s' generado por %s en %s",
+        metadata.filename,
+        g.current_user.email,
+        metadata.path,
+    )
+    return jsonify(message="Backup generado con éxito.", backup=asdict(metadata)), 201
 
 
 @api.post("/development/backups/restore")
@@ -960,9 +1046,22 @@ def development_restore():
     if guard:
         return guard
 
-    data = request.get_json() or {}
-    backup_name = data.get("backup_name") or "backup"
+    data = request.get_json(silent=True) or {}
+    backup_name = (data.get("backup_name") or "").strip()
+    if not backup_name:
+        return jsonify(error="Debes indicar el nombre del backup."), 400
 
-    # Nota: Implementar restauración real (pg_restore, etc.) cuando el flujo operativo esté definido.
-    current_app.logger.info("Restore solicitado (%s) por %s. Acción real pendiente.", backup_name, g.current_user.email)
-    return jsonify(message="Restauración encolada. Pendiente: ejecutar comando del sistema.", backup=backup_name), 202
+    try:
+        metadata = restore_backup(backup_name)
+    except FileNotFoundError:
+        return jsonify(error="El backup solicitado no existe."), 404
+    except RestoreError as exc:
+        current_app.logger.error("Restore fallido: %s", exc)
+        return jsonify(error=str(exc)), 500
+
+    current_app.logger.info(
+        "Backup '%s' restaurado por %s",
+        metadata.filename,
+        g.current_user.email,
+    )
+    return jsonify(message="Restauración completada.", backup=asdict(metadata))
