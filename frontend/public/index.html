@@ -391,6 +391,15 @@
               <p id="error-signup-password" class="form__error" aria-hidden="true"></p>
             </div>
 
+            <div class="form__field">
+              <label class="form__label" for="signup-role">Tipo de cuenta</label>
+              <select class="form__input" id="signup-role" name="role" aria-describedby="error-signup-role">
+                <option value="user" selected>Usuario</option>
+                <option value="student">Estudiante</option>
+              </select>
+              <p id="error-signup-role" class="form__error" aria-hidden="true"></p>
+            </div>
+
             <div class="form__field form__field--checkbox">
               <input class="form__checkbox" type="checkbox" id="signup-terms" name="terms" required aria-describedby="error-signup-terms" />
               <label class="form__label" for="signup-terms">Acepto los <a href="/terminos">términos y condiciones</a>.</label>

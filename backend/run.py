@@ -14,10 +14,11 @@ def seed_roles():
     
     # Roles que tu app necesita y que solicitaste
     roles_to_seed = [
-        # Este es el rol que tu ruta register_user busca
-        {'name': 'user', 'description': 'Rol de usuario estándar.'},
-        {'name': 'Profesor', 'description': 'Acceso para gestionar grupos o recursos.'},
-        {'name': 'Administrador', 'description': 'Acceso total al sistema.'}
+        {'name': 'user', 'description': 'Rol base con acceso estándar a la plataforma.'},
+        {'name': 'student', 'description': 'Funciones orientadas a estudiantes y prácticas guiadas.'},
+        {'name': 'teacher', 'description': 'Permite gestionar clases, materiales y seguimiento de estudiantes.'},
+        {'name': 'admin', 'description': 'Administración completa del sistema y moderación.'},
+        {'name': 'development', 'description': 'Soporte técnico y labores de diagnóstico en entornos de prueba.'},
     ]
     
     roles_creados = 0
@@ -53,7 +54,10 @@ def make_shell_context():
         PlotPresets,
         Tags,
         PlotHistoryTags,
-        AuditLog
+        AuditLog,
+        StudentGroup,
+        GroupMember,
+        RoleRequest
         )
     
     return {
@@ -67,7 +71,10 @@ def make_shell_context():
         "PlotPresets": PlotPresets,
         "Tags": Tags,
         "PlotHistoryTags": PlotHistoryTags,
-        "AuditLog": AuditLog
+        "AuditLog": AuditLog,
+        "StudentGroup": StudentGroup,
+        "GroupMember": GroupMember,
+        "RoleRequest": RoleRequest
     }
 
 

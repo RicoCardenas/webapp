@@ -2,15 +2,34 @@ import secrets
 from datetime import datetime, timedelta, timezone
 from flask import Blueprint, current_app, jsonify, send_from_directory, request, redirect, url_for, g
 from .extensions import db, bcrypt, mail
-from .models import Users, Roles, UserTokens, UserSessions, PlotHistory
+from .models import Users, Roles, UserTokens, UserSessions, PlotHistory, StudentGroup, GroupMember, RoleRequest
 from flask_mail import Message
 from sqlalchemy import and_, desc 
+from sqlalchemy.orm import selectinload
 
 from .auth import require_session
 
 # --- Blueprints ---
 api = Blueprint("api", __name__)
 frontend = Blueprint("frontend", __name__)
+
+
+def _require_roles(allowed):
+    user_roles = {role.name for role in g.current_user.roles}
+    if user_roles.intersection(allowed):
+        return None
+    return jsonify(error="No tienes permisos para realizar esta acción."), 403
+
+
+def _require_teacher():
+    return _require_roles({'teacher'})
+
+
+def _get_role_by_name(name):
+    return db.session.execute(
+        db.select(Roles).where(Roles.name == name)
+    ).scalar_one_or_none()
+
 
 # --- Rutas del Frontend ---
 @frontend.get("/")
@@ -91,6 +110,8 @@ def register_user():
     password = data.get('password')
     terms = data.get('terms')
     name = data.get('name')  
+    requested_role = (data.get('role') or 'user').strip().lower()
+    allowed_roles = {'user', 'student'}
 
     if not email or not password or not name:
         return jsonify(error="Nombre, email y contraseña son requeridos."), 400
@@ -101,6 +122,9 @@ def register_user():
     if not terms:
         return jsonify(error="Debes aceptar los términos y condiciones para registrarte."), 400
 
+    if requested_role not in allowed_roles:
+        return jsonify(error="Rol inválido. Solo se permiten 'user' o 'student'."), 400
+
     existing_user = db.session.execute(
         db.select(Users).where(Users.email == email)
     ).scalar_one_or_none()
@@ -108,46 +132,27 @@ def register_user():
     if existing_user:
         return jsonify(error="El correo electrónico ya está registrado."), 409
 
-    # Esto está perfecto, busca el rol 'user' que creamos en seed-roles
-    user_role = db.session.execute(
-        db.select(Roles).where(Roles.name == 'user')
+    selected_role = db.session.execute(
+        db.select(Roles).where(Roles.name == requested_role)
     ).scalar_one_or_none()
     
-    if not user_role:
-        current_app.logger.error("Error crítico: No se encontró el rol 'user' en la DB.")
+    if not selected_role:
+        current_app.logger.error("Error crítico: No se encontró el rol '%s' en la DB.", requested_role)
         return jsonify(error="Error interno del servidor al configurar el usuario."), 500
 
     hashed_password = bcrypt.generate_password_hash(password).decode('utf-8')
 
-    try:
-        new_user = Users(
-            email=email,
-            name=name,  # <--- NUEVO: Añadimos el nombre
-            password_hash=hashed_password,
-            role_id=user_role.id
-        )
-        db.session.add(new_user)
-        
-        token_value = secrets.token_urlsafe(32)
-        expires = datetime.now(timezone.utc) + timedelta(hours=24) 
-        
-        verification_token = UserTokens(
-            user=new_user, 
-            token=token_value,
-            token_type='verify_email',
-            expires_at=expires
-        )
-        db.session.add(verification_token)
+    token_value = secrets.token_urlsafe(32)
+    expires = datetime.now(timezone.utc) + timedelta(hours=24)
+    verification_link = url_for('api.verify_email', token=token_value, _external=True)
+    sender = current_app.config.get('MAIL_DEFAULT_SENDER') or current_app.config.get('MAIL_USERNAME')
 
-        verification_link = url_for('api.verify_email', token=token_value, _external=True)
-        sender = current_app.config.get('MAIL_DEFAULT_SENDER') or current_app.config.get('MAIL_USERNAME')
-
-        msg = Message(
-            subject="¡Bienvenido a EcuPlot! Verifica tu correo.",
-            sender=sender,
-            recipients=[email]
-        )
-        msg.body = f"""¡Hola {name}! 
+    msg = Message(
+        subject="¡Bienvenido a EcuPlot! Verifica tu correo.",
+        sender=sender,
+        recipients=[email]
+    )
+    msg.body = f"""¡Hola {name}! 
 
 Gracias por registrarte en EcuPlot.
 
@@ -161,15 +166,36 @@ Si no te registraste, por favor ignora este correo.
 Saludos,
 El equipo de EcuPlot
 """
-        mail.send(msg)
-        current_app.logger.info(f"Correo de verificación enviado exitosamente a {email}")
+
+    try:
+        new_user = Users(
+            email=email,
+            name=name,
+            password_hash=hashed_password,
+            role_id=selected_role.id
+        )
+        new_user.roles.append(selected_role)
+        db.session.add(new_user)
+
+        verification_token = UserTokens(
+            user=new_user,
+            token=token_value,
+            token_type='verify_email',
+            expires_at=expires
+        )
+        db.session.add(verification_token)
 
         db.session.commit()
-
     except Exception as e:
         db.session.rollback()
-        current_app.logger.error(f"Error al registrar usuario o enviar correo: {e}")
+        current_app.logger.error(f"Error al registrar usuario: {e}")
         return jsonify(error="No se pudo completar el registro, intente más tarde."), 500
+
+    try:
+        mail.send(msg)
+        current_app.logger.info(f"Correo de verificación enviado exitosamente a {email}")
+    except Exception as mail_exc:
+        current_app.logger.error("No se pudo enviar el correo de verificación a %s: %s", email, mail_exc)
 
     return jsonify(
         message=f"Registro exitoso para {email}. Se ha enviado un correo de verificación."
@@ -297,6 +323,8 @@ def get_current_user_details():
         "name": user.name,
         "email": user.email,
         "role": user.role.name,  
+        "roles": [r.name for r in user.roles],
+        "public_id": user.public_id,
         "is_verified": user.is_verified,
         "created_at": user.created_at.isoformat()
     }), 200
@@ -392,3 +420,549 @@ def plot_history_list():
             for r in rows
         ],
     })
+
+
+@api.post("/groups")
+@require_session
+def create_group():
+    guard = _require_teacher()
+    if guard:
+        return guard
+
+    data = request.get_json() or {}
+    name = (data.get("name") or "").strip()
+    description = (data.get("description") or "").strip() or None
+
+    if len(name) < 2:
+        return jsonify(error="El nombre del grupo debe tener al menos 2 caracteres."), 400
+
+    group = StudentGroup(
+        teacher_id=g.current_user.id,
+        name=name,
+        description=description,
+    )
+    db.session.add(group)
+    try:
+        db.session.commit()
+    except Exception as exc:
+        db.session.rollback()
+        current_app.logger.error("Error al crear grupo: %s", exc)
+        return jsonify(error="No se pudo crear el grupo."), 500
+
+    return jsonify(
+        message="Grupo creado.",
+        group={
+            "id": str(group.id),
+            "name": group.name,
+            "description": group.description,
+            "created_at": group.created_at.isoformat(),
+        },
+    ), 201
+
+
+@api.get("/groups")
+@require_session
+def list_groups():
+    guard = _require_teacher()
+    if guard:
+        return guard
+
+    groups = (
+        db.session.query(StudentGroup)
+        .filter(StudentGroup.teacher_id == g.current_user.id)
+        .order_by(desc(StudentGroup.created_at))
+        .all()
+    )
+
+    payload = []
+    for group in groups:
+        payload.append({
+            "id": str(group.id),
+            "name": group.name,
+            "description": group.description,
+            "created_at": group.created_at.isoformat(),
+            "members": [
+                {
+                    "id": str(member.id),
+                    "student_visible_id": member.student_visible_id,
+                    "student_name": member.student.name,
+                    "student_email": member.student.email,
+                }
+                for member in group.members
+            ],
+        })
+
+    return jsonify(groups=payload)
+
+
+@api.post("/groups/<uuid:group_id>/members")
+@require_session
+def add_group_member(group_id):
+    guard = _require_teacher()
+    if guard:
+        return guard
+
+    group = db.session.query(StudentGroup).filter(
+        StudentGroup.id == group_id,
+        StudentGroup.teacher_id == g.current_user.id,
+    ).first()
+
+    if not group:
+        return jsonify(error="Grupo no encontrado."), 404
+
+    data = request.get_json() or {}
+    visible_id = (data.get("visible_id") or "").strip()
+    if not visible_id:
+        return jsonify(error="Debes proporcionar el visible_id del estudiante."), 400
+
+    student = db.session.query(Users).filter(Users.public_id == visible_id).first()
+    if not student:
+        return jsonify(error="No se encontró un usuario con ese visible_id."), 404
+
+    student_roles = {role.name for role in student.roles}
+    if student.id == g.current_user.id or student_roles.isdisjoint({"student", "user"}):
+        return jsonify(error="Solo se pueden agregar estudiantes o usuarios estándar."), 400
+
+    existing = db.session.query(GroupMember).filter(
+        GroupMember.group_id == group.id,
+        GroupMember.student_user_id == student.id,
+    ).first()
+    if existing:
+        return jsonify(error="El estudiante ya forma parte de este grupo."), 409
+
+    membership = GroupMember(
+        group_id=group.id,
+        student_user_id=student.id,
+        student_visible_id=student.public_id,
+    )
+    db.session.add(membership)
+    try:
+        db.session.commit()
+    except Exception as exc:
+        db.session.rollback()
+        current_app.logger.error("Error al agregar estudiante al grupo: %s", exc)
+        return jsonify(error="No se pudo agregar el estudiante."), 500
+
+    return jsonify(
+        message="Estudiante agregado al grupo.",
+        member={
+            "id": str(membership.id),
+            "student_visible_id": membership.student_visible_id,
+            "student_name": student.name,
+            "student_email": student.email,
+        },
+    ), 201
+
+
+@api.delete("/groups/<uuid:group_id>/members/<string:visible_id>")
+@require_session
+def remove_group_member(group_id, visible_id):
+    guard = _require_teacher()
+    if guard:
+        return guard
+
+    group = db.session.query(StudentGroup).filter(
+        StudentGroup.id == group_id,
+        StudentGroup.teacher_id == g.current_user.id,
+    ).first()
+
+    if not group:
+        return jsonify(error="Grupo no encontrado."), 404
+
+    membership = db.session.query(GroupMember).filter(
+        GroupMember.group_id == group.id,
+        GroupMember.student_visible_id == visible_id,
+    ).first()
+
+    if not membership:
+        return jsonify(error="El estudiante no pertenece a este grupo."), 404
+
+    try:
+        db.session.delete(membership)
+        db.session.commit()
+    except Exception as exc:
+        db.session.rollback()
+        current_app.logger.error("Error al eliminar estudiante del grupo: %s", exc)
+        return jsonify(error="No se pudo eliminar al estudiante."), 500
+
+    return jsonify(message="Estudiante eliminado del grupo.")
+
+
+@api.get("/teacher/groups/<uuid:group_id>/history")
+@require_session
+def group_history(group_id):
+    guard = _require_roles({'teacher', 'admin', 'development'})
+    if guard:
+        return guard
+
+    user_roles = {role.name for role in g.current_user.roles}
+
+    group_query = db.session.query(StudentGroup).filter(StudentGroup.id == group_id)
+    if user_roles.intersection({'admin', 'development'}):
+        group = group_query.first()
+    else:
+        group = group_query.filter(StudentGroup.teacher_id == g.current_user.id).first()
+
+    if not group:
+        return jsonify(error="Grupo no encontrado."), 404
+
+    members = (
+        db.session.query(GroupMember)
+        .options(selectinload(GroupMember.student).selectinload(Users.plot_history))
+        .filter(GroupMember.group_id == group.id)
+        .all()
+    )
+
+    history_payload = []
+    for membership in members:
+        student = membership.student
+        if not student:
+            continue
+        history_entries = [
+            {
+                "id": str(entry.id),
+                "expression": entry.expression,
+                "created_at": entry.created_at.isoformat() if entry.created_at else None,
+            }
+            for entry in sorted(
+                (h for h in student.plot_history if h and h.deleted_at is None),
+                key=lambda item: item.created_at or datetime.min.replace(tzinfo=timezone.utc),
+                reverse=True,
+            )
+        ]
+
+        history_payload.append({
+            "student_name": student.name,
+            "student_visible_id": student.public_id,
+            "entries": history_entries,
+        })
+
+    return jsonify(
+        group={
+            "id": str(group.id),
+            "name": group.name,
+            "description": group.description,
+        },
+        students=history_payload,
+    )
+
+
+@api.get("/admin/teachers")
+@require_session
+def admin_list_teachers():
+    guard = _require_roles({'admin', 'development'})
+    if guard:
+        return guard
+
+    teachers = (
+        db.session.query(Users)
+        .filter(Users.roles.any(Roles.name == 'teacher'))
+        .order_by(Users.name)
+        .all()
+    )
+
+    payload = [
+        {
+            "id": str(user.id),
+            "name": user.name,
+            "email": user.email,
+            "public_id": user.public_id,
+            "primary_role": user.role.name if user.role else None,
+            "roles": [r.name for r in user.roles],
+        }
+        for user in teachers
+    ]
+
+    return jsonify(teachers=payload)
+
+
+@api.post("/admin/users/<uuid:user_id>/assign-teacher")
+@require_session
+def admin_assign_teacher(user_id):
+    guard = _require_roles({'admin', 'development'})
+    if guard:
+        return guard
+
+    teacher_role = _get_role_by_name('teacher')
+    if not teacher_role:
+        current_app.logger.error("Rol 'teacher' no encontrado al intentar asignar desde admin.")
+        return jsonify(error="Rol 'teacher' no configurado en el sistema."), 500
+
+    user = db.session.get(Users, user_id)
+    if not user:
+        return jsonify(error="Usuario no encontrado."), 404
+
+    if teacher_role not in user.roles:
+        user.roles.append(teacher_role)
+    user.role_id = teacher_role.id
+
+    try:
+        db.session.commit()
+    except Exception as exc:
+        db.session.rollback()
+        current_app.logger.error("Error al asignar rol teacher: %s", exc)
+        return jsonify(error="No se pudo asignar el rol."), 500
+
+    return jsonify(
+        message="Rol 'teacher' asignado.",
+        user={
+            "id": str(user.id),
+            "name": user.name,
+            "roles": [r.name for r in user.roles],
+            "primary_role": user.role.name if user.role else None,
+        },
+    )
+
+
+@api.get("/admin/teacher-groups")
+@require_session
+def admin_teacher_groups():
+    guard = _require_roles({'admin', 'development'})
+    if guard:
+        return guard
+
+    groups = (
+        db.session.query(StudentGroup)
+        .options(
+            selectinload(StudentGroup.teacher),
+            selectinload(StudentGroup.members).selectinload(GroupMember.student),
+        )
+        .order_by(desc(StudentGroup.created_at))
+        .all()
+    )
+
+    payload = []
+    for group in groups:
+        teacher = group.teacher
+        payload.append({
+            "id": str(group.id),
+            "name": group.name,
+            "description": group.description,
+            "created_at": group.created_at.isoformat(),
+            "teacher": {
+                "id": str(teacher.id),
+                "name": teacher.name,
+                "email": teacher.email,
+                "public_id": teacher.public_id,
+            } if teacher else None,
+            "member_count": len(group.members),
+        })
+
+    return jsonify(groups=payload)
+
+
+@api.post("/role-requests")
+@require_session
+def create_role_request():
+    data = request.get_json() or {}
+    requested_role = (data.get("role") or "").strip().lower()
+
+    if requested_role != "admin":
+        return jsonify(error="Solo se permite solicitar el rol 'admin'."), 400
+
+    if 'admin' in {r.name for r in g.current_user.roles}:
+        return jsonify(error="Ya cuentas con privilegios de administrador."), 400
+
+    existing = db.session.query(RoleRequest).filter(
+        RoleRequest.user_id == g.current_user.id,
+        RoleRequest.requested_role == 'admin',
+        RoleRequest.status == 'pending'
+    ).first()
+    if existing:
+        return jsonify(error="Ya tienes una solicitud pendiente."), 409
+
+    notes = (data.get("notes") or "").strip() or None
+    req = RoleRequest(
+        user_id=g.current_user.id,
+        requested_role='admin',
+        status='pending',
+        notes=notes,
+    )
+    db.session.add(req)
+    try:
+        db.session.commit()
+    except Exception as exc:
+        db.session.rollback()
+        current_app.logger.error("Error al registrar solicitud de rol: %s", exc)
+        return jsonify(error="No se pudo registrar la solicitud."), 500
+
+    return jsonify(
+        message="Solicitud registrada. El equipo de desarrollo revisará tu caso.",
+        request_id=str(req.id),
+    ), 201
+
+
+@api.get("/development/role-requests")
+@require_session
+def development_list_role_requests():
+    guard = _require_roles({'development'})
+    if guard:
+        return guard
+
+    requests = (
+        db.session.query(RoleRequest)
+        .options(selectinload(RoleRequest.user), selectinload(RoleRequest.resolver))
+        .order_by(desc(RoleRequest.created_at))
+        .all()
+    )
+
+    payload = []
+    for req in requests:
+        payload.append({
+            "id": str(req.id),
+            "user": {
+                "id": str(req.user.id),
+                "name": req.user.name,
+                "email": req.user.email,
+                "public_id": req.user.public_id,
+            } if req.user else None,
+            "requested_role": req.requested_role,
+            "status": req.status,
+            "notes": req.notes,
+            "created_at": req.created_at.isoformat() if req.created_at else None,
+            "resolved_at": req.resolved_at.isoformat() if req.resolved_at else None,
+            "resolver": {
+                "id": str(req.resolver.id),
+                "name": req.resolver.name,
+            } if req.resolver else None,
+        })
+
+    return jsonify(requests=payload)
+
+
+def _assign_role_to_user(user, role_name):
+    role = _get_role_by_name(role_name)
+    if not role:
+        raise ValueError(f"Rol '{role_name}' no existe.")
+    if role not in user.roles:
+        user.roles.append(role)
+    user.role_id = role.id
+    return role
+
+
+@api.post("/development/users/assign-admin")
+@require_session
+def development_assign_admin():
+    guard = _require_roles({'development'})
+    if guard:
+        return guard
+
+    data = request.get_json() or {}
+    user_id = data.get("user_id")
+    visible_id = data.get("visible_id")
+    request_id = data.get("request_id")
+
+    user = None
+    if user_id:
+        try:
+            user = db.session.get(Users, user_id)
+        except Exception:
+            user = None
+    if not user and visible_id:
+        user = db.session.query(Users).filter(Users.public_id == visible_id).first()
+
+    if not user:
+        return jsonify(error="Usuario no encontrado."), 404
+
+    pending_request = None
+    if request_id:
+        pending_request = db.session.get(RoleRequest, request_id)
+        if pending_request and pending_request.user_id != user.id:
+            return jsonify(error="La solicitud no corresponde al usuario indicado."), 400
+
+    try:
+        _assign_role_to_user(user, 'admin')
+        db.session.flush()
+        if pending_request:
+            pending_request.status = 'approved'
+            pending_request.resolver_id = g.current_user.id
+            pending_request.resolved_at = datetime.now(timezone.utc)
+    except ValueError as exc:
+        db.session.rollback()
+        current_app.logger.error("Error en asignación de admin: %s", exc)
+        return jsonify(error=str(exc)), 500
+    except Exception as exc:
+        db.session.rollback()
+        current_app.logger.error("Error en asignación admin: %s", exc)
+        return jsonify(error="No se pudo asignar el rol admin."), 500
+    else:
+        db.session.commit()
+
+    return jsonify(
+        message="Rol 'admin' asignado.",
+        user={
+            "id": str(user.id),
+            "name": user.name,
+            "public_id": user.public_id,
+            "roles": [r.name for r in user.roles],
+            "primary_role": user.role.name if user.role else None,
+        }
+    )
+
+
+@api.post("/development/role-requests/<uuid:request_id>/resolve")
+@require_session
+def development_resolve_request(request_id):
+    guard = _require_roles({'development'})
+    if guard:
+        return guard
+
+    req = db.session.get(RoleRequest, request_id)
+    if not req:
+        return jsonify(error="Solicitud no encontrada."), 404
+
+    data = request.get_json() or {}
+    action = (data.get("action") or "").strip().lower()
+    notes = (data.get("notes") or "").strip() or None
+
+    if req.status != 'pending':
+        return jsonify(error="La solicitud ya fue procesada."), 409
+
+    if action not in {'approve', 'reject'}:
+        return jsonify(error="Acción inválida. Usa 'approve' o 'reject'."), 400
+
+    try:
+        if action == 'approve':
+            _assign_role_to_user(req.user, req.requested_role)
+        req.status = 'approved' if action == 'approve' else 'rejected'
+        req.notes = notes
+        req.resolver_id = g.current_user.id
+        req.resolved_at = datetime.now(timezone.utc)
+        db.session.commit()
+    except ValueError as exc:
+        db.session.rollback()
+        return jsonify(error=str(exc)), 400
+    except Exception as exc:
+        db.session.rollback()
+        current_app.logger.error("Error al resolver solicitud: %s", exc)
+        return jsonify(error="No se pudo procesar la solicitud."), 500
+
+    return jsonify(message=f"Solicitud {req.status}.")
+
+
+@api.post("/development/backups/run")
+@require_session
+def development_backup():
+    guard = _require_roles({'development'})
+    if guard:
+        return guard
+
+    # Nota: Aquí debería invocarse el comando del sistema (pg_dump, etc.) para generar el backup.
+    # Ejemplo: subprocess.run(['pg_dump', ...]) con las credenciales apropiadas.
+    current_app.logger.info("Backup solicitado por %s. Acción real pendiente de implementación.", g.current_user.email)
+    return jsonify(message="Backup encolado. Pendiente: ejecutar comando del sistema."), 202
+
+
+@api.post("/development/backups/restore")
+@require_session
+def development_restore():
+    guard = _require_roles({'development'})
+    if guard:
+        return guard
+
+    data = request.get_json() or {}
+    backup_name = data.get("backup_name") or "backup"
+
+    # Nota: Implementar restauración real (pg_restore, etc.) cuando el flujo operativo esté definido.
+    current_app.logger.info("Restore solicitado (%s) por %s. Acción real pendiente.", backup_name, g.current_user.email)
+    return jsonify(message="Restauración encolada. Pendiente: ejecutar comando del sistema.", backup=backup_name), 202

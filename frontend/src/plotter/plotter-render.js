@@ -120,8 +120,9 @@ export function createPlotterRenderer(params) {
     const h = height() * dpi;
     const spanX = view.xmax - view.xmin;
     const spanY = view.ymax - view.ymin;
-    const stepX = niceStep(spanX);
-    const stepY = niceStep(spanY);
+    const baseStep = niceStep(Math.min(spanX, spanY));
+    const stepX = baseStep;
+    const stepY = baseStep;
 
     ctx.save();
     ctx.scale(1, 1);
@@ -158,7 +159,8 @@ export function createPlotterRenderer(params) {
 
     // eje X
     const [, axisY] = worldToScreen(view.xmin, 0);
-    if (axisY >= 0 && axisY <= h) {
+    const hasXAxis = axisY >= 0 && axisY <= h;
+    if (hasXAxis) {
       ctx.beginPath();
       ctx.moveTo(0, axisY);
       ctx.lineTo(w, axisY);
@@ -167,7 +169,8 @@ export function createPlotterRenderer(params) {
 
     // eje Y
     const [axisX] = worldToScreen(0, view.ymin);
-    if (axisX >= 0 && axisX <= w) {
+    const hasYAxis = axisX >= 0 && axisX <= w;
+    if (hasYAxis) {
       ctx.beginPath();
       ctx.moveTo(axisX, 0);
       ctx.lineTo(axisX, h);
@@ -176,16 +179,37 @@ export function createPlotterRenderer(params) {
 
     ctx.fillStyle = 'rgba(148, 163, 184, 0.7)';
     ctx.font = `${12 * dpi}px Inter, system-ui, sans-serif`;
-    ctx.textBaseline = 'top';
 
     drawLines('x-labels', stepX, view.xmin, view.xmax, (value) => {
       const [sx] = worldToScreen(value, view.ymin);
-      ctx.fillText(formatTick(value), sx + 4 * dpi, h - 18 * dpi);
+      let labelY;
+      if (hasXAxis) {
+        const offset = axisY < h / 2 ? 10 * dpi : -10 * dpi;
+        ctx.textBaseline = 'middle';
+        ctx.textAlign = 'center';
+        labelY = axisY + offset;
+      } else {
+        ctx.textBaseline = 'top';
+        ctx.textAlign = 'center';
+        labelY = h - 18 * dpi;
+      }
+      ctx.fillText(formatTick(value), sx, labelY);
     });
 
     drawLines('y-labels', stepY, view.ymin, view.ymax, (value) => {
       const [, sy] = worldToScreen(view.xmin, value);
-      ctx.fillText(formatTick(value), 4 * dpi, sy + 4 * dpi);
+      let labelX;
+      if (hasYAxis) {
+        const offset = axisX > w / 2 ? -10 * dpi : 10 * dpi;
+        ctx.textBaseline = 'middle';
+        ctx.textAlign = axisX > w / 2 ? 'right' : 'left';
+        labelX = axisX + offset;
+      } else {
+        ctx.textBaseline = 'middle';
+        ctx.textAlign = 'left';
+        labelX = 8 * dpi;
+      }
+      ctx.fillText(formatTick(value), labelX, sy);
     });
 
     ctx.restore();

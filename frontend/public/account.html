@@ -191,6 +191,97 @@
               <ul id="plot-history-list" class="history-list"></ul>
             </div>
           </section>
+
+          <section id="teacher-panel" class="account-card account-card--role" hidden>
+            <div class="account-card__header">
+              <div>
+                <p class="account-card__eyebrow">Gestión docente</p>
+                <h2 class="account-card__title">Mis grupos</h2>
+                <p class="account-card__subtitle">Crea grupos y agrega estudiantes utilizando su ID visible.</p>
+              </div>
+              <div class="account-card__actions">
+                <button id="teacher-create-group" class="btn btn--primary btn--sm" type="button">Crear grupo</button>
+              </div>
+            </div>
+            <div class="account-card__body">
+              <p id="teacher-groups-empty" class="account-card__empty">Aún no has creado grupos.</p>
+              <div id="teacher-group-list" class="role-panel__list"></div>
+            </div>
+          </section>
+
+          <section id="admin-panel" class="account-card account-card--role" hidden>
+            <div class="account-card__header">
+              <div>
+                <p class="account-card__eyebrow">Panel administrador</p>
+                <h2 class="account-card__title">Usuarios del sistema</h2>
+                <p class="account-card__subtitle">Consulta el listado de docentes y promueve nuevos usuarios.</p>
+              </div>
+            </div>
+            <div class="account-card__body">
+              <form id="admin-assign-teacher-form" class="role-form" novalidate>
+                <div class="form__field">
+                  <label class="form__label" for="admin-assign-user-id">ID del usuario (UUID)</label>
+                  <input class="form__input" type="text" id="admin-assign-user-id" autocomplete="off" placeholder="Ej. 123e4567-e89b-12d3-a456-426614174000" />
+                  <p class="form__hint">Ingresa el identificador del usuario al que deseas otorgar el rol docente.</p>
+                </div>
+                <div class="form__actions">
+                  <button class="btn btn--primary btn--sm" type="submit">Asignar rol docente</button>
+                </div>
+              </form>
+              <div id="admin-user-list" class="role-panel__list"></div>
+              <div class="role-panel__section">
+                <h3 class="account-card__subtitle">Grupos docentes</h3>
+                <div id="admin-group-list" class="role-panel__list"></div>
+              </div>
+            </div>
+          </section>
+
+          <section id="development-panel" class="account-card account-card--role" hidden>
+            <div class="account-card__header">
+              <div>
+                <p class="account-card__eyebrow">Panel development</p>
+                <h2 class="account-card__title">Herramientas avanzadas</h2>
+                <p class="account-card__subtitle">Gestiona roles administrativos y operaciones de respaldo.</p>
+              </div>
+            </div>
+            <div class="account-card__body">
+              <form id="development-assign-admin-form" class="role-form" novalidate>
+                <div class="form__field">
+                  <label class="form__label" for="development-user-id">ID de usuario (UUID)</label>
+                  <input class="form__input" type="text" id="development-user-id" autocomplete="off" placeholder="UUID del usuario" />
+                </div>
+                <div class="form__field">
+                  <label class="form__label" for="development-visible-id">ID visible</label>
+                  <input class="form__input" type="text" id="development-visible-id" autocomplete="off" placeholder="visible_id (opcional)" />
+                </div>
+                <div class="form__field">
+                  <label class="form__label" for="development-request-id">ID de solicitud</label>
+                  <input class="form__input" type="text" id="development-request-id" autocomplete="off" placeholder="ID de solicitud (opcional)" />
+                </div>
+                <div class="form__actions">
+                  <button class="btn btn--primary btn--sm" type="submit">Asignar rol admin</button>
+                </div>
+              </form>
+
+              <div class="role-panel__actions">
+                <button id="development-create-backup" class="btn btn--ghost btn--sm" type="button">Crear backup</button>
+                <form id="development-restore-form" class="role-form role-form--inline" novalidate>
+                  <div class="form__field">
+                    <label class="form__label" for="development-backup-name">Nombre del backup</label>
+                    <input class="form__input" type="text" id="development-backup-name" autocomplete="off" placeholder="Ej. backup-2025-10-30" />
+                  </div>
+                  <div class="form__actions">
+                    <button class="btn btn--primary btn--sm" type="submit">Restaurar backup</button>
+                  </div>
+                </form>
+              </div>
+
+              <div class="role-panel__section">
+                <h3 class="account-card__subtitle">Solicitudes de roles</h3>
+                <div id="development-role-requests" class="role-panel__list"></div>
+              </div>
+            </div>
+          </section>
         </div>
       </div>
 

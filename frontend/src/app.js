@@ -78,6 +78,65 @@ const KEYS = {
   sessionToken: 'ecuplot_session_token',
 };
 
+const USER_STATE_KEY = 'ecuplot.currentUser';
+
+const userState = {
+  current: null,
+};
+
+function loadStoredUser() {
+  try {
+    const raw = sessionStorage.getItem(USER_STATE_KEY);
+    if (!raw) {
+      userState.current = null;
+      return null;
+    }
+    const parsed = JSON.parse(raw);
+    userState.current = parsed;
+    return parsed;
+  } catch {
+    userState.current = null;
+    return null;
+  }
+}
+
+function setCurrentUser(user, { emit = true } = {}) {
+  userState.current = user ? { ...user } : null;
+  try {
+    if (user) sessionStorage.setItem(USER_STATE_KEY, JSON.stringify(user));
+    else sessionStorage.removeItem(USER_STATE_KEY);
+  } catch {}
+  if (emit) {
+    window.dispatchEvent(new CustomEvent('ecuplot:user', { detail: userState.current }));
+  }
+}
+
+function getCurrentUser() {
+  return userState.current;
+}
+
+async function refreshCurrentUser() {
+  if (!getSessionToken()) {
+    setCurrentUser(null);
+    return { user: null, status: 401 };
+  }
+
+  try {
+    const res = await authFetch('/api/user/me');
+    const status = res.status;
+    if (!res.ok) {
+      setCurrentUser(null);
+      return { user: null, status };
+    }
+    const data = await res.json();
+    setCurrentUser(data);
+    return { user: data, status };
+  } catch (error) {
+    setCurrentUser(null);
+    return { user: null, status: 500, error };
+  }
+}
+
 const HEADER_ICON_PATHS = {
   account: {
     light: '/static/images/userclaro.png',
@@ -697,6 +756,15 @@ function setAuthUI(isLogged) {
 function restoreSessionAuth() {
   const hasToken = !!getSessionToken();
   setAuthUI(hasToken);
+  if (hasToken) {
+    const cached = loadStoredUser();
+    if (cached) {
+      window.dispatchEvent(new CustomEvent('ecuplot:user', { detail: cached }));
+    }
+    refreshCurrentUser();
+  } else {
+    setCurrentUser(null);
+  }
 }
 
 function initAuthForms() {
@@ -709,6 +777,7 @@ function initAuthForms() {
       email: qs('#error-signup-email', signupForm),
       password: qs('#error-signup-password', signupForm),
       terms: qs('#error-signup-terms', signupForm),
+      role: qs('#error-signup-role', signupForm),
     };
 
     on(signupForm, 'submit', async (event) => {
@@ -719,8 +788,9 @@ function initAuthForms() {
       const emailInput = qs('#signup-email', signupForm);
       const passwordInput = qs('#signup-password', signupForm);
       const termsInput = /** @type {HTMLInputElement|null} */ (qs('#signup-terms', signupForm));
+      const roleSelect = /** @type {HTMLSelectElement|null} */ (qs('#signup-role', signupForm));
 
-      if (!submitBtn || !nameInput || !emailInput || !passwordInput || !termsInput) {
+      if (!submitBtn || !nameInput || !emailInput || !passwordInput || !termsInput || !roleSelect) {
         return;
       }
 
@@ -729,7 +799,13 @@ function initAuthForms() {
         email: emailInput.value,
         password: passwordInput.value,
         terms: termsInput.checked,
+        role: roleSelect.value,
       };
+
+      if (!['user', 'student'].includes(values.role)) {
+        values.role = 'user';
+        roleSelect.value = 'user';
+      }
 
       const errors = validate(
         {
@@ -737,6 +813,7 @@ function initAuthForms() {
           email: authValidators.email,
           password: authValidators.password,
           terms: authValidators.terms,
+          role: () => '',
         },
         values
       );
@@ -758,6 +835,7 @@ function initAuthForms() {
               email: values.email,
               password: values.password,
               terms: true,
+              role: values.role,
             }),
           }
         );
@@ -829,6 +907,7 @@ function initAuthForms() {
           toast.success(data.message || '¡Bienvenido de nuevo!');
           if (data.session_token) setSessionToken(data.session_token);
           setAuthUI(true);
+          await refreshCurrentUser();
           window.dispatchEvent(new CustomEvent('ecuplot:login'));
           LoginModal.close();
           loginForm.reset();
@@ -896,6 +975,7 @@ async function logout() {
     console.warn('Logout request failed:', e);
   } finally {
     localStorage.removeItem(KEYS.sessionToken);
+    setCurrentUser(null);
     setAuthUI(false);
     window.dispatchEvent(new CustomEvent('ecuplot:logout'));
     toast.success('Sesión cerrada.');
@@ -932,4 +1012,4 @@ function init() {
 
 init();
 
-export { toggleTheme, authFetch, savePlot, logout, toast };
+export { toggleTheme, authFetch, savePlot, logout, toast, getCurrentUser, refreshCurrentUser };
