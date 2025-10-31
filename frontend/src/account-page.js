@@ -1,6 +1,6 @@
 import { authFetch, toast } from '/static/app.js';
-
-const qs = (sel, ctx = document) => ctx.querySelector(sel);
+import { qs } from './lib/dom.js';
+import { on } from './lib/events.js';
 const SESSION_KEY = 'ecuplot_session_token';
 
 let unauthorizedHandled = false;
@@ -90,17 +90,14 @@ function toggleHistoryPanel(force) {
 }
 
 function bindHistoryToggle() {
-  if (ui.historyToggle) {
-    ui.historyToggle.setAttribute('aria-expanded', 'false');
-  }
-  if (ui.historyToggle) {
-    ui.historyToggle.addEventListener('click', () => {
-      const opened = toggleHistoryPanel();
-      if (opened) ui.historyPanel?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-    });
-  }
+  if (!ui.historyToggle) return;
+  ui.historyToggle.setAttribute('aria-expanded', 'false');
+  on(ui.historyToggle, 'click', () => {
+    const opened = toggleHistoryPanel();
+    if (opened) ui.historyPanel?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  });
   if (ui.historyCTA) {
-    ui.historyCTA.addEventListener('click', () => {
+    on(ui.historyCTA, 'click', () => {
       if (toggleHistoryPanel(true)) {
         ui.historyPanel?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
       }
@@ -110,7 +107,7 @@ function bindHistoryToggle() {
 
 function bindGuestOverlay() {
   if (!ui.guestShell) return;
-  ui.guestShell.addEventListener('click', (event) => {
+  on(ui.guestShell, 'click', (event) => {
     if (event.target === ui.guestShell) {
       toast?.info?.('Inicia sesión o vuelve al inicio para salir de esta pantalla.');
     }

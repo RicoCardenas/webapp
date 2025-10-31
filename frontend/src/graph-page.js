@@ -1,3 +1,6 @@
+import { qs, toggleClass } from './lib/dom.js';
+import { on } from './lib/events.js';
+
 const VALUE_LIMIT = 20;
 
 const selectors = {
@@ -27,8 +30,8 @@ function forceDarkTheme() {
 
 // Navegacion 
 function bindEscToBack() {
-  window.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape') {
+  on(window, 'keydown', (event) => {
+    if (event.key === 'Escape') {
       window.location.href = '/';
     }
   });
@@ -36,7 +39,7 @@ function bindEscToBack() {
 
 // Canvas a pantalla completa
 function initFullHeightCanvasSync() {
-  const host = document.getElementById('ggb-container');
+  const host = qs(selectors.graphContainer);
   if (!host) return;
 
   const ro = new ResizeObserver((entries) => {
@@ -57,8 +60,8 @@ function initQueryExprBoot() {
   const expr = params.get('expr');
   if (!expr) return;
 
-  const input = /** @type {HTMLInputElement|null} */(document.getElementById('plot-input'));
-  const form  = /** @type {HTMLFormElement|null} */(document.getElementById('plot-form'));
+  const input = /** @type {HTMLInputElement|null} */ (qs('#plot-input'));
+  const form = /** @type {HTMLFormElement|null} */ (qs('#plot-form'));
 
   if (input) input.value = expr;
 
@@ -70,26 +73,26 @@ function initQueryExprBoot() {
 }
 
 function initCoordHUD() {
-  const hud = document.querySelector(selectors.coordHud);
-  const container = document.querySelector(selectors.graphContainer);
+  const hud = qs(selectors.coordHud);
+  const container = qs(selectors.graphContainer);
   if (!hud || !container) return;
 
-  container.addEventListener('plotter:hover', (event) => {
+  on(container, 'plotter:hover', (event) => {
     const detail = event.detail || {};
     if (typeof detail.x !== 'number' || typeof detail.y !== 'number') return;
     hud.hidden = false;
     hud.textContent = `(${detail.x.toFixed(3)}, ${detail.y.toFixed(3)})`;
   });
 
-  container.addEventListener('plotter:hover-end', () => {
+  on(container, 'plotter:hover-end', () => {
     hud.hidden = true;
   });
 }
 
 function initFunctionPanelToggle() {
-  const btn = document.querySelector(selectors.toggleFunctions);
-  const panel = document.getElementById('functions-panel');
-  const closeBtn = document.getElementById('close-functions');
+  const btn = qs(selectors.toggleFunctions);
+  const panel = qs('#functions-panel');
+  const closeBtn = qs('#close-functions');
   if (!btn || !panel) return;
 
   const notifyResize = () => window.requestAnimationFrame(() => window.dispatchEvent(new Event('resize')));
@@ -114,11 +117,11 @@ function initFunctionPanelToggle() {
 
   syncToViewport(mq.matches);
 
-  btn.addEventListener('click', () => {
+  on(btn, 'click', () => {
     setState(!isOpen);
   });
 
-  closeBtn?.addEventListener('click', () => {
+  on(closeBtn, 'click', () => {
     setState(false);
   });
 
@@ -128,8 +131,8 @@ function initFunctionPanelToggle() {
 }
 
 function setValuePanelOpen(state) {
-  const panel = document.querySelector(selectors.valuePanel);
-  const btn = document.querySelector(selectors.toggleValues);
+  const panel = qs(selectors.valuePanel);
+  const btn = qs(selectors.toggleValues);
   if (!panel || !btn) return;
 
   panel.hidden = !state;
@@ -138,8 +141,8 @@ function setValuePanelOpen(state) {
 }
 
 function renderValueTable() {
-  const body = document.querySelector(selectors.valueTableBody);
-  const empty = document.querySelector(selectors.valueTableEmpty);
+  const body = qs(selectors.valueTableBody);
+  const empty = qs(selectors.valueTableEmpty);
   if (!body || !empty) return;
 
   body.innerHTML = '';
@@ -180,28 +183,27 @@ function addValueRow(point) {
 }
 
 function initValuePanel() {
-  const toggleBtn = document.querySelector(selectors.toggleValues);
-  const closeBtn = document.querySelector(selectors.closeValues);
-  const clearBtn = document.querySelector(selectors.clearValues);
+  const toggleBtn = qs(selectors.toggleValues);
+  const closeBtn = qs(selectors.closeValues);
+  const clearBtn = qs(selectors.clearValues);
 
-  toggleBtn?.addEventListener('click', () => {
-    const panel = document.querySelector(selectors.valuePanel);
+  on(toggleBtn, 'click', () => {
+    const panel = qs(selectors.valuePanel);
     if (!panel) return;
-    const willOpen = panel.hidden;
-    setValuePanelOpen(willOpen);
+    setValuePanelOpen(panel.hidden);
   });
 
-  closeBtn?.addEventListener('click', () => setValuePanelOpen(false));
+  on(closeBtn, 'click', () => setValuePanelOpen(false));
 
-  clearBtn?.addEventListener('click', () => {
-    valueState.rows = [];
+  on(clearBtn, 'click', () => {
+    valueState.rows.length = 0;
     renderValueTable();
   });
 }
 
 function initControlsCollapse() {
-  const toggle = document.querySelector(selectors.controlsToggle);
-  const secondary = document.querySelector(selectors.controlsSecondary);
+  const toggle = qs(selectors.controlsToggle);
+  const secondary = qs(selectors.controlsSecondary);
   if (!toggle || !secondary) return;
 
   const mq = window.matchMedia('(max-width: 640px)');
@@ -209,9 +211,9 @@ function initControlsCollapse() {
 
   const applyState = (open) => {
     const shouldOpen = mq.matches ? open : true;
-    secondary.classList.toggle('is-open', shouldOpen);
+    toggleClass(secondary, 'is-open', shouldOpen);
     toggle.setAttribute('aria-expanded', String(shouldOpen));
-    toggle.classList.toggle('is-active', shouldOpen && mq.matches);
+    toggleClass(toggle, 'is-active', shouldOpen && mq.matches);
   };
 
   const syncLayout = () => {
@@ -224,7 +226,7 @@ function initControlsCollapse() {
     }
   };
 
-  toggle.addEventListener('click', () => {
+  on(toggle, 'click', () => {
     if (!mq.matches) return;
     const next = !secondary.classList.contains('is-open');
     manualOpen = next;
@@ -242,10 +244,10 @@ function initControlsCollapse() {
 }
 
 function initPlotterBridge() {
-  const container = document.querySelector(selectors.graphContainer);
+  const container = qs(selectors.graphContainer);
   if (!container) return;
 
-  container.addEventListener('plotter:point', (event) => {
+  on(container, 'plotter:point', (event) => {
     const detail = event.detail;
     if (!detail) return;
     addValueRow(detail);

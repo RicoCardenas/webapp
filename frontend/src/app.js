@@ -1,3 +1,13 @@
+import {
+  qs,
+  qsa,
+  toggleClass,
+  setAria,
+  toggleAriaExpanded,
+} from './lib/dom.js';
+import { on, off, debounce } from './lib/events.js';
+import { contactValidators, authValidators, validate } from './lib/validators.js';
+
 const SELECTORS = {
   siteHeader: '#site-header',
   primaryNav: '#primary-nav',
@@ -90,49 +100,6 @@ const STATUS_CLASSES = [
   CLASSNAMES.statusError,
 ];
 
-/** Utils DOM */
-const qs = (sel, ctx = document) =>
-  /** @type {any} */ (ctx.querySelector(sel));
-
-const qsa = (sel, ctx = document) =>
-  /** @type {any} */ (ctx.querySelectorAll(sel));
-
-const on = (el, type, handler, opts) =>
-  el?.addEventListener?.(type, handler, opts);
-
-const off = (el, type, handler, opts) =>
-  el?.removeEventListener?.(type, handler, opts);
-
-function setAria(el, obj) {
-  if (!el) return;
-  for (const [k, v] of Object.entries(obj)) {
-    v == null
-      ? el.removeAttribute(`aria-${k}`)
-      : el.setAttribute(`aria-${k}`, String(v));
-  }
-}
-
-function toggleAriaExpanded(btn, state) {
-  if (!btn) return;
-  btn.setAttribute('aria-expanded', String(state));
-}
-
-function toggleClass(el, name, state) {
-  if (!el) return;
-  el.classList.toggle(name, state ?? !el.classList.contains(name));
-}
-
-const prefersReducedMotion = () =>
-  matchMedia('(prefers-reduced-motion: reduce)').matches;
-
-function debounce(fn, delay = 150) {
-  let t;
-  return (...a) => {
-    clearTimeout(t);
-    t = setTimeout(() => fn(...a), delay);
-  };
-}
-
 /** Focus trap / Scroll lock */
 let focusTrapStack = [];
 let lastScrollTop = 0;
@@ -217,6 +184,40 @@ function unlockScroll() {
   window.scrollTo({ top: lastScrollTop, left: 0 });
 }
 
+function showFieldError(element, message) {
+  if (!element) return;
+  element.textContent = message;
+  element.classList.add('is-visible');
+  element.setAttribute('aria-hidden', String(!message));
+}
+
+function hideFieldError(element) {
+  if (!element) return;
+  element.textContent = '';
+  element.classList.remove('is-visible');
+  element.setAttribute('aria-hidden', 'true');
+}
+
+/**
+ * Print validation errors on associated nodes.
+ * @param {Record<string, string>} errors
+ * @param {Record<string, Element|null|undefined>} fields
+ */
+function renderErrors(errors, fields) {
+  let hasError = false;
+  for (const [name, message] of Object.entries(errors)) {
+    const target = fields[name];
+    if (!target) continue;
+    if (message) {
+      showFieldError(target, message);
+      hasError = true;
+    } else {
+      hideFieldError(target);
+    }
+  }
+  return hasError;
+}
+
 /** Fetch con timeout */
 async function safeFetch(url, opts = {}, timeoutMs = 5000) {
   const ctrl = new AbortController();
@@ -249,6 +250,9 @@ function initTheme() {
   if (btn) btn.setAttribute('aria-pressed', String(theme === 'dark'));
 }
 
+/**
+ * Toggle between light and dark theme and persist the choice.
+ */
 function toggleTheme() {
   const isDark = document.documentElement.dataset.theme === 'dark';
   const next = isDark ? 'light' : 'dark';
@@ -457,6 +461,15 @@ const BackendStatus = (() => {
 })();
 
 // notificaciones/toasts
+/**
+ * Toast notification helpers scoped to the #toasts container.
+ * @type {{
+ *   success: (message: string, timeout?: number) => void,
+ *   error: (message: string, timeout?: number) => void,
+ *   info: (message: string, timeout?: number) => void,
+ *   warn: (message: string, timeout?: number) => void,
+ * }}
+ */
 const toast = (() => {
   const container = qs('#toasts');
 
@@ -500,87 +513,44 @@ const toast = (() => {
   };
 })();
 
-function showFieldError(pEl, msg) {
-  if (!pEl) return;
-  pEl.textContent = msg;
-  pEl.classList.add('is-visible');
-  pEl.setAttribute('aria-hidden', 'false');
-}
-
-function hideFieldError(pEl) {
-  if (!pEl) return;
-  pEl.textContent = '';
-  pEl.classList.remove('is-visible');
-  pEl.setAttribute('aria-hidden', 'true');
-}
-
 // Contacto
 function initContactForm() {
-  const form = qs('#contact-form');
+  const form = qs(SELECTORS.contactForm);
   if (!form) return;
 
-  const errGlobal = qs('#contact-form-errors');
-  const errName = qs('#error-contact-name');
-  const errEmail = qs('#error-contact-email');
-  const errMsg = qs('#error-contact-message');
-
-  function showFieldError(pEl, msg) {
-    if (!pEl) return;
-    pEl.textContent = msg;
-    pEl.classList.add('is-visible');
-    pEl.setAttribute('aria-hidden', 'false');
-  }
-
-  function hideFieldError(pEl) {
-    if (!pEl) return;
-    pEl.textContent = '';
-    pEl.classList.remove('is-visible');
-    pEl.setAttribute('aria-hidden', 'true');
-  }
-
-  const validators = {
-    name: (v) =>
-      v && v.trim().length >= 2 ? '' : 'Ingresa tu nombre (mín. 2 caracteres)',
-    email: (v) =>
-      /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v || '') ? '' : 'Ingresa un correo válido',
-    message: (v) =>
-      v && v.trim().length >= 10 ? '' : 'Escribe un mensaje (mín. 10 caracteres)',
+  const globalError = qs(SELECTORS.contactErrorsGlobal);
+  const fieldErrors = {
+    name: qs(SELECTORS.errorName),
+    email: qs(SELECTORS.errorEmail),
+    message: qs(SELECTORS.errorMessage),
   };
 
   on(form, 'submit', async (e) => {
     e.preventDefault();
 
     const fd = new FormData(form);
-    const name = String(fd.get('name') || '');
-    const email = String(fd.get('email') || '');
-    const message = String(fd.get('message') || '');
-
-    hideFieldError(errName);
-    hideFieldError(errEmail);
-    hideFieldError(errMsg);
-
-    if (errGlobal) {
-      errGlobal.textContent = '';
-      errGlobal.classList.remove('is-visible');
-      errGlobal.setAttribute('aria-hidden', 'true');
-    }
-
-    const errors = {
-      name: validators.name(name),
-      email: validators.email(email),
-      message: validators.message(message),
+    const values = {
+      name: String(fd.get('name') || ''),
+      email: String(fd.get('email') || ''),
+      message: String(fd.get('message') || ''),
     };
 
-    let invalid = false;
-    if (errors.name) { showFieldError(errName, errors.name); invalid = true; }
-    if (errors.email) { showFieldError(errEmail, errors.email); invalid = true; }
-    if (errors.message) { showFieldError(errMsg, errors.message); invalid = true; }
+    Object.values(fieldErrors).forEach(hideFieldError);
+
+    if (globalError) {
+      globalError.textContent = '';
+      globalError.classList.remove('is-visible');
+      globalError.setAttribute('aria-hidden', 'true');
+    }
+
+    const errors = validate(contactValidators, values);
+    const invalid = renderErrors(errors, fieldErrors);
 
     if (invalid) {
-      if (errGlobal) {
-        errGlobal.textContent = 'Por favor corrige los errores en el formulario.';
-        errGlobal.classList.add('is-visible');
-        errGlobal.setAttribute('aria-hidden', 'false');
+      if (globalError) {
+        globalError.textContent = 'Por favor corrige los errores en el formulario.';
+        globalError.classList.add('is-visible');
+        globalError.setAttribute('aria-hidden', 'false');
       }
       return;
     }
@@ -591,7 +561,7 @@ function initContactForm() {
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ name, email, message }),
+          body: JSON.stringify(values),
         },
         5000
       );
@@ -667,6 +637,12 @@ function buildHeaderButtonMarkup(config, options = {}) {
   `;
 }
 
+/**
+ * Perform a fetch request including the session token when available.
+ * @param {RequestInfo | URL} url
+ * @param {RequestInit} [options]
+ * @returns {Promise<Response>}
+ */
 async function authFetch(url, options = {}) {
   const token = getSessionToken();
   const headers = new Headers(options.headers || {});
@@ -724,66 +700,52 @@ function restoreSessionAuth() {
 }
 
 function initAuthForms() {
-  const signupForm = qs('#modal-signup .form');
-  const loginForm = qs('#modal-login .form');
-
-  // 1. Validadores específicos para autenticación
-  const authValidators = {
-    email: (v) =>
-      /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v || '') ? '' : 'Ingresa un correo válido',
-    password: (v) =>
-      v && v.length >= 8 ? '' : 'La contraseña debe tener al menos 8 caracteres',
-    loginPassword: (v) =>
-      v && v.length > 0 ? '' : 'Ingresa tu contraseña',
-    name: (v) => // <-- NUEVO
-      v && v.length >= 2 ? '' : 'El nombre debe tener al menos 2 caracteres',
-  };
+  const signupForm = qs(SELECTORS.signupForm);
+  const loginForm = qs(SELECTORS.loginForm);
 
   if (signupForm) {
-    on(signupForm, 'submit', async (e) => {
-      e.preventDefault();
+    const signupErrors = {
+      name: qs('#error-signup-name', signupForm),
+      email: qs('#error-signup-email', signupForm),
+      password: qs('#error-signup-password', signupForm),
+      terms: qs('#error-signup-terms', signupForm),
+    };
 
-      const btn = qs('button[type="submit"]', signupForm);
-      const nameEl = qs('#signup-name', signupForm); // <-- NUEVO
-      const emailEl = qs('#signup-email', signupForm);
-      const passwordEl = qs('#signup-password', signupForm);
-      const terms = qs('#signup-terms', signupForm);
+    on(signupForm, 'submit', async (event) => {
+      event.preventDefault();
 
-      // 2. Obtener elementos de error
-      const errName = qs('#error-signup-name', signupForm); // <-- NUEVO
-      const errEmail = qs('#error-signup-email', signupForm);
-      const errPass = qs('#error-signup-password', signupForm);
-      const errTerms = qs('#error-signup-terms', signupForm);
+      const submitBtn = qs('button[type="submit"]', signupForm);
+      const nameInput = qs('#signup-name', signupForm);
+      const emailInput = qs('#signup-email', signupForm);
+      const passwordInput = qs('#signup-password', signupForm);
+      const termsInput = /** @type {HTMLInputElement|null} */ (qs('#signup-terms', signupForm));
 
-      // <-- MODIFICADO
-      if (!emailEl || !passwordEl || !btn || !terms || !errEmail || !errPass || !errTerms || !nameEl || !errName) return;
+      if (!submitBtn || !nameInput || !emailInput || !passwordInput || !termsInput) {
+        return;
+      }
 
-      // 3. Ocultar errores previos
-      hideFieldError(errName); // <-- NUEVO
-      hideFieldError(errEmail);
-      hideFieldError(errPass);
-      hideFieldError(errTerms);
-
-      // 4. Ejecutar validaciones
-      const errors = {
-        name: authValidators.name(nameEl.value), // <-- NUEVO
-        email: authValidators.email(emailEl.value),
-        password: authValidators.password(passwordEl.value),
-        terms: !terms.checked ? 'Debes aceptar los términos' : ''
+      const values = {
+        name: nameInput.value,
+        email: emailInput.value,
+        password: passwordInput.value,
+        terms: termsInput.checked,
       };
 
-      let invalid = false;
-      if (errors.name) { showFieldError(errName, errors.name); invalid = true; } // <-- NUEVO
-      if (errors.email) { showFieldError(errEmail, errors.email); invalid = true; }
-      if (errors.password) { showFieldError(errPass, errors.password); invalid = true; }
-      if (errors.terms) { showFieldError(errTerms, errors.terms); invalid = true; }
+      const errors = validate(
+        {
+          name: authValidators.name,
+          email: authValidators.email,
+          password: authValidators.password,
+          terms: authValidators.terms,
+        },
+        values
+      );
 
-      // 5. Detener si hay errores
+      const invalid = renderErrors(errors, signupErrors);
       if (invalid) return;
 
-    
-      btn.disabled = true;
-      btn.textContent = 'Registrando...';
+      submitBtn.disabled = true;
+      submitBtn.textContent = 'Registrando...';
 
       try {
         const res = await safeFetch(
@@ -792,9 +754,9 @@ function initAuthForms() {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-              name: nameEl.value, // <-- NUEVO
-              email: emailEl.value,
-              password: passwordEl.value,
+              name: values.name,
+              email: values.email,
+              password: values.password,
               terms: true,
             }),
           }
@@ -808,49 +770,49 @@ function initAuthForms() {
         } else {
           toast.error(data.error || `Error (${res.status}): No se pudo registrar.`);
         }
-      } catch {
+      } catch (error) {
+        console.warn('Register request failed', error);
         toast.error('Error de red.');
       } finally {
-        btn.disabled = false;
-        btn.textContent = 'Crear cuenta';
+        submitBtn.disabled = false;
+        submitBtn.textContent = 'Crear cuenta';
       }
     });
   }
 
   if (loginForm) {
-    on(loginForm, 'submit', async (e) => {
-      e.preventDefault();
+    const loginErrors = {
+      email: qs('#error-login-email', loginForm),
+      password: qs('#error-login-password', loginForm),
+    };
 
-      const btn = qs('button[type="submit"]', loginForm);
-      const emailEl = qs('#login-email', loginForm);
-      const passwordEl = qs('#login-password', loginForm);
+    on(loginForm, 'submit', async (event) => {
+      event.preventDefault();
 
-      // 2. Obtener elementos de error
-      const errEmail = qs('#error-login-email', loginForm);
-      const errPass = qs('#error-login-password', loginForm);
+      const submitBtn = qs('button[type="submit"]', loginForm);
+      const emailInput = qs('#login-email', loginForm);
+      const passwordInput = qs('#login-password', loginForm);
 
-      if (!emailEl || !passwordEl || !btn || !errEmail || !errPass) return;
+      if (!submitBtn || !emailInput || !passwordInput) return;
 
-      // 3. Ocultar errores previos
-      hideFieldError(errEmail);
-      hideFieldError(errPass);
-
-      // 4. Ejecutar validaciones
-      const errors = {
-        email: authValidators.email(emailEl.value),
-        password: authValidators.loginPassword(passwordEl.value), // Solo revisa que no esté vacío
+      const values = {
+        email: emailInput.value,
+        password: passwordInput.value,
       };
 
-      let invalid = false;
-      if (errors.email) { showFieldError(errEmail, errors.email); invalid = true; }
-      if (errors.password) { showFieldError(errPass, errors.password); invalid = true; }
-      
-      // 5. Detener si hay errores
+      const errors = validate(
+        {
+          email: authValidators.email,
+          password: authValidators.loginPassword,
+        },
+        values
+      );
+
+      const invalid = renderErrors(errors, loginErrors);
       if (invalid) return;
 
-      // --- Solo si la validación pasa, continuamos ---
-      btn.disabled = true;
-      btn.textContent = 'Entrando...';
+      submitBtn.disabled = true;
+      submitBtn.textContent = 'Entrando...';
 
       try {
         const res = await safeFetch(
@@ -858,10 +820,7 @@ function initAuthForms() {
           {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              email: emailEl.value,
-              password: passwordEl.value,
-            }),
+            body: JSON.stringify(values),
           }
         );
 
@@ -876,11 +835,12 @@ function initAuthForms() {
         } else {
           toast.error(data.error || `Error (${res.status}): Credenciales inválidas.`);
         }
-      } catch {
+      } catch (error) {
+        console.error('Login request failed', error);
         toast.error('Error de red.');
       } finally {
-        btn.disabled = false;
-        btn.textContent = 'Entrar';
+        submitBtn.disabled = false;
+        submitBtn.textContent = 'Entrar';
       }
     });
   }
@@ -908,6 +868,13 @@ function checkEmailVerification() {
 }
 
 // Proteccion de historial de graficas
+/**
+ * Persist a plot entry for the authenticated user.
+ * @param {string} expression
+ * @param {any} [plot_parameters]
+ * @param {any} [plot_metadata]
+ * @returns {Promise<any>}
+ */
 async function savePlot(expression, plot_parameters = null, plot_metadata = null) {
   const res = await authFetch('/api/plot', {
     method: 'POST',
@@ -919,6 +886,9 @@ async function savePlot(expression, plot_parameters = null, plot_metadata = null
 }
 
 // Cierre de sesión
+/**
+ * Terminate the current session and reset UI state.
+ */
 async function logout() {
   try {
     await authFetch('/api/logout', { method: 'POST' });
