@@ -16,11 +16,13 @@ const SELECTORS = {
   drawerToggle: '[data-drawer-toggle]',
   modalLogin: '#modal-login',
   modalSignup: '#modal-signup',
+  modalForgot: '#modal-forgot',
   modalOverlay: '.modal__overlay',
   modalDialog: '.modal__dialog',
   modalClose: '[data-close="modal"]',
   modalOpenLogin: '[data-open="modal-login"]',
   modalOpenSignup: '[data-open="modal-signup"]',
+  modalOpenForgot: '[data-open="modal-forgot"]',
   themeToggle: '[data-theme-toggle]',
   backendStatus: '[data-status]',
   ctaGraficar: '#cta-graficar',
@@ -37,10 +39,14 @@ const SELECTORS = {
   signupForm: '#modal-signup .form',
   signupEmail: '#signup-email',
   signupPassword: '#signup-password',
+  signupPasswordConfirm: '#signup-password-confirm',
   signupTerms: '#signup-terms',
   loginForm: '#modal-login .form',
   loginEmail: '#login-email',
   loginPassword: '#login-password',
+  forgotForm: '#modal-forgot .form',
+  forgotEmail: '#forgot-email',
+  errorForgotEmail: '#error-forgot-email',
   btnLogout: '#btn-logout',
   btnAccount: '#btn-account',
 };
@@ -98,6 +104,154 @@ function loadStoredUser() {
     userState.current = null;
     return null;
   }
+}
+
+function initForgotPassword() {
+  const forgotForm = qs(SELECTORS.forgotForm);
+  if (!forgotForm) return;
+
+  const emailInput = qs(SELECTORS.forgotEmail, forgotForm);
+  const submitBtn = qs('button[type="submit"]', forgotForm);
+  const errorEmail = qs(SELECTORS.errorForgotEmail, forgotForm);
+
+  on(forgotForm, 'submit', async (event) => {
+    event.preventDefault();
+    if (!emailInput || !submitBtn) return;
+
+    const values = { email: emailInput.value };
+    const errors = validate({ email: authValidators.email }, values);
+    const invalid = renderErrors(errors, { email: errorEmail });
+    if (invalid) return;
+
+    const originalLabel = submitBtn.textContent;
+    submitBtn.disabled = true;
+    submitBtn.textContent = 'Enviando...';
+
+    try {
+      const res = await safeFetch(
+        '/api/password/forgot',
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email: values.email }),
+        }
+      );
+
+      const data = await res.json().catch(() => ({}));
+      if (res.ok) {
+        toast.success(
+          data.message || 'Si existe una cuenta con ese correo, enviaremos instrucciones.',
+          8000
+        );
+        forgotForm.reset();
+        hideFieldError(errorEmail);
+        ForgotModal.close();
+      } else {
+        toast.error(data.error || 'No se pudo enviar la solicitud de restablecimiento.');
+      }
+    } catch (error) {
+      console.error('Password reset request failed', error);
+      toast.error('Error de red.');
+    } finally {
+      submitBtn.disabled = false;
+      submitBtn.textContent = originalLabel || 'Enviar instrucciones';
+    }
+  });
+}
+
+function initResetPasswordPage() {
+  const form = qs('#reset-password-form');
+  if (!form) return;
+
+  const passwordInput = /** @type {HTMLInputElement|null} */ (qs('#reset-password', form));
+  const confirmInput = /** @type {HTMLInputElement|null} */ (qs('#reset-password-confirm', form));
+  const submitBtn = qs('button[type="submit"]', form);
+  const tokenField = /** @type {HTMLInputElement|null} */ (qs('#reset-token', form));
+  const errorPassword = qs('#error-reset-password', form);
+  const errorConfirm = qs('#error-reset-password-confirm', form);
+  const statusMessage = qs('#reset-password-status');
+
+  const params = new URLSearchParams(window.location.search);
+  const token = params.get('token');
+  if (!token) {
+    if (statusMessage) {
+      statusMessage.textContent = 'El enlace de restablecimiento no es válido.';
+      statusMessage.classList.add('status-message', 'status-message--error');
+    }
+    if (submitBtn) submitBtn.disabled = true;
+    return;
+  }
+
+  if (tokenField) tokenField.value = token;
+
+  on(form, 'submit', async (event) => {
+    event.preventDefault();
+    if (!passwordInput || !confirmInput || !submitBtn) return;
+
+    if (statusMessage) {
+      statusMessage.textContent = '';
+      statusMessage.classList.remove('status-message--error');
+    }
+
+    const values = {
+      password: passwordInput.value,
+      passwordConfirm: confirmInput.value,
+    };
+
+    const errors = validate(
+      {
+        password: authValidators.password,
+        passwordConfirm: authValidators.passwordConfirm,
+      },
+      values
+    );
+
+    const invalid = renderErrors(errors, {
+      password: errorPassword,
+      passwordConfirm: errorConfirm,
+    });
+    if (invalid) return;
+
+    const originalLabel = submitBtn.textContent;
+    submitBtn.disabled = true;
+    submitBtn.textContent = 'Actualizando...';
+
+    try {
+      const res = await safeFetch(
+        '/api/password/reset',
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            token,
+            password: values.password,
+            password_confirm: values.passwordConfirm,
+          }),
+        }
+      );
+
+      const data = await res.json().catch(() => ({}));
+      if (res.ok) {
+        toast.success(data.message || 'Contraseña actualizada. Inicia sesión con tu nueva contraseña.', 8000);
+        setTimeout(() => {
+          window.location.href = '/?reset=success';
+        }, 600);
+      } else {
+        const msg = data.error || 'No se pudo restablecer la contraseña.';
+        toast.error(msg);
+        if (statusMessage) {
+          statusMessage.textContent = msg;
+          statusMessage.classList.add('status-message', 'status-message--error');
+        }
+      }
+    } catch (error) {
+      console.error('Reset password request failed', error);
+      toast.error('Error de red.');
+    } finally {
+      submitBtn.disabled = false;
+      submitBtn.textContent = originalLabel || 'Actualizar contraseña';
+    }
+  });
 }
 
 function setCurrentUser(user, { emit = true } = {}) {
@@ -258,7 +412,6 @@ function hideFieldError(element) {
 }
 
 /**
- * Print validation errors on associated nodes.
  * @param {Record<string, string>} errors
  * @param {Record<string, Element|null|undefined>} fields
  */
@@ -275,6 +428,38 @@ function renderErrors(errors, fields) {
     }
   }
   return hasError;
+}
+
+function initPasswordToggles() {
+  const toggles = qsa('[data-password-toggle]');
+  toggles.forEach((btn) => {
+    if (!(btn instanceof HTMLElement)) return;
+    const targetId = btn.getAttribute('data-password-toggle');
+    if (!targetId) return;
+    const input = /** @type {HTMLInputElement|null} */ (document.getElementById(targetId));
+    if (!input) return;
+
+    const showIcon = btn.querySelector('[data-icon="show"]');
+    const hideIcon = btn.querySelector('[data-icon="hide"]');
+
+    const applyState = () => {
+      const isVisible = input.type === 'text';
+      if (showIcon instanceof HTMLElement) showIcon.hidden = isVisible;
+      if (hideIcon instanceof HTMLElement) hideIcon.hidden = !isVisible;
+      btn.setAttribute('aria-label', isVisible ? 'Ocultar contraseña' : 'Mostrar contraseña');
+      btn.setAttribute('aria-pressed', String(isVisible));
+    };
+
+    applyState();
+
+    on(btn, 'click', (event) => {
+      event.preventDefault();
+      const willShow = input.type === 'password';
+      input.type = willShow ? 'text' : 'password';
+      applyState();
+      input.focus();
+    });
+  });
 }
 
 /** Fetch con timeout */
@@ -309,9 +494,6 @@ function initTheme() {
   if (btn) btn.setAttribute('aria-pressed', String(theme === 'dark'));
 }
 
-/**
- * Toggle between light and dark theme and persist the choice.
- */
 function toggleTheme() {
   const isDark = document.documentElement.dataset.theme === 'dark';
   const next = isDark ? 'light' : 'dark';
@@ -416,6 +598,7 @@ function createModalController(rootSelector) {
 
 const LoginModal = createModalController('#modal-login');
 const SignupModal = createModalController('#modal-signup');
+const ForgotModal = createModalController('#modal-forgot');
 
 
 function bindDrawerLinkClosing() {
@@ -521,7 +704,6 @@ const BackendStatus = (() => {
 
 // notificaciones/toasts
 /**
- * Toast notification helpers scoped to the #toasts container.
  * @type {{
  *   success: (message: string, timeout?: number) => void,
  *   error: (message: string, timeout?: number) => void,
@@ -668,6 +850,13 @@ function bindGlobalTriggers() {
       SignupModal.open();
     })
   );
+
+  qsa('[data-open="modal-forgot"]').forEach((btn) =>
+    on(btn, 'click', (e) => {
+      e.preventDefault();
+      ForgotModal.open();
+    })
+  );
 }
 
 // Utilidades de autenticación
@@ -697,7 +886,6 @@ function buildHeaderButtonMarkup(config, options = {}) {
 }
 
 /**
- * Perform a fetch request including the session token when available.
  * @param {RequestInfo | URL} url
  * @param {RequestInit} [options]
  * @returns {Promise<Response>}
@@ -776,6 +964,7 @@ function initAuthForms() {
       name: qs('#error-signup-name', signupForm),
       email: qs('#error-signup-email', signupForm),
       password: qs('#error-signup-password', signupForm),
+      passwordConfirm: qs('#error-signup-password-confirm', signupForm),
       terms: qs('#error-signup-terms', signupForm),
       role: qs('#error-signup-role', signupForm),
     };
@@ -787,10 +976,11 @@ function initAuthForms() {
       const nameInput = qs('#signup-name', signupForm);
       const emailInput = qs('#signup-email', signupForm);
       const passwordInput = qs('#signup-password', signupForm);
+      const passwordConfirmInput = qs('#signup-password-confirm', signupForm);
       const termsInput = /** @type {HTMLInputElement|null} */ (qs('#signup-terms', signupForm));
       const roleSelect = /** @type {HTMLSelectElement|null} */ (qs('#signup-role', signupForm));
 
-      if (!submitBtn || !nameInput || !emailInput || !passwordInput || !termsInput || !roleSelect) {
+      if (!submitBtn || !nameInput || !emailInput || !passwordInput || !passwordConfirmInput || !termsInput || !roleSelect) {
         return;
       }
 
@@ -798,6 +988,7 @@ function initAuthForms() {
         name: nameInput.value,
         email: emailInput.value,
         password: passwordInput.value,
+        passwordConfirm: passwordConfirmInput.value,
         terms: termsInput.checked,
         role: roleSelect.value,
       };
@@ -812,6 +1003,7 @@ function initAuthForms() {
           name: authValidators.name,
           email: authValidators.email,
           password: authValidators.password,
+          passwordConfirm: authValidators.passwordConfirm,
           terms: authValidators.terms,
           role: () => '',
         },
@@ -834,6 +1026,7 @@ function initAuthForms() {
               name: values.name,
               email: values.email,
               password: values.password,
+              password_confirm: values.passwordConfirm,
               terms: true,
               role: values.role,
             }),
@@ -928,11 +1121,15 @@ function initAuthForms() {
 // Verificación de correo
 function checkEmailVerification() {
   const params = new URLSearchParams(window.location.search);
+  if (params.size === 0) return;
 
-  if (params.has('verified') && params.get('verified') === 'true') {
+  let shouldReplace = false;
+
+  if (params.get('verified') === 'true') {
     toast.success('¡Correo verificado! Ya puedes iniciar sesión.', 8000);
-    history.replaceState(null, '', window.location.pathname);
     LoginModal.open();
+    params.delete('verified');
+    shouldReplace = true;
   }
 
   const error = params.get('error');
@@ -942,7 +1139,53 @@ function checkEmailVerification() {
     if (error === 'token_used') message = 'El enlace de verificación ya fue utilizado.';
     if (error === 'token_expired') message = 'El enlace de verificación ha expirado.';
     toast.error(message, 8000);
-    history.replaceState(null, '', window.location.pathname);
+    params.delete('error');
+    shouldReplace = true;
+  }
+
+  const unlock = params.get('unlock');
+  if (unlock) {
+    let message = '';
+    switch (unlock) {
+      case 'success':
+        message = 'Tu cuenta fue desbloqueada. Inicia sesión nuevamente.';
+        toast.success(message, 8000);
+        LoginModal.open();
+        break;
+      case 'used':
+        message = 'Este enlace de desbloqueo ya fue utilizado.';
+        break;
+      case 'expired':
+        message = 'El enlace de desbloqueo ha expirado. Solicita uno nuevo desde el inicio de sesión.';
+        break;
+      case 'error':
+        message = 'No pudimos desbloquear la cuenta. Intenta nuevamente.';
+        break;
+      default:
+        message = 'El enlace de desbloqueo no es válido.';
+        break;
+    }
+    if (unlock !== 'success') toast.error(message, 8000);
+    params.delete('unlock');
+    shouldReplace = true;
+  }
+
+  const reset = params.get('reset');
+  if (reset) {
+    if (reset === 'success') {
+      toast.success('Tu contraseña fue actualizada. Inicia sesión con tus nuevas credenciales.', 8000);
+      LoginModal.open();
+    } else if (reset === 'invalid') {
+      toast.error('El enlace de restablecimiento no es válido.', 8000);
+    }
+    params.delete('reset');
+    shouldReplace = true;
+  }
+
+  if (shouldReplace) {
+    const search = params.toString();
+    const newUrl = search ? `${window.location.pathname}?${search}` : window.location.pathname;
+    history.replaceState(null, '', newUrl);
   }
 }
 
@@ -965,9 +1208,6 @@ async function savePlot(expression, plot_parameters = null, plot_metadata = null
 }
 
 // Cierre de sesión
-/**
- * Terminate the current session and reset UI state.
- */
 async function logout() {
   try {
     await authFetch('/api/logout', { method: 'POST' });
@@ -996,6 +1236,9 @@ function init() {
   DrawerController.bind();
   LoginModal.bind?.();
   SignupModal.bind?.();
+  ForgotModal.bind?.();
+
+  initPasswordToggles();
 
   bindDrawerLinkClosing();
   initScrollSpy();
@@ -1006,6 +1249,8 @@ function init() {
 
   restoreSessionAuth();
   initAuthForms();
+  initForgotPassword();
+  initResetPasswordPage();
   bindLogout();
   checkEmailVerification();
 }

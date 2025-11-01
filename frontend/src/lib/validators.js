@@ -22,6 +22,11 @@ export const authValidators = {
   loginPassword(value) {
     return value && value.length > 0 ? '' : 'Ingresa tu contraseña';
   },
+  passwordConfirm(value, values = {}) {
+    if (!value) return 'Confirma tu contraseña';
+    if (value !== values.password) return 'Las contraseñas no coinciden';
+    return '';
+  },
   name(value) {
     return value && value.length >= 2 ? '' : 'El nombre debe tener al menos 2 caracteres';
   },
@@ -40,7 +45,7 @@ export function validate(schema, values) {
   /** @type {Record<string, string>} */
   const errors = {};
   for (const [key, validator] of Object.entries(schema)) {
-    errors[key] = validator(values[key]);
+    errors[key] = validator(values[key], values);
   }
   return /** @type {Record<keyof T, string>} */ (errors);
 }

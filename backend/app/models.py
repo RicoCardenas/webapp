@@ -100,7 +100,9 @@ class Users(db.Model):
     
     email = db.Column(db.String(255), nullable=False, unique=True)
     password_hash = db.Column(db.Text, nullable=False)
-    
+    failed_login_attempts = db.Column(db.Integer, nullable=False, default=0)
+    locked_until = db.Column(db.DateTime(timezone=True))
+
     is_verified = db.Column(db.Boolean, nullable=False, default=False)
     verified_at = db.Column(db.DateTime(timezone=True))
     

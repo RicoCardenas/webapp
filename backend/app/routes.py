@@ -5,7 +5,7 @@ from flask import Blueprint, current_app, jsonify, send_from_directory, request,
 from .extensions import db, bcrypt, mail
 from .models import Users, Roles, UserTokens, UserSessions, PlotHistory, StudentGroup, GroupMember, RoleRequest
 from flask_mail import Message
-from sqlalchemy import and_, desc, cast, String, or_ 
+from sqlalchemy import and_, desc, cast, String, or_, delete
 from sqlalchemy.orm import selectinload
 
 from .backup import BackupError, RestoreError, run_backup, restore_backup
@@ -15,6 +15,37 @@ from .auth import require_session
 # --- Blueprints ---
 api = Blueprint("api", __name__)
 frontend = Blueprint("frontend", __name__)
+
+MAX_FAILED_LOGIN_ATTEMPTS = 3
+ACCOUNT_UNLOCK_TOKEN_TTL = timedelta(hours=24)
+PASSWORD_RESET_TOKEN_TTL = timedelta(hours=1)
+
+
+def _normalize_email(value):
+    return (value or "").strip().lower()
+
+
+def _issue_user_token(user, token_type, expires_delta):
+    """Crea un token único para el usuario, reemplazando los anteriores del mismo tipo."""
+    token_value = secrets.token_urlsafe(48)
+    expiry = datetime.now(timezone.utc) + expires_delta
+
+    db.session.execute(
+        delete(UserTokens).where(
+            UserTokens.user_id == user.id,
+            UserTokens.token_type == token_type,
+            UserTokens.used_at.is_(None),
+        )
+    )
+
+    token = UserTokens(
+        user=user,
+        token=token_value,
+        token_type=token_type,
+        expires_at=expiry,
+    )
+    db.session.add(token)
+    return token
 
 
 def _require_roles(allowed):
@@ -71,6 +102,72 @@ def _get_role_by_name(name):
     ).scalar_one_or_none()
 
 
+def _send_lockout_notification(user, unlock_link):
+    """Notifica al usuario que su cuenta quedó bloqueada y cómo desbloquearla."""
+    sender = current_app.config.get('MAIL_DEFAULT_SENDER') or current_app.config.get('MAIL_USERNAME')
+    if not sender:
+        current_app.logger.warning(
+            "No se puede enviar notificación de bloqueo: remitente no configurado (%s).",
+            user.email,
+        )
+        return
+
+    try:
+        msg = Message(
+            subject="Tu cuenta de EcuPlot fue bloqueada",
+            sender=sender,
+            recipients=[user.email],
+            body=(
+                f"Hola {user.name},\n\n"
+                "Bloqueamos tu cuenta de EcuPlot después de tres intentos fallidos de inicio de sesión. "
+                "Para proteger tus datos, no podrás iniciar sesión hasta que la desbloquees manualmente.\n\n"
+                "Puedes reactivar el acceso con este enlace seguro:\n"
+                f"{unlock_link}\n\n"
+                "Si no fuiste tú, te recomendamos restablecer tu contraseña inmediatamente.\n\n"
+                "Equipo de EcuPlot"
+            ),
+        )
+        mail.send(msg)
+    except Exception as exc:
+        current_app.logger.error(
+            "No se pudo enviar correo de bloqueo a %s: %s",
+            user.email,
+            exc,
+        )
+
+
+def _send_password_reset_email(user, reset_link):
+    sender = current_app.config.get('MAIL_DEFAULT_SENDER') or current_app.config.get('MAIL_USERNAME')
+    if not sender:
+        current_app.logger.warning(
+            "No se puede enviar correo de restablecimiento: remitente no configurado (%s).",
+            user.email,
+        )
+        return
+
+    try:
+        msg = Message(
+            subject="Restablece tu contraseña de EcuPlot",
+            sender=sender,
+            recipients=[user.email],
+            body=(
+                f"Hola {user.name},\n\n"
+                "Recibimos una solicitud para restablecer tu contraseña en EcuPlot. "
+                "Puedes definir una nueva contraseña con el siguiente enlace durante la próxima hora:\n"
+                f"{reset_link}\n\n"
+                "Si no solicitaste este cambio, ignora este mensaje. Tu contraseña actual seguirá siendo válida.\n\n"
+                "Equipo de EcuPlot"
+            ),
+        )
+        mail.send(msg)
+    except Exception as exc:
+        current_app.logger.error(
+            "No se pudo enviar correo de restablecimiento a %s: %s",
+            user.email,
+            exc,
+        )
+
+
 # --- Rutas del Frontend ---
 @frontend.get("/")
 def serve_frontend():
@@ -86,6 +183,11 @@ def graph():
 def account():
     # sirve /account -> account.html
     return send_from_directory(current_app.template_folder, "account.html")
+
+
+@frontend.get("/reset-password")
+def reset_password_page():
+    return send_from_directory(current_app.template_folder, "reset-password.html")
 
 # --- Rutas de la API ---
 
@@ -105,7 +207,7 @@ def contact_message():
     """Recibe mensajes del formulario de contacto del landing."""
     data = request.get_json() or {}
     name = (data.get('name') or '').strip()
-    email = (data.get('email') or '').strip()
+    email = _normalize_email(data.get('email'))
     message = (data.get('message') or '').strip()
 
     errors = {}
@@ -151,6 +253,7 @@ def register_user():
 
     email = (data.get('email') or '').strip()
     password = (data.get('password') or '').strip()
+    password_confirm = (data.get('password_confirm') or '').strip()
     terms = data.get('terms')
     raw_name = (data.get('name') or '').strip()
     requested_role = (data.get('role') or 'user').strip().lower()
@@ -158,6 +261,8 @@ def register_user():
 
     if not email or not password:
         return jsonify(error="Email y contraseña son requeridos."), 400
+    if password != password_confirm:
+        return jsonify(error="Las contraseñas no coinciden."), 400
     if not terms:
         return jsonify(error="Debes aceptar los términos y condiciones para registrarte."), 400
 
@@ -307,8 +412,8 @@ def login_user():
     if not data:
         return jsonify(error="No se proporcionaron datos JSON."), 400
 
-    email = data.get('email')
-    password = data.get('password')
+    email = _normalize_email(data.get('email'))
+    password = (data.get('password') or '').strip()
 
     if not email or not password:
         return jsonify(error="Email y contraseña son requeridos."), 400
@@ -321,17 +426,67 @@ def login_user():
     ).scalar_one_or_none()
 
     if not user:
-        return jsonify(error="Credenciales inválidas."), 401 
+        return jsonify(error="No encontramos una cuenta con ese correo."), 404 
+
+    if user.locked_until:
+        # Si la cuenta ya estaba bloqueada, reenvía enlace si no hay token activo.
+        unlock_token = db.session.execute(
+            db.select(UserTokens).where(
+                UserTokens.user_id == user.id,
+                UserTokens.token_type == 'account_unlock',
+                UserTokens.used_at.is_(None)
+            )
+        ).scalar_one_or_none()
+
+        if not unlock_token or (
+            unlock_token.expires_at and unlock_token.expires_at < datetime.now(timezone.utc)
+        ):
+            unlock_token = _issue_user_token(user, 'account_unlock', ACCOUNT_UNLOCK_TOKEN_TTL)
+            try:
+                db.session.commit()
+            except Exception as exc:
+                db.session.rollback()
+                current_app.logger.error("No se pudo refrescar token de desbloqueo: %s", exc)
+            else:
+                unlock_link = url_for('api.unlock_account', token=unlock_token.token, _external=True)
+                _send_lockout_notification(user, unlock_link)
+
+        return jsonify(error="Tu cuenta está bloqueada. Revisa tu correo para desbloquearla."), 423
 
     if not user.is_verified:
         return jsonify(error="Tu cuenta no ha sido verificada. Por favor, revisa tu correo."), 403 
 
     if not bcrypt.check_password_hash(user.password_hash, password):
-        return jsonify(error="Credenciales inválidas."), 401 
-    
+        user.failed_login_attempts = (user.failed_login_attempts or 0) + 1
+        locked = False
+        unlock_token = None
+
+        if user.failed_login_attempts >= MAX_FAILED_LOGIN_ATTEMPTS:
+            user.locked_until = datetime.now(timezone.utc)
+            user.failed_login_attempts = 0
+            locked = True
+            unlock_token = _issue_user_token(user, 'account_unlock', ACCOUNT_UNLOCK_TOKEN_TTL)
+
+        try:
+            db.session.commit()
+        except Exception as exc:
+            db.session.rollback()
+            current_app.logger.error("No se pudo registrar intento de login fallido: %s", exc)
+            return jsonify(error="Error interno al procesar la solicitud."), 500
+
+        if locked and unlock_token:
+            unlock_link = url_for('api.unlock_account', token=unlock_token.token, _external=True)
+            _send_lockout_notification(user, unlock_link)
+            return jsonify(error="Tu cuenta fue bloqueada por intentos fallidos. Revisa tu correo para desbloquearla."), 423
+
+        return jsonify(error="Contraseña incorrecta."), 401 
+
     session_token = secrets.token_urlsafe(64)
     expires = datetime.now(timezone.utc) + timedelta(days=7)
-    
+
+    user.failed_login_attempts = 0
+    user.locked_until = None
+
     new_session = UserSessions(
         session_token=session_token,
         user_id=user.id,
@@ -354,6 +509,154 @@ def login_user():
         session_token=session_token,
         user_id=user.id
     ), 200
+
+@api.get("/unlock-account")
+def unlock_account():
+    token_value = request.args.get('token', '').strip()
+    if not token_value:
+        return redirect(url_for('frontend.serve_frontend', unlock='missing'))
+
+    token_obj = db.session.execute(
+        db.select(UserTokens).where(
+            UserTokens.token == token_value,
+            UserTokens.token_type == 'account_unlock'
+        )
+    ).scalar_one_or_none()
+
+    if not token_obj:
+        return redirect(url_for('frontend.serve_frontend', unlock='invalid'))
+
+    if token_obj.used_at:
+        return redirect(url_for('frontend.serve_frontend', unlock='used'))
+
+    expires_at = token_obj.expires_at
+    if expires_at and expires_at.tzinfo is None:
+        expires_at = expires_at.replace(tzinfo=timezone.utc)
+
+    if expires_at and expires_at < datetime.now(timezone.utc):
+        return redirect(url_for('frontend.serve_frontend', unlock='expired'))
+
+    try:
+        user = token_obj.user
+        if user is None and token_obj.user_id:
+            user = db.session.get(Users, token_obj.user_id)
+        if user is None:
+            raise AttributeError("Token sin usuario asociado")
+
+        user.locked_until = None
+        user.failed_login_attempts = 0
+        token_obj.used_at = datetime.now(timezone.utc)
+
+        db.session.commit()
+    except Exception as exc:
+        db.session.rollback()
+        current_app.logger.error("No se pudo desbloquear la cuenta: %s", exc)
+        return redirect(url_for('frontend.serve_frontend', unlock='error'))
+
+    return redirect(url_for('frontend.serve_frontend', unlock='success'))
+
+
+@api.post("/password/forgot")
+def request_password_reset():
+    data = request.get_json(silent=True) or {}
+    email = _normalize_email(data.get('email'))
+
+    if not email:
+        return jsonify(error="Debes proporcionar un correo."), 400
+
+    user = db.session.execute(
+        db.select(Users).where(
+            Users.email == email,
+            Users.deleted_at == None
+        )
+    ).scalar_one_or_none()
+
+    if not user:
+        # Respuesta genérica para no exponer existencia de cuentas.
+        return jsonify(message="Si existe una cuenta con ese correo, enviaremos instrucciones para restablecer la contraseña."), 200
+
+    reset_token = _issue_user_token(user, 'password_reset', PASSWORD_RESET_TOKEN_TTL)
+
+    try:
+        db.session.commit()
+    except Exception as exc:
+        db.session.rollback()
+        current_app.logger.error("No se pudo generar token de restablecimiento: %s", exc)
+        return jsonify(error="No se pudo generar el enlace de restablecimiento."), 500
+
+    reset_link = url_for('frontend.reset_password_page', token=reset_token.token, _external=True)
+    _send_password_reset_email(user, reset_link)
+
+    return jsonify(message="Si existe una cuenta con ese correo, enviaremos instrucciones para restablecer la contraseña."), 200
+
+
+@api.post("/password/reset")
+def reset_password():
+    data = request.get_json(silent=True) or {}
+    token_value = (data.get('token') or '').strip()
+    password = (data.get('password') or '').strip()
+    password_confirm = (data.get('password_confirm') or '').strip()
+
+    if not token_value:
+        return jsonify(error="Token de restablecimiento requerido."), 400
+    if not password:
+        return jsonify(error="Debes ingresar una nueva contraseña."), 400
+    if len(password) < 8:
+        return jsonify(error="La contraseña debe tener al menos 8 caracteres."), 400
+    if password != password_confirm:
+        return jsonify(error="Las contraseñas no coinciden."), 400
+
+    token_obj = db.session.execute(
+        db.select(UserTokens).where(
+            UserTokens.token == token_value,
+            UserTokens.token_type == 'password_reset'
+        )
+    ).scalar_one_or_none()
+
+    if not token_obj:
+        return jsonify(error="El enlace de restablecimiento no es válido."), 400
+
+    if token_obj.used_at:
+        return jsonify(error="El enlace de restablecimiento ya fue utilizado."), 400
+
+    expires_at = token_obj.expires_at
+    if expires_at and expires_at.tzinfo is None:
+        expires_at = expires_at.replace(tzinfo=timezone.utc)
+
+    if expires_at and expires_at < datetime.now(timezone.utc):
+        return jsonify(error="El enlace de restablecimiento ha expirado."), 400
+
+    try:
+        user = token_obj.user
+        if user is None and token_obj.user_id:
+            user = db.session.get(Users, token_obj.user_id)
+        if user is None:
+            raise AttributeError("Token sin usuario asociado")
+
+        new_hash = bcrypt.generate_password_hash(password).decode('utf-8')
+        user.password_hash = new_hash
+        user.failed_login_attempts = 0
+        user.locked_until = None
+
+        token_obj.used_at = datetime.now(timezone.utc)
+
+        # Invalidar otros tokens de restablecimiento pendientes.
+        db.session.execute(
+            delete(UserTokens).where(
+                UserTokens.user_id == user.id,
+                UserTokens.token_type == 'password_reset',
+                UserTokens.used_at.is_(None),
+                UserTokens.token != token_obj.token,
+            )
+        )
+
+        db.session.commit()
+    except Exception as exc:
+        db.session.rollback()
+        current_app.logger.error("No se pudo restablecer la contraseña: %s", exc)
+        return jsonify(error="No se pudo restablecer la contraseña en este momento."), 500
+
+    return jsonify(message="Tu contraseña fue actualizada. Ya puedes iniciar sesión."), 200
 
 # Cerrar sesión 
 @api.post("/logout")
