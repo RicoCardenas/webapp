@@ -215,10 +215,10 @@
   overflow-x: auto;
   overflow-y: hidden;
   padding-block: clamp(1.5rem, 4vw, 3rem);
-  padding-inline: max(var(--space-16, 1rem), calc((100vw - min(1280px, 100%)) / 2));
-  margin-inline: calc(-1 * max(var(--space-16, 1rem), calc((100vw - min(1280px, 100%)) / 2)));
+  padding-inline: clamp(1.5rem, 6vw, 4rem);
+  margin-inline: 0;
   scroll-snap-type: x mandatory;
-  scroll-padding-inline: max(var(--space-24, 1.5rem), 72px);
+  scroll-padding-inline: clamp(1.5rem, 6vw, 4rem);
   overscroll-behavior-x: contain;
   -webkit-overflow-scrolling: touch;
   cursor: grab;
@@ -934,10 +934,37 @@
 }
 
 .role-panel__actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.65rem;
-  align-items: center;
+  display: grid;
+  gap: 1.25rem;
+}
+
+.role-panel__cluster {
+  display: grid;
+  gap: 0.75rem;
+  align-content: start;
+}
+
+.role-panel__subtitle {
+  margin: 0;
+  font-size: var(--fs-sm);
+  font-weight: 600;
+}
+
+.role-panel__hint {
+  margin: 0;
+  font-size: var(--fs-xs);
+  color: var(--color-text-muted);
+}
+
+.role-panel__cluster .btn {
+  justify-content: center;
+}
+
+@media (min-width: 56em) {
+  .role-panel__actions {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 1.5rem;
+  }
 }
 
 .role-form {
@@ -1317,9 +1344,25 @@ body.account--guest {
 }
 
 .controls-bar__secondary {
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
+  gap: 0.75rem;
+}
+
+.controls-bar__row {
+  display: grid;
   gap: 0.6rem;
+}
+
+.controls-bar__row--two {
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+}
+
+.controls-bar__row--three {
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+}
+
+.controls-bar__row .btn {
+  width: 100%;
   justify-content: center;
 }
 
@@ -1409,10 +1452,6 @@ body.account--guest {
 @media (min-width: 641px) {
   .controls-bar__form {
     grid-template-columns: 1fr;
-  }
-
-  .controls-bar__secondary {
-    justify-content: center;
   }
 }
 
@@ -1529,7 +1568,8 @@ body.account--guest {
   }
 
   .controls-bar__secondary.is-open {
-    display: flex;
+    display: grid;
+    gap: 0.75rem;
   }
 
   .controls-bar__fab {

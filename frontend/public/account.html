@@ -289,16 +289,24 @@
               </form>
 
               <div class="role-panel__actions">
-                <button id="development-create-backup" class="btn btn--ghost btn--sm" type="button">Crear backup</button>
-                <form id="development-restore-form" class="role-form role-form--inline" novalidate>
-                  <div class="form__field">
-                    <label class="form__label" for="development-backup-name">Nombre del backup</label>
-                    <input class="form__input" type="text" id="development-backup-name" autocomplete="off" placeholder="Ej. backup-2025-10-30" />
-                  </div>
-                  <div class="form__actions">
-                    <button class="btn btn--primary btn--sm" type="submit">Restaurar backup</button>
-                  </div>
-                </form>
+                <div class="role-panel__cluster">
+                  <h3 class="role-panel__subtitle">Crear respaldo</h3>
+                  <p class="role-panel__hint">Genera un nuevo backup de manera inmediata para resguardar los datos actuales.</p>
+                  <button id="development-create-backup" class="btn btn--primary btn--sm" type="button">Crear backup</button>
+                </div>
+                <div class="role-panel__cluster">
+                  <h3 class="role-panel__subtitle">Restaurar respaldo</h3>
+                  <p class="role-panel__hint">Ingresa el nombre exacto del archivo que deseas restaurar desde el servidor.</p>
+                  <form id="development-restore-form" class="role-form" novalidate>
+                    <div class="form__field">
+                      <label class="form__label" for="development-backup-name">Nombre del backup</label>
+                      <input class="form__input" type="text" id="development-backup-name" autocomplete="off" placeholder="Ej. backup-2025-10-30" />
+                    </div>
+                    <div class="form__actions">
+                      <button class="btn btn--ghost btn--sm" type="submit">Restaurar backup</button>
+                    </div>
+                  </form>
+                </div>
               </div>
 
               <div class="role-panel__section">

@@ -109,12 +109,16 @@
                     <span class="controls-bar__toggle-icon" aria-hidden="true"></span>
                   </button>
                 </div>
-                <div id="controls-secondary" class="controls-bar__secondary">
-                  <button id="btn-clear" class="btn btn--ghost" type="button">Limpiar</button>
-                  <button id="btn-grid" class="btn btn--ghost" type="button" aria-pressed="true">Cuadrícula: ON</button>
-                  <button id="btn-export" class="btn btn--ghost" type="button">Exportar PNG</button>
-                  <button id="btn-export-svg" class="btn btn--ghost" type="button">Exportar SVG</button>
-                  <button id="btn-history" class="btn btn--ghost" type="button">Historial</button>
+                <div id="controls-secondary" class="controls-bar__secondary" aria-label="Acciones adicionales">
+                  <div class="controls-bar__row controls-bar__row--two">
+                    <button id="btn-clear" class="btn btn--ghost" type="button">Limpiar</button>
+                    <button id="btn-history" class="btn btn--ghost" type="button">Historial</button>
+                  </div>
+                  <div class="controls-bar__row controls-bar__row--three">
+                    <button id="btn-export-svg" class="btn btn--ghost" type="button">Exportar SVG</button>
+                    <button id="btn-export" class="btn btn--ghost" type="button">Exportar PNG</button>
+                    <button id="btn-grid" class="btn btn--ghost" type="button" aria-pressed="true">Cuadrícula: ON</button>
+                  </div>
                 </div>
               </div>
             </form>

@@ -42,7 +42,14 @@ const SELECTORS = {
   btnAccount: '#btn-account',
 };
 
-const LEARN_HASHES = new Set(['#learn', '#docs', '#documentacion', '#how-it-works', '#como-funciona']);
+const LEARN_HASHES = new Set([
+  '#learn',
+  '#docs',
+  '#documentacion',
+  '#how-it-works',
+  '#como-funciona',
+  '#como-usar',
+]);
 
 window.addEventListener('error', (e) => {
   try {
