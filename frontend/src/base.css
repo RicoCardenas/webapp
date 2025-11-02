@@ -90,6 +90,13 @@ select {
 
   --color-muted: rgba(148, 163, 184, 0.32);
 
+  --bg: var(--color-bg);
+  --card: color-mix(in srgb, var(--color-panel) 96%, transparent);
+  --text: var(--color-text);
+  --muted: var(--color-text-muted);
+  --primary: var(--color-primary);
+  --border: color-mix(in srgb, var(--color-border) 85%, transparent);
+
   --font-sans: 'Inter', 'Segoe UI', -apple-system, BlinkMacSystemFont, 'Helvetica Neue', Arial, sans-serif;
   --font-display: 'Montserrat', 'Inter', var(--font-sans);
   --lh: 1.58;
@@ -110,6 +117,11 @@ select {
   --space-6: 2rem;
   --space-7: 3rem;
   --space-8: 4rem;
+  --space-16: 1rem;
+  --space-24: 1.5rem;
+  --space-32: 2rem;
+  --space-48: 3rem;
+  --space-64: 4rem;
 
   --radius-sm: 12px;
   --radius-md: 18px;
@@ -124,8 +136,8 @@ select {
   --header-height-sm: 60px;
   --drawer-width: min(90vw, 360px);
 
-  --container-max: 1200px;
-  --container-padding: clamp(1.25rem, 2vw, 2.5rem);
+  --container-max: 1280px;
+  --container-padding: 1rem;
 
   --graph-header-h: 56px;
   --graph-toolbar-h: 72px;
@@ -167,6 +179,24 @@ body.theme-light {
   --grid-text: rgba(37, 51, 78, 0.78);
 }
 
+:root[data-theme="dark"] {
+  --bg: #0B1220;
+  --card: #0F1628;
+  --text: #EAF0FF;
+  --muted: #95A3C7;
+  --primary: #3D73FF;
+  --border: #1A2236;
+}
+
+:root[data-theme="light"] {
+  --bg: #F7F9FF;
+  --card: #FFFFFF;
+  --text: #0E1425;
+  --muted: #475070;
+  --primary: #3D73FF;
+  --border: #E6EAF6;
+}
+
 .theme-light {
   color-scheme: light;
 }
@@ -176,15 +206,15 @@ body {
   font-size: var(--fs-base);
   line-height: var(--lh);
   min-height: 100dvh;
-  background: var(--color-bg);
-  color: var(--color-text);
+  background: var(--bg);
+  color: var(--text);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   position: relative;
 }
 
 a {
-  color: var(--color-primary);
+  color: var(--primary, var(--color-primary));
   text-decoration: none;
   text-underline-offset: 0.18em;
 }
@@ -227,8 +257,10 @@ main {
 }
 
 .container {
-  width: min(100% - (var(--container-padding) * 2), var(--container-max));
+  width: 100%;
+  max-width: var(--container-max);
   margin-inline: auto;
+  padding-inline: 16px;
 }
 
 .section-heading {

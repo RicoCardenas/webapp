@@ -103,8 +103,8 @@
           <ul class="drawer__list" role="list">
             <li class="drawer__item"><a class="drawer__link" href="/#hero">Inicio</a></li>
             <li class="drawer__item"><a class="drawer__link" href="/#about">Acerca de</a></li>
-            <li class="drawer__item"><a class="drawer__link" href="/#how-it-works">Cómo funciona</a></li>
-            <li class="drawer__item"><a class="drawer__link" href="/#docs">Documentación</a></li>
+            <li class="drawer__item"><a class="drawer__link" href="/#learn" data-learn-alias="como-funciona">Cómo funciona</a></li>
+            <li class="drawer__item"><a class="drawer__link" href="/#learn" data-learn-alias="documentacion">Documentación</a></li>
             <li class="drawer__item"><a class="drawer__link" href="/graph">Graficadora</a></li>
             <li class="drawer__item"><a class="drawer__link" href="/account" aria-current="page">Mi cuenta</a></li>
             <li class="drawer__item"><a class="drawer__link" href="/#contact">Contacto</a></li>
@@ -120,7 +120,7 @@
     <main class="account-main">
       <div id="account-authenticated" class="account-shell">
         <header class="account-hero">
-          <div class="account-hero__inner">
+          <div class="account-hero__inner container">
             <div class="account-hero__copy">
               <p class="account-hero__eyebrow">Panel personal</p>
               <h1 class="account-hero__title">Mi Cuenta</h1>
@@ -133,8 +133,9 @@
           </div>
         </header>
 
-        <div class="account-grid">
-          <section class="account-card account-card--info" id="account-details-box">
+        <div class="account-shell__inner container">
+          <div class="account-layout">
+            <section class="account-card account-card--info" id="account-details-box">
             <div class="account-card__body">
               <div class="account-user">
                 <div class="account-user__avatar" id="user-avatar" aria-hidden="true">EC</div>
@@ -142,7 +143,7 @@
                   <p class="account-user__label">Usuario autenticado</p>
                   <p class="account-user__name" id="user-name">Cargando...</p>
                   <div class="account-user__meta">
-                    <span class="account-role-badge" id="user-role">Cargando...</span>
+                    <ul class="account-user__roles" id="user-role-list" role="list" aria-label="Roles del usuario"></ul>
                     <span class="account-user__email" id="user-email">Cargando...</span>
                   </div>
                 </div>
@@ -176,9 +177,9 @@
               <a class="btn btn--ghost btn--sm" href="/login">Cambiar de cuenta</a>
               <button class="btn btn--primary btn--sm" type="button" id="account-history-cta">Ver historial</button>
             </div>
-          </section>
+            </section>
 
-          <section class="account-card account-card--history" id="account-history-box">
+            <section class="account-card account-card--history" id="account-history-box" data-history-open="false">
             <div class="account-card__header">
               <div>
                 <p class="account-card__eyebrow">Seguimiento</p>
@@ -190,21 +191,28 @@
               </div>
             </div>
 
-            <div class="account-card__body">
+            <div class="account-card__body account-history__body">
+              <div id="history-collapsed" class="account-history__collapsed" aria-hidden="true" hidden>
+                <span class="account-history__icon" aria-hidden="true"></span>
+                <p>Historial oculto. Usa “Mostrar historial” para consultarlo cuando lo necesites.</p>
+              </div>
               <div id="history-panel" class="account-history__panel" hidden>
                 <div id="history-loading" class="account-history__loading">
                   <p>Cargando historial...</p>
                 </div>
                 <div id="history-empty" class="account-history__empty" hidden>
+                  <span class="account-history__icon" aria-hidden="true"></span>
                   <p>No tienes ningún historial de gráficas guardado.</p>
                   <a href="/graph" class="btn btn--primary btn--sm">Ir al Graficador</a>
                 </div>
                 <ul id="plot-history-list" class="history-list"></ul>
               </div>
             </div>
-          </section>
+            </section>
+          </div>
 
-          <section id="teacher-panel" class="account-card account-card--role" hidden>
+          <div class="account-panels">
+            <section id="teacher-panel" class="account-card account-card--role" hidden>
             <div class="account-card__header">
               <div>
                 <p class="account-card__eyebrow">Gestión docente</p>
@@ -219,9 +227,9 @@
               <p id="teacher-groups-empty" class="account-card__empty">Aún no has creado grupos.</p>
               <div id="teacher-group-list" class="role-panel__list"></div>
             </div>
-          </section>
+            </section>
 
-          <section id="admin-panel" class="account-card account-card--role" hidden>
+            <section id="admin-panel" class="account-card account-card--role" hidden>
             <div class="account-card__header">
               <div>
                 <p class="account-card__eyebrow">Panel administrador</p>
@@ -230,7 +238,7 @@
               </div>
             </div>
             <div class="account-card__body">
-              <form id="admin-assign-teacher-form" class="role-form" novalidate>
+              <form id="admin-assign-teacher-form" class="role-form role-form--inline" novalidate>
                 <div class="form__field">
                   <label class="form__label" for="admin-assign-user-id">ID del usuario (UUID)</label>
                   <input class="form__input" type="text" id="admin-assign-user-id" autocomplete="off" placeholder="Ej. 123e4567-e89b-12d3-a456-426614174000" />
@@ -251,9 +259,9 @@
                 <div id="admin-group-list" class="role-panel__list"></div>
               </div>
             </div>
-          </section>
+            </section>
 
-          <section id="development-panel" class="account-card account-card--role" hidden>
+            <section id="development-panel" class="account-card account-card--role" hidden>
             <div class="account-card__header">
               <div>
                 <p class="account-card__eyebrow">Panel development</p>
@@ -262,7 +270,7 @@
               </div>
             </div>
             <div class="account-card__body">
-              <form id="development-assign-admin-form" class="role-form" novalidate>
+              <form id="development-assign-admin-form" class="role-form role-form--inline" novalidate>
                 <div class="form__field">
                   <label class="form__label" for="development-user-id">ID de usuario (UUID)</label>
                   <input class="form__input" type="text" id="development-user-id" autocomplete="off" placeholder="UUID del usuario" />
@@ -298,7 +306,8 @@
                 <div id="development-role-requests" class="role-panel__list"></div>
               </div>
             </div>
-          </section>
+            </section>
+          </div>
         </div>
       </div>
 

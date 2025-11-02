@@ -18,9 +18,12 @@ const ui = {
   historyEmpty: qs('#history-empty'),
   historyList: qs('#plot-history-list'),
   historyLoading: qs('#history-loading'),
+  historyCard: qs('#account-history-box'),
+  historyCollapsed: qs('#history-collapsed'),
   userVisibleId: qs('#user-visible-id'),
   userInternalId: qs('#user-internal-id'),
   userInternalIdRow: qs('#user-internal-id-row'),
+  userRoleList: qs('#user-role-list'),
   teacherPanel: qs('#teacher-panel'),
   teacherCreateGroupBtn: qs('#teacher-create-group'),
   teacherGroupList: qs('#teacher-group-list'),
@@ -64,7 +67,6 @@ function resetAccountUI() {
   const placeholders = {
     '#user-name': '—',
     '#user-email': '—',
-    '#user-role': '—',
     '#user-created-at': '—',
     '#user-status': '—',
     '#user-visible-id': '—',
@@ -76,6 +78,14 @@ function resetAccountUI() {
   });
   const avatar = qs('#user-avatar');
   if (avatar) avatar.textContent = 'EC';
+  const roleList = ui.userRoleList || qs('#user-role-list');
+  if (roleList) {
+    roleList.innerHTML = '';
+    const item = document.createElement('li');
+    item.className = 'account-role-chip account-role-chip--muted';
+    item.textContent = 'Sin rol asignado';
+    roleList.appendChild(item);
+  }
   if (ui.userInternalIdRow) ui.userInternalIdRow.hidden = true;
   if (ui.historyCount) ui.historyCount.textContent = '—';
   if (ui.historyList) ui.historyList.innerHTML = '';
@@ -100,6 +110,21 @@ function getNormalizedRoles(user) {
   return roles;
 }
 
+const ROLE_LABELS = {
+  admin: 'Admin',
+  teacher: 'Docente',
+  student: 'Estudiante',
+  development: 'Development',
+  invitado: 'Invitado',
+};
+
+function formatRoleLabel(role) {
+  const key = String(role || '').toLowerCase();
+  if (ROLE_LABELS[key]) return ROLE_LABELS[key];
+  if (!key) return 'Sin rol';
+  return key.charAt(0).toUpperCase() + key.slice(1);
+}
+
 function renderAccountDetails(user) {
   if (!user) return;
 
@@ -113,8 +138,27 @@ function renderAccountDetails(user) {
   const emailEl = qs('#user-email');
   if (emailEl) emailEl.textContent = user.email ?? '—';
 
-  const roleEl = qs('#user-role');
-  if (roleEl) roleEl.textContent = user.role ?? '—';
+  const roleList = ui.userRoleList || qs('#user-role-list');
+  if (roleList) {
+    roleList.innerHTML = '';
+    if (roles.size === 0) {
+      const item = document.createElement('li');
+      item.className = 'account-role-chip account-role-chip--muted';
+      item.textContent = 'Sin rol asignado';
+      item.setAttribute('aria-label', 'Sin rol asignado');
+      roleList.appendChild(item);
+    } else {
+      roles.forEach((role) => {
+        const item = document.createElement('li');
+        item.className = `account-role-chip account-role-chip--${role}`;
+        item.dataset.role = role;
+        const label = formatRoleLabel(role);
+        item.textContent = label;
+        item.setAttribute('aria-label', `Rol ${label}`);
+        roleList.appendChild(item);
+      });
+    }
+  }
 
   const createdAt = user.created_at ? new Date(user.created_at) : null;
   const createdLabel = createdAt
@@ -278,60 +322,96 @@ function renderTeacherGroups(groups) {
 function createTeacherGroupCard(group) {
   const card = document.createElement('article');
   card.className = 'role-panel__card';
+  card.dataset.groupId = String(group?.id ?? '');
 
   const header = document.createElement('header');
   header.className = 'role-panel__header';
+
+  const titleWrap = document.createElement('div');
+  titleWrap.className = 'role-panel__header-main';
 
   const title = document.createElement('h3');
   title.className = 'role-panel__title';
   title.textContent = group?.name || 'Grupo';
 
-  const meta = document.createElement('p');
-  meta.className = 'role-panel__meta';
+  const description = document.createElement('p');
+  description.className = 'role-panel__meta';
   if (group?.description) {
-    meta.textContent = group.description;
+    description.textContent = group.description;
   } else {
-    meta.textContent = 'Sin descripción';
-    meta.classList.add('role-panel__meta--muted');
+    description.textContent = 'Sin descripción';
+    description.classList.add('role-panel__meta--muted');
   }
 
-  header.appendChild(title);
-  header.appendChild(meta);
+  titleWrap.appendChild(title);
+  titleWrap.appendChild(description);
 
-  const membersWrap = document.createElement('div');
-  membersWrap.className = 'role-panel__members';
+  const metaBar = document.createElement('div');
+  metaBar.className = 'role-panel__bar';
 
-  const membersTitle = document.createElement('h4');
-  membersTitle.className = 'role-panel__subtitle';
-  membersTitle.textContent = 'Estudiantes';
-  membersWrap.appendChild(membersTitle);
-
-  const membersList = document.createElement('ul');
-  membersList.className = 'role-panel__members-list';
+  const teacherInfo = document.createElement('span');
+  teacherInfo.className = 'role-panel__meta role-panel__meta--muted';
+  const teacher = group?.teacher;
+  if (teacher) {
+    const email = teacher.email ? ` · ${teacher.email}` : '';
+    teacherInfo.textContent = `Docente: ${teacher.name || 'N/D'}${email}`;
+  } else {
+    teacherInfo.textContent = 'Docente: Tú';
+  }
 
   const members = Array.isArray(group?.members) ? group.members : [];
+  const memberCount = typeof group?.member_count === 'number' ? group.member_count : members.length;
+
+  const countPill = document.createElement('span');
+  countPill.className = 'role-panel__pill';
+  countPill.textContent = `${memberCount} estudiante${memberCount === 1 ? '' : 's'}`;
+
+  metaBar.appendChild(teacherInfo);
+  metaBar.appendChild(countPill);
+
+  header.appendChild(titleWrap);
+  header.appendChild(metaBar);
+
+  const table = document.createElement('table');
+  table.className = 'role-panel__table';
+  table.setAttribute('aria-label', `Estudiantes del grupo ${title.textContent}`);
+
+  const thead = document.createElement('thead');
+  const headRow = document.createElement('tr');
+  ['#', 'Estudiante', 'ID visible', 'Acciones'].forEach((label) => {
+    const th = document.createElement('th');
+    th.scope = 'col';
+    th.textContent = label;
+    headRow.appendChild(th);
+  });
+  thead.appendChild(headRow);
+  table.appendChild(thead);
+
+  const tbody = document.createElement('tbody');
   if (!members.length) {
-    const empty = document.createElement('li');
-    empty.className = 'role-panel__member role-panel__member--empty';
-    empty.textContent = 'El grupo no tiene estudiantes asignados.';
-    membersList.appendChild(empty);
+    const row = document.createElement('tr');
+    const cell = document.createElement('td');
+    cell.colSpan = 4;
+    cell.className = 'role-panel__table-empty';
+    cell.textContent = 'El grupo no tiene estudiantes asignados.';
+    row.appendChild(cell);
+    tbody.appendChild(row);
   } else {
-    members.forEach((member) => {
-      membersList.appendChild(createTeacherMemberItem(group.id, member));
+    members.forEach((member, index) => {
+      tbody.appendChild(createTeacherMemberRow(group.id, member, index));
     });
   }
-
-  membersWrap.appendChild(membersList);
+  table.appendChild(tbody);
 
   const form = document.createElement('form');
-  form.className = 'role-form role-form--inline';
-  form.dataset.groupId = String(group.id || '');
+  form.className = 'role-form role-form--inline role-form--compact';
+  form.dataset.groupId = String(group?.id || '');
   form.noValidate = true;
 
   const field = document.createElement('div');
-  field.className = 'form__field';
+  field.className = 'form__field form__field--compact';
 
-  const inputId = `teacher-add-${group.id}`;
+  const inputId = `teacher-add-${group?.id ?? ''}`;
   const label = document.createElement('label');
   label.className = 'form__label';
   label.setAttribute('for', inputId);
@@ -349,7 +429,7 @@ function createTeacherGroupCard(group) {
   form.appendChild(field);
 
   const actions = document.createElement('div');
-  actions.className = 'form__actions';
+  actions.className = 'form__actions form__actions--compact';
 
   const submit = document.createElement('button');
   submit.className = 'btn btn--primary btn--sm';
@@ -362,32 +442,29 @@ function createTeacherGroupCard(group) {
   on(form, 'submit', onTeacherAddMember);
 
   card.appendChild(header);
-  card.appendChild(membersWrap);
+  card.appendChild(table);
   card.appendChild(form);
 
   return card;
 }
 
-function createTeacherMemberItem(groupId, member) {
-  const item = document.createElement('li');
-  item.className = 'role-panel__member';
+function createTeacherMemberRow(groupId, member, index) {
+  const row = document.createElement('tr');
 
-  const info = document.createElement('div');
-  info.className = 'role-panel__member-info';
+  const indexCell = document.createElement('td');
+  indexCell.textContent = String(index + 1);
+  row.appendChild(indexCell);
 
-  const name = document.createElement('span');
-  name.className = 'role-panel__member-name';
-  name.textContent = member?.student_name || 'Sin nombre';
+  const nameCell = document.createElement('td');
+  nameCell.textContent = member?.student_name || 'Sin nombre';
+  row.appendChild(nameCell);
 
-  const visible = document.createElement('span');
-  visible.className = 'role-panel__member-id';
-  visible.textContent = member?.student_visible_id ? `ID: ${member.student_visible_id}` : 'ID no disponible';
+  const idCell = document.createElement('td');
+  idCell.textContent = member?.student_visible_id || '—';
+  row.appendChild(idCell);
 
-  info.appendChild(name);
-  info.appendChild(visible);
-
-  const actions = document.createElement('div');
-  actions.className = 'role-panel__member-actions';
+  const actionsCell = document.createElement('td');
+  actionsCell.className = 'role-panel__table-actions';
 
   const removeBtn = document.createElement('button');
   removeBtn.className = 'btn btn--ghost btn--sm';
@@ -397,11 +474,10 @@ function createTeacherMemberItem(groupId, member) {
   removeBtn.dataset.visibleId = String(member?.student_visible_id || '');
   on(removeBtn, 'click', onTeacherRemoveMember);
 
-  actions.appendChild(removeBtn);
+  actionsCell.appendChild(removeBtn);
+  row.appendChild(actionsCell);
 
-  item.appendChild(info);
-  item.appendChild(actions);
-  return item;
+  return row;
 }
 
 function onTeacherAddMember(event) {
@@ -1018,6 +1094,11 @@ function toggleHistoryPanel(force) {
   ui.historyPanel.hidden = !shouldOpen;
   ui.historyToggle.setAttribute('aria-expanded', String(shouldOpen));
   ui.historyToggle.textContent = shouldOpen ? 'Ocultar historial' : 'Mostrar historial';
+  if (ui.historyCard) ui.historyCard.setAttribute('data-history-open', shouldOpen ? 'true' : 'false');
+  if (ui.historyCollapsed) {
+    ui.historyCollapsed.hidden = shouldOpen;
+    ui.historyCollapsed.setAttribute('aria-hidden', String(shouldOpen));
+  }
   return shouldOpen;
 }
 

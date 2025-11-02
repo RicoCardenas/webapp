@@ -17,7 +17,7 @@ const SELECTORS = {
   themeToggle: '[data-theme-toggle]',
   backendStatus: '[data-status]',
   ctaGraficar: '#cta-graficar',
-  sections: ['#hero', '#features', '#how-it-works', '#about', '#docs', '#contact'],
+  sections: ['#hero', '#features', '#learn', '#about', '#contact'],
   contactForm: '#contact-form',
   contactErrorsGlobal: '#contact-form-errors',
   errorName: '#error-contact-name',
@@ -41,6 +41,8 @@ const SELECTORS = {
   btnLogout: '#btn-logout',
   btnAccount: '#btn-account',
 };
+
+const LEARN_HASHES = new Set(['#learn', '#docs', '#documentacion', '#how-it-works', '#como-funciona']);
 
 window.addEventListener('error', (e) => {
   try {
@@ -472,8 +474,7 @@ function applyTheme(theme) {
   body.classList.toggle('theme-dark', isDark);
   body.classList.toggle('theme-light', !isDark);
   // Compatibilidad con estilos existentes
-  if (isDark) root.dataset.theme = 'dark';
-  else delete root.dataset.theme;
+  root.dataset.theme = isDark ? 'dark' : 'light';
   window.dispatchEvent(new CustomEvent('themechange', { detail: { theme } }));
 }
 
@@ -622,23 +623,27 @@ function initScrollSpy() {
   if (links.length === 0) return;
 
   const map = new Map();
-  links.forEach((l) => {
-    const hash = l.getAttribute('href'); 
-    const sec = hash ? qs(hash) : null;
-    if (sec) map.set(sec, l);
+  links.forEach((link) => {
+    const hash = link.getAttribute('href');
+    if (!hash || !hash.startsWith('#')) return;
+    const section = qs(hash);
+    if (!section) return;
+    const stored = map.get(section) || [];
+    stored.push(link);
+    map.set(section, stored);
   });
 
-  const setCurrent = (el) => {
+  const setCurrent = (targets = []) => {
     links.forEach((a) => a.removeAttribute('aria-current'));
-    el?.setAttribute('aria-current', 'page');
+    targets.forEach((el) => el?.setAttribute('aria-current', 'page'));
   };
 
   const obs = new IntersectionObserver(
     (entries) => {
       entries.forEach((entry) => {
-        const link = map.get(entry.target);
-        if (!link) return;
-        if (entry.isIntersecting) setCurrent(link);
+        const group = map.get(entry.target);
+        if (!group) return;
+        if (entry.isIntersecting) setCurrent(group);
       });
     },
     {
@@ -746,6 +751,262 @@ const toast = (() => {
     warn: (m) => show('warn', m, 7000),
   };
 })();
+
+function isLearnHash(hash) {
+  if (typeof hash !== 'string') return false;
+  return LEARN_HASHES.has(hash.toLowerCase());
+}
+
+function scrollToLearn(hash = '#learn', { updateHistory = false, behavior } = {}) {
+  const section = qs('#learn');
+  if (!section) return;
+
+  const prefersReduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const scrollBehavior = behavior || (prefersReduced ? 'auto' : 'smooth');
+
+  section.scrollIntoView({ block: 'start', behavior: scrollBehavior });
+
+  const delay = scrollBehavior === 'smooth' ? 320 : 0;
+  setTimeout(() => {
+    if (typeof section.focus === 'function') {
+      section.focus({ preventScroll: true });
+    }
+  }, delay);
+
+  if (updateHistory) {
+    const targetHash = hash && hash.startsWith('#') ? hash : '#learn';
+    history.replaceState(null, '', targetHash);
+  }
+}
+
+function initLearnAnchors() {
+  const section = qs('#learn');
+  if (!section) return;
+
+  qsa('a[data-learn-alias]').forEach((link) => {
+    on(link, 'click', (event) => {
+      event.preventDefault();
+      const alias = link.dataset.learnAlias ? `#${link.dataset.learnAlias}` : '#learn';
+      scrollToLearn(alias, { updateHistory: true });
+    });
+  });
+
+  window.addEventListener('hashchange', () => {
+    const { hash } = window.location;
+    if (!isLearnHash(hash) || hash === '#learn') return;
+    scrollToLearn(hash, { updateHistory: true });
+  });
+
+  const initialHash = window.location.hash;
+  if (isLearnHash(initialHash) && initialHash !== '#learn') {
+    scrollToLearn(initialHash, { updateHistory: true, behavior: 'auto' });
+  }
+}
+
+function initLearnCarousel() {
+  const track = qs('[data-learn-track]');
+  const slides = track ? Array.from(qsa('[data-learn-slide]', track)) : [];
+  const prevBtn = qs('[data-learn-prev]');
+  const nextBtn = qs('[data-learn-next]');
+  const status = qs('[data-learn-status]');
+
+  if (!track || slides.length === 0) {
+    bindSnippetChips();
+    return;
+  }
+
+  slides.forEach((slide) => {
+    if (!slide.hasAttribute('tabindex')) slide.setAttribute('tabindex', '-1');
+  });
+
+  const prefersReduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  if (prefersReduced) {
+    slides.forEach((slide) => slide.classList.add('is-visible'));
+  } else {
+    const visibilityObserver = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((entry) => {
+          if (entry.isIntersecting) entry.target.classList.add('is-visible');
+        });
+      },
+      { root: track, threshold: 0.4 }
+    );
+    slides.forEach((slide) => visibilityObserver.observe(slide));
+  }
+  let currentIndex = 0;
+  let pointerId = null;
+  let startX = 0;
+  let scrollStart = 0;
+  let dragging = false;
+  let ignoreClick = false;
+
+  const updateControls = (index) => {
+    if (prevBtn) prevBtn.disabled = index <= 0;
+    if (nextBtn) nextBtn.disabled = index >= slides.length - 1;
+    if (status) status.textContent = `Tarjeta ${index + 1} de ${slides.length}`;
+  };
+
+  const applyClasses = (index) => {
+    slides.forEach((slide, idx) => {
+      slide.classList.toggle('is-active', idx === index);
+      slide.classList.toggle('is-near', Math.abs(idx - index) === 1);
+    });
+    updateControls(index);
+  };
+
+  const detectActive = () => {
+    const trackRect = track.getBoundingClientRect();
+    const center = trackRect.left + trackRect.width / 2;
+    let bestIndex = currentIndex;
+    let bestDistance = Number.POSITIVE_INFINITY;
+    slides.forEach((slide, idx) => {
+      const rect = slide.getBoundingClientRect();
+      const slideCenter = rect.left + rect.width / 2;
+      const distance = Math.abs(center - slideCenter);
+      if (distance < bestDistance) {
+        bestDistance = distance;
+        bestIndex = idx;
+      }
+    });
+    currentIndex = bestIndex;
+    applyClasses(currentIndex);
+  };
+
+  const debouncedDetect = debounce(detectActive, 90);
+  on(track, 'scroll', () => {
+    debouncedDetect();
+  });
+
+  const goTo = (index, { focus = false } = {}) => {
+    const clamped = Math.min(slides.length - 1, Math.max(0, index));
+    const target = slides[clamped];
+    if (!target) return;
+    target.scrollIntoView({ behavior: prefersReduced ? 'auto' : 'smooth', inline: 'center', block: 'nearest' });
+    currentIndex = clamped;
+    applyClasses(currentIndex);
+    if (focus) {
+      setTimeout(() => target.focus?.({ preventScroll: true }), prefersReduced ? 0 : 280);
+    }
+  };
+
+  if (prevBtn) {
+    on(prevBtn, 'click', () => {
+      goTo(currentIndex - 1, { focus: true });
+    });
+  }
+
+  if (nextBtn) {
+    on(nextBtn, 'click', () => {
+      goTo(currentIndex + 1, { focus: true });
+    });
+  }
+
+  on(track, 'keydown', (event) => {
+    if (event.key === 'ArrowRight') {
+      event.preventDefault();
+      goTo(currentIndex + 1, { focus: true });
+    } else if (event.key === 'ArrowLeft') {
+      event.preventDefault();
+      goTo(currentIndex - 1, { focus: true });
+    }
+  });
+
+  on(track, 'wheel', (event) => {
+    if (!event.shiftKey) return;
+    if (Math.abs(event.deltaY) <= Math.abs(event.deltaX)) return;
+    event.preventDefault();
+    track.scrollLeft += event.deltaY;
+  }, { passive: false });
+
+  on(track, 'pointerdown', (event) => {
+    if (!(event instanceof PointerEvent)) return;
+    if (event.pointerType === 'mouse' && event.button !== 0) return;
+    const target = event.target instanceof HTMLElement ? event.target : null;
+    if (target?.closest('button, a, input, textarea')) return;
+    dragging = true;
+    ignoreClick = false;
+    startX = event.clientX;
+    scrollStart = track.scrollLeft;
+    pointerId = event.pointerId;
+    track.classList.add('is-dragging');
+    track.dataset.dragging = 'false';
+    track.setPointerCapture?.(pointerId);
+  });
+
+  on(track, 'pointermove', (event) => {
+    if (!dragging || !(event instanceof PointerEvent)) return;
+    const delta = event.clientX - startX;
+    if (Math.abs(delta) > 4) {
+      track.dataset.dragging = 'true';
+      ignoreClick = true;
+    }
+    track.scrollLeft = scrollStart - delta;
+  });
+
+  const endDrag = () => {
+    if (!dragging) return;
+    dragging = false;
+    track.classList.remove('is-dragging');
+    delete track.dataset.dragging;
+    if (pointerId !== null) {
+      try { track.releasePointerCapture?.(pointerId); } catch {}
+      pointerId = null;
+    }
+    detectActive();
+    setTimeout(() => {
+      ignoreClick = false;
+    }, 120);
+  };
+
+  on(track, 'pointerup', endDrag);
+  on(track, 'pointercancel', endDrag);
+
+  window.addEventListener('resize', debounce(detectActive, 120));
+
+  bindSnippetChips(track, { shouldIgnore: () => ignoreClick });
+  applyClasses(currentIndex);
+  detectActive();
+}
+
+function bindSnippetChips(scope = document, options = {}) {
+  const chips = Array.from(qsa('.chip[data-snippet]', scope));
+  if (!chips.length) return;
+
+  const shouldIgnore = typeof options.shouldIgnore === 'function'
+    ? options.shouldIgnore
+    : () => false;
+
+  chips.forEach((chip) => {
+    on(chip, 'click', async () => {
+      const track = chip.closest('[data-learn-track]');
+      if (track?.classList.contains('is-dragging')) return;
+      if (shouldIgnore()) return;
+      const snippet = chip.getAttribute('data-snippet');
+      if (!snippet) return;
+      try {
+        if (navigator.clipboard?.writeText) {
+          await navigator.clipboard.writeText(snippet);
+        } else {
+          const textarea = document.createElement('textarea');
+          textarea.value = snippet;
+          textarea.setAttribute('readonly', '');
+          textarea.style.position = 'absolute';
+          textarea.style.left = '-9999px';
+          document.body.appendChild(textarea);
+          textarea.select();
+          document.execCommand('copy');
+          textarea.remove();
+        }
+        chip.setAttribute('data-copied', 'true');
+        toast.success('Ejemplo copiado al portapapeles.');
+        setTimeout(() => chip.removeAttribute('data-copied'), 2000);
+      } catch (error) {
+        console.error('No se pudo copiar el ejemplo', error);
+        toast.error('No se pudo copiar el ejemplo.');
+      }
+    });
+  });
+}
 
 // Contacto
 function initContactForm() {
@@ -1225,6 +1486,8 @@ function init() {
 
   bindDrawerLinkClosing();
   initScrollSpy();
+  initLearnAnchors();
+  initLearnCarousel();
   BackendStatus.check();
   initContactForm();
   setCurrentYear();

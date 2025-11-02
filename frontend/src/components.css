@@ -26,6 +26,13 @@
 }
 
 .btn:hover { transform: translateY(-1px); }
+.btn,
+.btn:visited,
+.btn:hover,
+.btn:focus,
+.btn:active {
+  text-decoration: none;
+}
 .btn:disabled,
 .btn[aria-disabled="true"] { opacity: 0.6; pointer-events: none; }
 
@@ -316,7 +323,36 @@ html[data-theme="dark"] .icon--menu-dark { display: inline-block; }
 .footer__link:hover { color: var(--color-primary); }
 
 /* Cards & surfaces */
-.card,
+.card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: clamp(1rem, 2vw, 1.4rem);
+  padding: clamp(1.5rem, 2.6vw, 2.2rem);
+  border-radius: var(--radius-lg);
+  border: 1px solid color-mix(in srgb, var(--border, var(--color-border)) 85%, transparent);
+  background: color-mix(in srgb, var(--card, var(--color-panel)) 96%, transparent);
+  box-shadow: var(--shadow-sm);
+  min-height: 240px;
+  transition: box-shadow var(--dur-2) var(--easing);
+}
+
+.card > * {
+  position: relative;
+  z-index: 1;
+}
+
+.card:hover,
+.card:focus-within {
+  box-shadow: var(--shadow-md);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .card,
+  .card:hover,
+  .card:focus-within { transition: none; }
+}
+
 .panel {
   background: linear-gradient(150deg,
       color-mix(in srgb, var(--color-surface) 94%, transparent) 0%,
@@ -350,21 +386,42 @@ html[data-theme="dark"] .icon--menu-dark { display: inline-block; }
 .chip {
   display: inline-flex;
   align-items: center;
-  gap: 0.35rem;
-  padding: 0.35rem 0.85rem;
+  gap: 0.4rem;
+  padding: 0.4rem 0.9rem;
   border-radius: var(--radius-pill);
-  border: 1px solid color-mix(in srgb, var(--color-border) 75%, transparent);
-  background: color-mix(in srgb, var(--color-panel) 92%, transparent);
-  color: var(--color-text-muted);
-  font-size: var(--fs-xs);
+  border: 1px solid color-mix(in srgb, var(--border, var(--color-border)) 80%, transparent);
+  background: color-mix(in srgb, var(--card, var(--color-panel)) 94%, transparent);
+  color: var(--muted, var(--color-text-muted));
+  font-size: var(--fs-sm);
+  font-weight: 500;
   cursor: pointer;
-  transition: background-color var(--dur-1) var(--easing), color var(--dur-1) var(--easing), border-color var(--dur-1) var(--easing);
+  transition: transform var(--dur-1) var(--easing),
+    background-color var(--dur-1) var(--easing),
+    color var(--dur-1) var(--easing),
+    border-color var(--dur-1) var(--easing);
 }
 
 .chip:hover {
-  background: color-mix(in srgb, var(--color-primary) 15%, var(--color-panel) 85%);
-  color: var(--color-text);
-  border-color: color-mix(in srgb, var(--color-primary) 45%, transparent);
+  transform: translateY(-1px);
+  background: color-mix(in srgb, var(--primary, var(--color-primary)) 18%, var(--card, var(--color-panel)) 82%);
+  color: var(--text);
+  border-color: color-mix(in srgb, var(--primary, var(--color-primary)) 45%, transparent);
+}
+
+.chip:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--primary, var(--color-primary)) 55%, transparent);
+  outline-offset: 2px;
+}
+
+.chip[data-copied] {
+  background: color-mix(in srgb, var(--primary, var(--color-primary)) 26%, var(--card, var(--color-panel)) 74%);
+  color: var(--text);
+  border-color: color-mix(in srgb, var(--primary, var(--color-primary)) 45%, transparent);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .chip,
+  .chip:hover { transition: none; transform: none; }
 }
 
 .pill {
