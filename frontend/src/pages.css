@@ -214,7 +214,7 @@
   gap: clamp(1.25rem, 3vw, 2rem);
   overflow-x: auto;
   overflow-y: hidden;
-  padding-block: 0.5rem;
+  padding-block: clamp(1.5rem, 4vw, 3rem);
   padding-inline: max(var(--space-16, 1rem), calc((100vw - min(1280px, 100%)) / 2));
   margin-inline: calc(-1 * max(var(--space-16, 1rem), calc((100vw - min(1280px, 100%)) / 2)));
   scroll-snap-type: x mandatory;
@@ -486,6 +486,7 @@
 .account-shell__inner {
   display: grid;
   gap: clamp(2rem, 5vw, 3rem);
+  padding-block: clamp(1.75rem, 4vw, 3rem);
 }
 
 .account-layout {

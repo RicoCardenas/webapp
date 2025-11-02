@@ -8,7 +8,24 @@
 html,
 body { height: 100%; }
 
-html { font-size: 16px; }
+html {
+  font-size: 16px;
+  scrollbar-width: none;
+}
+
+html::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+}
+
+body {
+  -ms-overflow-style: none;
+}
+
+body::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+}
 
 html:focus-within { scroll-behavior: smooth; }
 

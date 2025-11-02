@@ -1,6 +1,7 @@
 import { authFetch, toast } from './app.js';
 import { qs, qsa } from './lib/dom.js';
 import { on } from './lib/events.js';
+import { niceStep, formatTick } from './lib/math.js';
 import { createPlotterCore } from './plotter/plotter-core.js';
 import { createPlotterRenderer } from './plotter/plotter-render.js';
 import {
@@ -41,6 +42,7 @@ function bindUI() {
   bindForm();
   bindControls();
   bindHistoryModal();
+  bindShortcuts();
 }
 
 function addExpressionText(raw) {
@@ -81,6 +83,7 @@ function bindControls() {
   const btnClear = qs(UI_SELECTORS.btnClear);
   const btnGrid = qs(UI_SELECTORS.btnGrid);
   const btnExport = qs(UI_SELECTORS.btnExport);
+  const btnExportSvg = qs(UI_SELECTORS.btnExportSvg);
   const btnHistory = qs(UI_SELECTORS.btnHistory);
   const btnFullscreen = qs(UI_SELECTORS.btnFullscreen);
 
@@ -97,6 +100,7 @@ function bindControls() {
   if (btnGrid) updateGridButton(btnGrid, core.getView().gridOn);
 
   on(btnExport, 'click', exportPNG);
+  on(btnExportSvg, 'click', exportSVG);
 
   on(btnHistory, 'click', async () => {
     openHistoryModal();
@@ -143,6 +147,76 @@ function bindHistoryModal() {
   on(plotSelectedBtn, 'click', () => {
     plotSelectedHistory();
   });
+}
+
+function bindShortcuts() {
+  const input = qs(UI_SELECTORS.input);
+  const gridButton = qs(UI_SELECTORS.btnGrid);
+
+  on(window, 'keydown', (event) => {
+    const key = event.key;
+    const lowerKey = typeof key === 'string' ? key.toLowerCase() : '';
+    const typing = isTypingTarget(event.target);
+
+    if ((event.ctrlKey || event.metaKey) && key === 'Enter') {
+      if (typing) return;
+      event.preventDefault();
+      if (input instanceof HTMLInputElement) {
+        addExpressionFromInput(input);
+      }
+      return;
+    }
+
+    if ((event.ctrlKey || event.metaKey) && event.shiftKey) {
+      if (lowerKey === 'e') {
+        event.preventDefault();
+        exportPNG();
+        return;
+      }
+      if (lowerKey === 's') {
+        event.preventDefault();
+        exportSVG();
+        return;
+      }
+    }
+
+    if (typing) return;
+
+    if (!event.ctrlKey && !event.metaKey && !event.altKey && lowerKey === 'g') {
+      event.preventDefault();
+      const isOn = core.toggleGrid();
+      updateGridButton(gridButton, isOn);
+      renderer?.requestRender();
+      return;
+    }
+  });
+}
+
+function isTypingTarget(target) {
+  if (!(target instanceof EventTarget)) return false;
+  const element = target instanceof Element ? target : null;
+  if (!element) return false;
+  const editable = element.closest('input, textarea, select, [contenteditable=""], [contenteditable="true"]');
+  if (!editable) return false;
+  if (editable instanceof HTMLInputElement) {
+    const type = (editable.type || 'text').toLowerCase();
+    switch (type) {
+      case 'button':
+      case 'checkbox':
+      case 'color':
+      case 'file':
+      case 'hidden':
+      case 'image':
+      case 'radio':
+      case 'range':
+      case 'reset':
+      case 'submit':
+        return false;
+      default:
+        return true;
+    }
+  }
+  return true;
 }
 
 function addExpressionFromInput(input) {
@@ -212,12 +286,242 @@ function exportPNG() {
     return;
   }
   const url = canvas.toDataURL('image/png');
+  triggerDownload('ecuplot.png', url);
+}
+
+function exportSVG() {
+  const canvas = renderer?.getCanvas();
+  if (!canvas) {
+    toast?.error?.('No se encontró el lienzo para exportar.');
+    return;
+  }
+
+  const { width, height } = getCanvasDimensions(canvas);
+  if (!width || !height) {
+    toast?.error?.('No se pudo determinar el tamaño de la gráfica.');
+    return;
+  }
+
+  const view = core.getView();
+  const styles = getComputedStyle(container || document.body);
+  const background = (styles.getPropertyValue('--color-panel') || styles.getPropertyValue('--color-surface') || '#0b1020').trim() || '#0b1020';
+  const gridLine = (styles.getPropertyValue('--grid-line') || 'rgba(148, 163, 184, 0.18)').trim();
+  const gridAxis = (styles.getPropertyValue('--grid-axis') || 'rgba(224, 231, 255, 0.42)').trim();
+  const gridText = (styles.getPropertyValue('--grid-text') || 'rgba(226, 232, 240, 0.72)').trim();
+  const markerLabel = (styles.getPropertyValue('--color-text') || '#cbd5f5').trim() || '#cbd5f5';
+
+  const svg = createSvgElement('svg', {
+    xmlns: 'http://www.w3.org/2000/svg',
+    width,
+    height,
+    viewBox: `0 0 ${width} ${height}`,
+    role: 'img',
+    'aria-label': 'Gráfica exportada desde EcuPlot',
+  });
+
+  svg.append(createSvgElement('rect', { x: 0, y: 0, width, height, fill: background }));
+
+  const spanX = view.xmax - view.xmin || 1;
+  const spanY = view.ymax - view.ymin || 1;
+
+  const toScreen = (x, y) => ({
+    x: (x - view.xmin) * (width / spanX),
+    y: (view.ymax - y) * (height / spanY),
+  });
+
+  const drawLines = (min, max, step, draw) => {
+    if (!step || !isFinite(step)) return;
+    let start = Math.ceil(min / step) * step;
+    if (!isFinite(start)) start = 0;
+    for (let value = start; value <= max + step / 2; value += step) {
+      draw(value);
+    }
+  };
+
+  if (view.gridOn) {
+    const baseStep = niceStep(Math.min(Math.abs(spanX), Math.abs(spanY)) || 1);
+    const gridGroup = createSvgElement('g', { stroke: gridLine, 'stroke-width': 1, fill: 'none' });
+
+    drawLines(view.xmin, view.xmax, baseStep, (value) => {
+      const point = toScreen(value, view.ymin);
+      gridGroup.append(createSvgElement('line', { x1: point.x, y1: 0, x2: point.x, y2: height }));
+    });
+
+    drawLines(view.ymin, view.ymax, baseStep, (value) => {
+      const point = toScreen(view.xmin, value);
+      gridGroup.append(createSvgElement('line', { x1: 0, y1: point.y, x2: width, y2: point.y }));
+    });
+
+    svg.append(gridGroup);
+
+    const axisGroup = createSvgElement('g', { stroke: gridAxis, 'stroke-width': 1.5, fill: 'none' });
+    const labelGroup = createSvgElement('g', {
+      fill: gridText || markerLabel,
+      'font-family': 'Inter, system-ui, sans-serif',
+      'font-size': 12,
+    });
+
+    const axisY = toScreen(view.xmin, 0).y;
+    const hasXAxis = axisY >= 0 && axisY <= height;
+    if (hasXAxis) {
+      axisGroup.append(createSvgElement('line', { x1: 0, y1: axisY, x2: width, y2: axisY }));
+    }
+
+    const axisX = toScreen(0, view.ymin).x;
+    const hasYAxis = axisX >= 0 && axisX <= width;
+    if (hasYAxis) {
+      axisGroup.append(createSvgElement('line', { x1: axisX, y1: 0, x2: axisX, y2: height }));
+    }
+
+    svg.append(axisGroup);
+
+    drawLines(view.xmin, view.xmax, baseStep, (value) => {
+      const point = toScreen(value, view.ymin);
+      const text = createSvgElement('text', {
+        x: point.x,
+        y: hasXAxis ? axisY + (axisY < height / 2 ? 14 : -10) : height - 18,
+        'text-anchor': 'middle',
+        'dominant-baseline': hasXAxis ? 'middle' : 'baseline',
+      });
+      text.textContent = formatTick(value);
+      labelGroup.append(text);
+    });
+
+    drawLines(view.ymin, view.ymax, baseStep, (value) => {
+      const point = toScreen(view.xmin, value);
+      const yLabel = createSvgElement('text', {
+        x: hasYAxis ? axisX + (axisX > width / 2 ? -12 : 12) : 12,
+        y: point.y,
+        'text-anchor': hasYAxis ? (axisX > width / 2 ? 'end' : 'start') : 'start',
+        'dominant-baseline': 'middle',
+      });
+      yLabel.textContent = formatTick(value);
+      labelGroup.append(yLabel);
+    });
+
+    svg.append(labelGroup);
+  }
+
+  const expressionsGroup = createSvgElement('g', {
+    fill: 'none',
+    'stroke-linecap': 'round',
+    'stroke-linejoin': 'round',
+  });
+
+  const sampleBase = Math.max(0.001, (view.xmax - view.xmin) / (width * 0.75));
+  const sampleStep = Math.max(sampleBase, 0.002);
+  const xLimit = view.xmax + 20 * sampleStep;
+  const yLimit = Math.abs(view.ymax - view.ymin) * 6;
+
+  core.expressions.forEach((expr) => {
+    if (!expr.visible) return;
+    let drawing = false;
+    let pathData = '';
+
+    for (let x = view.xmin; x <= xLimit; x += sampleStep) {
+      const y = evaluateExpression(expr.compiled, x);
+      if (y == null || Math.abs(y) > yLimit) {
+        drawing = false;
+        continue;
+      }
+
+      const point = toScreen(x, y);
+      pathData += `${drawing ? 'L' : 'M'}${point.x.toFixed(2)} ${point.y.toFixed(2)} `;
+      drawing = true;
+    }
+
+    if (!pathData) return;
+
+    expressionsGroup.append(createSvgElement('path', {
+      d: pathData.trim(),
+      stroke: expr.color,
+      'stroke-width': 2.2,
+    }));
+  });
+
+  svg.append(expressionsGroup);
+
+  if (core.markers.length) {
+    const markersGroup = createSvgElement('g', {
+      'font-family': 'Inter, system-ui, sans-serif',
+      'font-size': 12,
+      fill: markerLabel,
+      stroke: 'none',
+    });
+
+    core.markers.forEach((marker) => {
+      const point = toScreen(marker.x, marker.y);
+      markersGroup.append(createSvgElement('circle', {
+        cx: point.x,
+        cy: point.y,
+        r: 5,
+        fill: marker.color,
+        stroke: '#0f172a',
+        'stroke-width': 2,
+      }));
+
+      const label = createSvgElement('text', {
+        x: point.x + 8,
+        y: point.y - 6,
+        'text-anchor': 'start',
+        'dominant-baseline': 'middle',
+      });
+      label.textContent = `${marker.label} (${marker.x.toFixed(2)}, ${marker.y.toFixed(2)})`;
+      markersGroup.append(label);
+    });
+
+    svg.append(markersGroup);
+  }
+
+  const serializer = new XMLSerializer();
+  let source = serializer.serializeToString(svg);
+  if (!source.startsWith('<?xml')) {
+    source = `<?xml version="1.0" encoding="UTF-8"?>\n${source}`;
+  }
+
+  const blob = new Blob([source], { type: 'image/svg+xml;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  triggerDownload('ecuplot.svg', url, true);
+}
+
+function triggerDownload(filename, href, revokeAfter = false) {
   const link = document.createElement('a');
-  link.download = 'ecuplot.png';
-  link.href = url;
+  link.download = filename;
+  link.href = href;
   document.body.appendChild(link);
   link.click();
   link.remove();
+  if (revokeAfter && href.startsWith('blob:')) {
+    setTimeout(() => URL.revokeObjectURL(href), 0);
+  }
+}
+
+function getCanvasDimensions(canvas) {
+  const ratio = window.devicePixelRatio || 1;
+  const logicalWidth = canvas.width ? canvas.width / ratio : canvas.clientWidth;
+  const logicalHeight = canvas.height ? canvas.height / ratio : canvas.clientHeight;
+  return {
+    width: Math.max(1, Math.round(logicalWidth || 0)),
+    height: Math.max(1, Math.round(logicalHeight || 0)),
+  };
+}
+
+function createSvgElement(tag, attrs = {}) {
+  const element = document.createElementNS('http://www.w3.org/2000/svg', tag);
+  Object.entries(attrs).forEach(([key, value]) => {
+    if (value == null) return;
+    element.setAttribute(key, String(value));
+  });
+  return element;
+}
+
+function evaluateExpression(compiled, x) {
+  try {
+    const y = compiled.evaluate({ x });
+    return Number.isFinite(y) ? y : null;
+  } catch {
+    return null;
+  }
 }
 
 function openHistoryModal() {

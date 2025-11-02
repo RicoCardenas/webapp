@@ -154,7 +154,7 @@ body.theme-light .header__actions .btn--icon-only:not(.btn--primary):hover {
 }
 
 /* Icons */
-.icon { display: inline-block; pointer-events: none; }
+.icon { display: inline-block; pointer-events: none; object-fit: contain; }
 .icon--theme,
 .icon--menu { width: 24px; height: 24px; }
 .icon--menu { width: 28px; height: 28px; }

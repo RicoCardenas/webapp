@@ -18,6 +18,7 @@ export const UI_SELECTORS = {
   btnClear: '#btn-clear',
   btnGrid: '#btn-grid',
   btnExport: '#btn-export',
+  btnExportSvg: '#btn-export-svg',
   btnHistory: '#btn-history',
   modalHistory: '#modal-history',
   historySearch: '#history-search',
