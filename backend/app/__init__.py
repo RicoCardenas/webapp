@@ -3,7 +3,6 @@ from pathlib import Path
 from flask import Flask
 from backend.config import Config
 
-
 # Importamos las instancias de las extensiones
 from .extensions import db, migrate, bcrypt, mail, cors
 
