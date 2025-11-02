@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Iniciar sesión | EcuPlot</title>
+    <meta name="description" content="Accede a tu cuenta de EcuPlot para continuar aprendiendo y graficando." />
+    <link rel="icon" href="/static/icons/favicon-32.png" sizes="32x32" />
+    <link rel="icon" href="/static/icons/favicon-16.png" sizes="16x16" />
+    <link rel="apple-touch-icon" href="/static/icons/apple-touch-icon.png" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Montserrat:wght@600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/static/base.css" />
+  <link rel="stylesheet" href="/static/components.css" />
+  <link rel="stylesheet" href="/static/auth.css" />
+  </head>
+  <body class="auth-page auth-page--login">
+    <main class="auth-page__main">
+      <section class="auth-shell auth-shell--split">
+        <div class="auth-shell__panel auth-shell__panel--form" data-animate="fade-up" style="--delay:0s">
+          <header class="auth-shell__header">
+            <span class="auth-shell__brand">ECUPLOT</span>
+            <h1 class="auth-shell__title">Bienvenido de nuevo</h1>
+            <p class="auth-shell__subtitle">Retoma tus gráficas recientes y descubre nuevas formas de visualizar tus ideas.</p>
+          </header>
+
+          <form id="login-form" class="form auth-form" novalidate>
+            <div class="form__field">
+              <label class="form__label" for="login-email">Correo electrónico</label>
+              <input class="form__input" type="email" id="login-email" name="email" autocomplete="email" inputmode="email" aria-describedby="error-login-email" required />
+              <p class="form__microcopy">Inicia sesión con el correo que verificaste al crear tu cuenta.</p>
+              <p id="error-login-email" class="form__error" aria-hidden="true"></p>
+            </div>
+
+            <div class="form__field">
+              <label class="form__label" for="login-password">Contraseña</label>
+              <div class="password-input">
+                <input class="form__input" type="password" id="login-password" name="password" autocomplete="current-password" aria-describedby="error-login-password" required />
+                <button class="password-toggle" type="button" data-password-toggle="login-password" aria-label="Mostrar contraseña">
+                  <img src="/static/images/seepassword.png" alt="" data-icon="show" aria-hidden="true" />
+                  <img src="/static/images/hidepassword.png" alt="" data-icon="hide" aria-hidden="true" hidden />
+                </button>
+              </div>
+              <p class="form__microcopy">¿La olvidaste? Envíate un enlace seguro desde el panel de recuperación.</p>
+              <p id="error-login-password" class="form__error" aria-hidden="true"></p>
+            </div>
+
+            <div class="form__actions form__actions--split">
+              <button class="btn btn--primary auth-btn" type="submit">
+                <span>Entrar</span>
+                <span class="btn__icon-arrow" aria-hidden="true">→</span>
+              </button>
+              <a class="form__link auth-link" href="/signup">¿Aún no tienes cuenta?</a>
+            </div>
+          </form>
+
+          <p class="auth-shell__hint">¿Necesitas ayuda? <a class="auth-link" href="/">Visita el inicio</a> o <a class="auth-link" href="/graph">abre la graficadora</a>.</p>
+        </div>
+
+        <aside class="auth-shell__panel auth-shell__panel--aside" data-animate="fade-up" style="--delay:0.12s">
+          <div class="auth-aside">
+            <h2 class="auth-aside__title">Recupera el acceso</h2>
+            <p class="auth-aside__text">Te enviaremos un enlace temporal para restablecer tu contraseña. Es válido durante la próxima hora.</p>
+
+            <form id="forgot-form" class="form auth-form auth-form--stack" novalidate>
+              <div class="form__field" data-forgot-field>
+                <label class="form__label" for="forgot-email">Correo electrónico</label>
+                <input class="form__input" type="email" id="forgot-email" name="email" autocomplete="email" inputmode="email" aria-describedby="error-forgot-email" required />
+                <p class="form__microcopy">Si el correo existe en EcuPlot, recibirás instrucciones en unos segundos.</p>
+                <p id="error-forgot-email" class="form__error" aria-hidden="true"></p>
+              </div>
+
+              <div class="form__actions">
+                <button class="btn btn--ghost auth-btn--outline" type="submit">
+                  <span>Enviar enlace</span>
+                  <span class="btn__icon-arrow" aria-hidden="true">→</span>
+                </button>
+              </div>
+            </form>
+
+            <div class="auth-aside__tips">
+              <h3 class="auth-aside__subtitle">Consejos rápidos</h3>
+              <ul class="auth-aside__list">
+                <li>Usa contraseñas únicas con 8 caracteres o más.</li>
+                <li>Activa la verificación adicional cuando esté disponible.</li>
+              </ul>
+            </div>
+          </div>
+        </aside>
+      </section>
+    </main>
+
+    <div id="toasts" class="toasts" aria-live="polite" aria-atomic="true"></div>
+
+    <noscript>
+      <div class="noscript">Para utilizar EcuPlot necesitas habilitar JavaScript. Actívalo en tu navegador y recarga la página.</div>
+    </noscript>
+
+    <script src="/static/app.js" type="module" defer></script>
+    <footer class="auth-footer">© 2025 EcuPlot · <a class="auth-link" href="/terminos">Términos</a> · <a class="auth-link" href="/privacidad">Privacidad</a></footer>
+  </body>
+</html>

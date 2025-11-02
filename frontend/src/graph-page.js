@@ -15,6 +15,9 @@ const selectors = {
   graphContainer: '#ggb-container',
   controlsToggle: '#controls-actions-toggle',
   controlsSecondary: '#controls-secondary',
+  controlsBar: '.controls-bar',
+  controlsBarFab: '#controls-bar-toggle',
+  controlsFabIcon: '#controls-bar-toggle .controls-bar__fab-icon',
 };
 
 const valueState = {
@@ -22,7 +25,9 @@ const valueState = {
 };
 
 function forceDarkTheme() {
-  document.documentElement.dataset.theme = 'dark';
+  document.body.classList.add('theme-dark');
+  document.body.classList.remove('theme-light');
+  document.documentElement.dataset.theme = 'dark'; // compatibilidad
   try {
     localStorage.setItem('ecup-theme', 'dark');
   } catch {}
@@ -243,6 +248,31 @@ function initControlsCollapse() {
   syncLayout();
 }
 
+function setControlsBarCollapsed(collapsed) {
+  const bar = qs(selectors.controlsBar);
+  const fab = qs(selectors.controlsBarFab);
+  const icon = qs(selectors.controlsFabIcon);
+  if (!bar || !fab) return;
+
+  bar.classList.toggle('is-collapsed', collapsed);
+  fab.setAttribute('aria-pressed', String(!collapsed));
+  fab.setAttribute('aria-label', collapsed ? 'Mostrar barra de controles' : 'Ocultar barra de controles');
+  if (icon) icon.textContent = collapsed ? '+' : '-';
+}
+
+function initControlsDock() {
+  const fab = qs(selectors.controlsBarFab);
+  if (!fab) return;
+
+  let collapsed = false;
+  setControlsBarCollapsed(collapsed);
+
+  on(fab, 'click', () => {
+    collapsed = !collapsed;
+    setControlsBarCollapsed(collapsed);
+  });
+}
+
 function initPlotterBridge() {
   const container = qs(selectors.graphContainer);
   if (!container) return;
@@ -263,6 +293,7 @@ function init() {
   initQueryExprBoot();
   initCoordHUD();
   initFunctionPanelToggle();
+  initControlsDock();
   initControlsCollapse();
   initValuePanel();
   initPlotterBridge();

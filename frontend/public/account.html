@@ -6,10 +6,12 @@
     <title>Mi Cuenta - EcuPlot</title>
     <meta name="description" content="Panel de usuario para gestionar tu cuenta y ver tu historial en EcuPlot." />
     <link rel="icon" href="/static/images/logo.jpg" type="image/jpeg" />
-    <link rel="stylesheet" href="/static/styles.css" />
+    <link rel="stylesheet" href="/static/base.css" />
+    <link rel="stylesheet" href="/static/components.css" />
+    <link rel="stylesheet" href="/static/pages.css" />
   </head>
 
-  <body class="page page-account">
+  <body class="page page--account">
     <header id="site-header" class="header" role="banner" aria-label="Cabecera del sitio">
       <div class="header__inner">
         <div class="header__brand">
@@ -30,32 +32,28 @@
           </ul>
         </nav>
         <div class="header__actions">
-            <button
-              class="btn btn--ghost header__btn btn--has-icon btn--icon-only"
-              type="button"
-              data-open="modal-login"
-              aria-haspopup="dialog"
-            aria-controls="modal-login"
+          <a
+            class="btn btn--ghost header__btn btn--has-icon btn--icon-only"
+            href="/login"
+            data-auth-link="login"
             aria-label="Iniciar sesión"
           >
             <span class="btn__icon" aria-hidden="true">
               <img class="btn__icon-img btn__icon-img--light" src="/static/images/loginclaro.png" alt="" decoding="async" />
               <img class="btn__icon-img btn__icon-img--dark" src="/static/images/loginoscuro.png" alt="" decoding="async" />
             </span>
-          </button>
-          <button
+          </a>
+          <a
             class="btn btn--primary header__btn btn--has-icon btn--icon-only"
-            type="button"
-            data-open="modal-signup"
-            aria-haspopup="dialog"
-            aria-controls="modal-signup"
+            href="/signup"
+            data-auth-link="signup"
             aria-label="Crear cuenta"
           >
             <span class="btn__icon" aria-hidden="true">
               <img class="btn__icon-img btn__icon-img--light" src="/static/images/signinclaro.png" alt="" decoding="async" />
               <img class="btn__icon-img btn__icon-img--dark" src="/static/images/signinoscuro.png" alt="" decoding="async" />
             </span>
-          </button>
+          </a>
           <button
             id="btn-logout"
             class="btn header__btn header__btn--logout btn--has-icon btn--icon-only"
@@ -112,8 +110,8 @@
             <li class="drawer__item"><a class="drawer__link" href="/#contact">Contacto</a></li>
           </ul>
           <div class="drawer__actions">
-            <button class="btn btn--ghost drawer__btn" type="button" data-open="modal-login" aria-haspopup="dialog" aria-controls="modal-login">Iniciar sesión</button>
-            <button class="btn btn--primary drawer__btn" type="button" data-open="modal-signup" aria-haspopup="dialog" aria-controls="modal-signup">Crear cuenta</button>
+            <a class="btn btn--ghost drawer__btn" href="/login" data-auth-link="login">Iniciar sesión</a>
+            <a class="btn btn--primary drawer__btn" href="/signup" data-auth-link="signup">Crear cuenta</a>
           </div>
         </nav>
       </div>
@@ -122,56 +120,60 @@
     <main class="account-main">
       <div id="account-authenticated" class="account-shell">
         <header class="account-hero">
-          <div>
-            <p class="account-hero__eyebrow">Panel personal</p>
-            <h1 class="account-hero__title">Mi Cuenta</h1>
-            <p class="account-hero__subtitle">Consulta tus datos de perfil y el historial de gráficas que has guardado.</p>
-          </div>
-          <div class="account-hero__actions">
-            <a href="/" class="btn btn--ghost btn--sm">Ir al inicio</a>
-            <a href="/graph" class="btn btn--primary btn--sm">Abrir graficadora</a>
+          <div class="account-hero__inner">
+            <div class="account-hero__copy">
+              <p class="account-hero__eyebrow">Panel personal</p>
+              <h1 class="account-hero__title">Mi Cuenta</h1>
+              <p class="account-hero__subtitle">Consulta tus datos de perfil y el historial de gráficas que has guardado.</p>
+            </div>
+            <div class="account-hero__actions">
+              <a href="/" class="btn btn--ghost btn--sm">Ir al inicio</a>
+              <a href="/graph" class="btn btn--primary btn--sm">Abrir graficadora</a>
+            </div>
           </div>
         </header>
 
         <div class="account-grid">
           <section class="account-card account-card--info" id="account-details-box">
-            <div class="account-user">
-              <div class="account-user__avatar" id="user-avatar" aria-hidden="true">EC</div>
-              <div>
-                <p class="account-user__label">Usuario autenticado</p>
-                <p class="account-user__name" id="user-name">Cargando...</p>
-                <div class="account-user__meta">
-                  <span class="account-role-badge" id="user-role">Cargando...</span>
-                  <span class="account-user__email" id="user-email">Cargando...</span>
+            <div class="account-card__body">
+              <div class="account-user">
+                <div class="account-user__avatar" id="user-avatar" aria-hidden="true">EC</div>
+                <div>
+                  <p class="account-user__label">Usuario autenticado</p>
+                  <p class="account-user__name" id="user-name">Cargando...</p>
+                  <div class="account-user__meta">
+                    <span class="account-role-badge" id="user-role">Cargando...</span>
+                    <span class="account-user__email" id="user-email">Cargando...</span>
+                  </div>
                 </div>
               </div>
+
+              <dl class="account-stats">
+                <div>
+                  <dt>ID visible</dt>
+                  <dd id="user-visible-id">—</dd>
+                </div>
+                <div id="user-internal-id-row" hidden>
+                  <dt>ID interno (UUID)</dt>
+                  <dd id="user-internal-id">—</dd>
+                </div>
+                <div>
+                  <dt>Miembro desde</dt>
+                  <dd id="user-created-at">Cargando...</dd>
+                </div>
+                <div>
+                  <dt>Estado</dt>
+                  <dd id="user-status">Cargando...</dd>
+                </div>
+                <div>
+                  <dt>Historial guardado</dt>
+                  <dd id="history-count">—</dd>
+                </div>
+              </dl>
             </div>
 
-            <dl class="account-stats">
-              <div>
-                <dt>ID visible</dt>
-                <dd id="user-visible-id">—</dd>
-              </div>
-              <div id="user-internal-id-row" hidden>
-                <dt>ID interno (UUID)</dt>
-                <dd id="user-internal-id">—</dd>
-              </div>
-              <div>
-                <dt>Miembro desde</dt>
-                <dd id="user-created-at">Cargando...</dd>
-              </div>
-              <div>
-                <dt>Estado</dt>
-                <dd id="user-status">Cargando...</dd>
-              </div>
-              <div>
-                <dt>Historial guardado</dt>
-                <dd id="history-count">—</dd>
-              </div>
-            </dl>
-
             <div class="account-card__footer">
-              <button class="btn btn--ghost btn--sm" type="button" data-open="modal-login">Cambiar de cuenta</button>
+              <a class="btn btn--ghost btn--sm" href="/login">Cambiar de cuenta</a>
               <button class="btn btn--primary btn--sm" type="button" id="account-history-cta">Ver historial</button>
             </div>
           </section>
@@ -188,15 +190,17 @@
               </div>
             </div>
 
-            <div id="history-panel" class="account-history__panel" hidden>
-              <div id="history-loading" class="account-history__loading">
-                <p>Cargando historial...</p>
+            <div class="account-card__body">
+              <div id="history-panel" class="account-history__panel" hidden>
+                <div id="history-loading" class="account-history__loading">
+                  <p>Cargando historial...</p>
+                </div>
+                <div id="history-empty" class="account-history__empty" hidden>
+                  <p>No tienes ningún historial de gráficas guardado.</p>
+                  <a href="/graph" class="btn btn--primary btn--sm">Ir al Graficador</a>
+                </div>
+                <ul id="plot-history-list" class="history-list"></ul>
               </div>
-              <div id="history-empty" class="account-history__empty" hidden>
-                <p>No tienes ningún historial de gráficas guardado.</p>
-                <a href="/graph" class="btn btn--primary btn--sm">Ir al Graficador</a>
-              </div>
-              <ul id="plot-history-list" class="history-list"></ul>
             </div>
           </section>
 
@@ -303,155 +307,12 @@
           <h2 id="account-guest-title">Inicia sesión para ver tu cuenta</h2>
           <p>Para proteger tu información personal necesitas autenticarte. Si prefieres, puedes volver al inicio.</p>
           <div class="account-guest__actions">
-            <button class="btn btn--primary" type="button" data-open="modal-login">Iniciar sesión</button>
+            <a class="btn btn--primary" href="/login" data-auth-link="login">Iniciar sesión</a>
             <a href="/" class="btn btn--ghost">Volver al inicio</a>
           </div>
         </div>
       </section>
     </main>
-
-    <!-- Modal: Login -->
-    <div id="modal-login" class="modal" role="dialog" aria-modal="true" aria-labelledby="login-title" aria-describedby="login-desc" aria-hidden="true">
-      <div class="modal__overlay" data-close="modal" tabindex="-1" aria-hidden="true"></div>
-      <div class="modal__dialog" role="document" tabindex="-1">
-        <header class="modal__header">
-          <h2 id="login-title" class="modal__title">Iniciar sesión</h2>
-          <p id="login-desc" class="modal__desc">Accede a tu cuenta para gestionar tus funciones y exportaciones.</p>
-          <button class="modal__close btn btn--icon" type="button" data-close="modal" aria-label="Cerrar">
-            <span class="btn__icon" aria-hidden="true">
-              <img class="btn__icon-img btn__icon-img--light" src="/static/images/closeclaro.png" alt="" decoding="async" />
-              <img class="btn__icon-img btn__icon-img--dark" src="/static/images/closeoscuro.png" alt="" decoding="async" />
-            </span>
-          </button>
-        </header>
-        <div class="modal__body">
-          <form class="form" action="/login" method="post" novalidate data-form-validate>
-            <div class="form__field">
-              <label class="form__label" for="login-email">Correo electrónico</label>
-              <input class="form__input" type="email" id="login-email" name="email" autocomplete="email" inputmode="email" aria-describedby="error-login-email" required />
-              <p id="error-login-email" class="form__error" aria-hidden="true"></p>
-            </div>
-
-            <div class="form__field">
-              <label class="form__label" for="login-password">Contraseña</label>
-              <div class="password-input">
-                <input class="form__input" type="password" id="login-password" name="password" autocomplete="current-password" aria-describedby="error-login-password" required />
-                <button class="password-toggle" type="button" data-password-toggle="login-password" aria-label="Mostrar contraseña">
-                  <img src="/static/images/seepassword.png" alt="" data-icon="show" aria-hidden="true" />
-                  <img src="/static/images/hidepassword.png" alt="" data-icon="hide" aria-hidden="true" hidden />
-                </button>
-              </div>
-              <p id="error-login-password" class="form__error" aria-hidden="true"></p>
-            </div>
-
-            <div class="form__actions form__actions--split">
-              <button class="btn btn--primary" type="submit">Entrar</button>
-              <button class="form__link" type="button" data-open="modal-forgot">¿Olvidaste tu contraseña?</button>
-            </div>
-
-            <p class="form__hint">¿No tienes cuenta? <button class="link" type="button" data-open="modal-signup">Crear cuenta</button></p>
-          </form>
-        </div>
-      </div>
-    </div>
-
-    <!-- Modal: Signup -->
-    <div id="modal-signup" class="modal" role="dialog" aria-modal="true" aria-labelledby="signup-title" aria-describedby="signup-desc" aria-hidden="true">
-      <div class="modal__overlay" data-close="modal" tabindex="-1" aria-hidden="true"></div>
-      <div class="modal__dialog" role="document" tabindex="-1">
-        <header class="modal__header">
-          <h2 id="signup-title" class="modal__title">Crear cuenta</h2>
-          <p id="signup-desc" class="modal__desc">Regístrate para guardar funciones, historiales y exportaciones.</p>
-          <button class="modal__close btn btn--icon" type="button" data-close="modal" aria-label="Cerrar">
-            <span class="btn__icon" aria-hidden="true">
-              <img class="btn__icon-img btn__icon-img--light" src="/static/images/closeclaro.png" alt="" decoding="async" />
-              <img class="btn__icon-img btn__icon-img--dark" src="/static/images/closeoscuro.png" alt="" decoding="async" />
-            </span>
-          </button>
-        </header>
-
-        <div class="modal__body">
-          <form class="form" action="/signup" method="post" novalidate data-form-validate>
-            <div class="form__field" data-layout="left">
-              <label class="form__label" for="signup-name">Nombre</label>
-              <input class="form__input" type="text" id="signup-name" name="name" autocomplete="name" aria-describedby="error-signup-name" required />
-              <p id="error-signup-name" class="form__error" aria-hidden="true"></p>
-            </div>
-
-            <div class="form__field" data-layout="left">
-              <label class="form__label" for="signup-email">Correo electrónico</label>
-              <input class="form__input" type="email" id="signup-email" name="email" autocomplete="email" inputmode="email" aria-describedby="error-signup-email" required />
-              <p id="error-signup-email" class="form__error" aria-hidden="true"></p>
-            </div>
-
-            <div class="form__field" data-layout="right">
-              <label class="form__label" for="signup-password">Contraseña</label>
-              <div class="password-input">
-                <input class="form__input" type="password" id="signup-password" name="password" autocomplete="new-password" aria-describedby="error-signup-password" required />
-                <button class="password-toggle" type="button" data-password-toggle="signup-password" aria-label="Mostrar contraseña">
-                  <img src="/static/images/seepassword.png" alt="" data-icon="show" aria-hidden="true" />
-                  <img src="/static/images/hidepassword.png" alt="" data-icon="hide" aria-hidden="true" hidden />
-                </button>
-              </div>
-              <p id="error-signup-password" class="form__error" aria-hidden="true"></p>
-            </div>
-
-            <div class="form__field" data-layout="right">
-              <label class="form__label" for="signup-password-confirm">Confirmar contraseña</label>
-              <div class="password-input">
-                <input class="form__input" type="password" id="signup-password-confirm" name="password_confirm" autocomplete="new-password" aria-describedby="error-signup-password-confirm" required />
-                <button class="password-toggle" type="button" data-password-toggle="signup-password-confirm" aria-label="Mostrar contraseña">
-                  <img src="/static/images/seepassword.png" alt="" data-icon="show" aria-hidden="true" />
-                  <img src="/static/images/hidepassword.png" alt="" data-icon="hide" aria-hidden="true" hidden />
-                </button>
-              </div>
-              <p id="error-signup-password-confirm" class="form__error" aria-hidden="true"></p>
-            </div>
-
-            <div class="form__field form__field--checkbox" data-layout="full">
-              <input class="form__checkbox" type="checkbox" id="signup-terms" name="terms" required aria-describedby="error-signup-terms" />
-              <label class="form__label" for="signup-terms">Acepto los <a href="/terminos">términos y condiciones</a>.</label>
-              <p id="error-signup-terms" class="form__error" aria-hidden="true"></p>
-            </div>
-
-            <div class="form__actions" data-layout="full">
-              <button class="btn btn--primary" type="submit">Crear cuenta</button>
-              <p class="form__hint">¿Ya tienes cuenta? <button class="link" type="button" data-open="modal-login">Inicia sesión</button></p>
-            </div>
-          </form>
-        </div>
-      </div>
-    </div>
-
-    <div id="modal-forgot" class="modal" role="dialog" aria-modal="true" aria-labelledby="forgot-title" aria-hidden="true">
-      <div class="modal__overlay" data-close="modal" tabindex="-1" aria-hidden="true"></div>
-      <div class="modal__dialog" role="document" tabindex="-1">
-        <header class="modal__header">
-          <h2 id="forgot-title" class="modal__title">Recuperar contraseña</h2>
-          <p class="modal__desc">Ingresa tu correo y te enviaremos un enlace para restablecer tu contraseña.</p>
-          <button class="modal__close btn btn--icon" type="button" data-close="modal" aria-label="Cerrar">
-            <span class="btn__icon" aria-hidden="true">
-              <img class="btn__icon-img btn__icon-img--light" src="/static/images/closeclaro.png" alt="" decoding="async" />
-              <img class="btn__icon-img btn__icon-img--dark" src="/static/images/closeoscuro.png" alt="" decoding="async" />
-            </span>
-          </button>
-        </header>
-        <div class="modal__body">
-          <form class="form" novalidate>
-            <div class="form__field">
-              <label class="form__label" for="forgot-email">Correo electrónico</label>
-              <input class="form__input" type="email" id="forgot-email" name="email" autocomplete="email" inputmode="email" aria-describedby="error-forgot-email" required />
-              <p id="error-forgot-email" class="form__error" aria-hidden="true"></p>
-            </div>
-            <div class="form__actions form__actions--split">
-              <button class="btn btn--primary" type="submit">Enviar instrucciones</button>
-              <button class="form__link" type="button" data-close="modal">Cancelar</button>
-            </div>
-            <p class="form__hint">¿Recordaste tu contraseña? <button class="link" type="button" data-open="modal-login">Inicia sesión</button></p>
-          </form>
-        </div>
-      </div>
-    </div>
 
     <!-- Toasts -->
     <div id="toasts" class="toasts" aria-live="polite" aria-atomic="true"></div>

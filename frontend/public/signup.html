@@ -1,0 +1,142 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Crear cuenta | EcuPlot</title>
+    <meta name="description" content="Regístrate gratis en EcuPlot y comienza a graficar ecuaciones interactivas." />
+    <link rel="icon" href="/static/icons/favicon-32.png" sizes="32x32" />
+    <link rel="icon" href="/static/icons/favicon-16.png" sizes="16x16" />
+    <link rel="apple-touch-icon" href="/static/icons/apple-touch-icon.png" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Montserrat:wght@600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/static/base.css" />
+  <link rel="stylesheet" href="/static/components.css" />
+  <link rel="stylesheet" href="/static/auth.css" />
+  </head>
+  <body class="auth-page auth-page--signup">
+    <main class="auth-page__main">
+      <section class="auth-shell auth-shell--signup">
+        <aside class="auth-shell__panel auth-shell__panel--info" data-animate="fade-up" style="--delay:0s">
+          <span class="auth-shell__brand">ECUPLOT</span>
+          <h1 class="auth-shell__title">Tu laboratorio de gráficas</h1>
+          <p class="auth-shell__subtitle">Tu espacio para explorar funciones, guardar tus avances y compartir tus gráficas con la comunidad.</p>
+
+          <figure class="auth-illustration" aria-hidden="true">
+            <svg viewBox="0 0 220 180" role="presentation" focusable="false">
+              <defs>
+                <linearGradient id="grad-plot" x1="0%" y1="0%" x2="100%" y2="100%">
+                  <stop offset="0%" stop-color="#60a5fa" stop-opacity="0.9" />
+                  <stop offset="100%" stop-color="#34d9ac" stop-opacity="0.75" />
+                </linearGradient>
+              </defs>
+              <rect x="10" y="20" width="200" height="140" rx="18" fill="rgba(15,23,42,0.35)" stroke="rgba(148,163,184,0.4)" />
+              <path d="M30 120 Q 80 40 110 110 T 190 80" fill="none" stroke="url(#grad-plot)" stroke-width="6" stroke-linecap="round" />
+              <g stroke="rgba(148,163,184,0.35)" stroke-width="0.7">
+                <line x1="50" y1="40" x2="50" y2="150" />
+                <line x1="90" y1="40" x2="90" y2="150" />
+                <line x1="130" y1="40" x2="130" y2="150" />
+                <line x1="170" y1="40" x2="170" y2="150" />
+                <line x1="30" y1="70" x2="200" y2="70" />
+                <line x1="30" y1="105" x2="200" y2="105" />
+                <line x1="30" y1="140" x2="200" y2="140" />
+              </g>
+              <circle cx="80" cy="92" r="6" fill="#60a5fa" />
+              <circle cx="140" cy="70" r="5" fill="#34d9ac" />
+            </svg>
+          </figure>
+
+          <ul class="auth-benefits">
+            <li>Historial inteligente para retomar tus sesiones cuando quieras.</li>
+            <li>Colabora y comparte visualizaciones con tu equipo o comunidad.</li>
+            <li>Recibe novedades, retos matemáticos y recursos premium.</li>
+          </ul>
+
+          <p class="auth-shell__hint">¿Ya tienes cuenta? <a class="auth-link" href="/login">Inicia sesión aquí.</a></p>
+        </aside>
+
+        <div class="auth-shell__panel auth-shell__panel--form" data-animate="fade-up" style="--delay:0.12s">
+          <form id="signup-form" class="form auth-form auth-form--split" novalidate>
+            <div class="form__field" data-layout="left">
+              <label class="form__label" for="signup-name">Nombre completo</label>
+              <input class="form__input" type="text" id="signup-name" name="name" autocomplete="name" aria-describedby="error-signup-name" required />
+              <p class="form__microcopy">Así aparecerás en tus reportes y colaboraciones.</p>
+              <p id="error-signup-name" class="form__error" aria-hidden="true"></p>
+            </div>
+
+            <div class="form__field" data-layout="left">
+              <label class="form__label" for="signup-email">Correo electrónico</label>
+              <input class="form__input" type="email" id="signup-email" name="email" autocomplete="email" inputmode="email" aria-describedby="error-signup-email" required />
+              <p class="form__microcopy">Usaremos este correo para verificar tu cuenta y notificarte mejoras.</p>
+              <p id="error-signup-email" class="form__error" aria-hidden="true"></p>
+            </div>
+
+            <div class="form__field" data-layout="right">
+              <label class="form__label" for="signup-password">Contraseña</label>
+              <div class="password-input">
+                <input class="form__input" type="password" id="signup-password" name="password" autocomplete="new-password" aria-describedby="error-signup-password" required />
+                <button class="password-toggle" type="button" data-password-toggle="signup-password" aria-label="Mostrar contraseña">
+                  <img src="/static/images/seepassword.png" alt="" data-icon="show" aria-hidden="true" />
+                  <img src="/static/images/hidepassword.png" alt="" data-icon="hide" aria-hidden="true" hidden />
+                </button>
+              </div>
+              <p class="form__microcopy">Usa al menos 8 caracteres con números o símbolos.</p>
+              <p id="error-signup-password" class="form__error" aria-hidden="true"></p>
+            </div>
+
+            <div class="form__field" data-layout="right">
+              <label class="form__label" for="signup-password-confirm">Confirmar contraseña</label>
+              <div class="password-input">
+                <input class="form__input" type="password" id="signup-password-confirm" name="password_confirm" autocomplete="new-password" aria-describedby="error-signup-password-confirm" required />
+                <button class="password-toggle" type="button" data-password-toggle="signup-password-confirm" aria-label="Mostrar contraseña">
+                  <img src="/static/images/seepassword.png" alt="" data-icon="show" aria-hidden="true" />
+                  <img src="/static/images/hidepassword.png" alt="" data-icon="hide" aria-hidden="true" hidden />
+                </button>
+              </div>
+              <p class="form__microcopy">Repetimos tu contraseña para asegurarnos de que esté correcta.</p>
+              <p id="error-signup-password-confirm" class="form__error" aria-hidden="true"></p>
+            </div>
+
+            <div class="form__field" data-layout="left">
+              <label class="form__label" for="signup-role">Tipo de cuenta</label>
+              <select class="form__input" id="signup-role" name="role" aria-describedby="error-signup-role">
+                <option value="user" selected>Usuario</option>
+                <option value="student">Estudiante</option>
+              </select>
+              <p class="form__microcopy">Puedes cambiar tu rol después desde tu panel de cuenta.</p>
+              <p id="error-signup-role" class="form__error" aria-hidden="true"></p>
+            </div>
+
+            <div class="form__field form__field--checkbox" data-layout="full">
+              <input class="form__checkbox" type="checkbox" id="signup-terms" name="terms" required aria-describedby="error-signup-terms" />
+              <label class="form__label" for="signup-terms">Acepto los <a class="auth-link" href="/terminos">términos y condiciones</a>.</label>
+              <p id="error-signup-terms" class="form__error" aria-hidden="true"></p>
+            </div>
+
+            <div class="form__actions" data-layout="full">
+              <button class="btn btn--primary auth-btn" type="submit">
+                <span>Crear</span>
+                <span class="btn__icon-arrow" aria-hidden="true">→</span>
+              </button>
+              <p class="form__hint">Revisa tu correo para activar la cuenta después del registro.</p>
+            </div>
+          </form>
+
+          <div class="auth-shell__footnote">
+            <p>Al crear tu cuenta aceptas nuestra política de privacidad y el uso responsable de la plataforma.</p>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <div id="toasts" class="toasts" aria-live="polite" aria-atomic="true"></div>
+
+    <noscript>
+      <div class="noscript">Para utilizar EcuPlot necesitas habilitar JavaScript. Actívalo en tu navegador y recarga la página.</div>
+    </noscript>
+
+    <script src="/static/app.js" type="module" defer></script>
+    <footer class="auth-footer">© 2025 EcuPlot · <a class="auth-link" href="/terminos">Términos</a> · <a class="auth-link" href="/privacidad">Privacidad</a></footer>
+  </body>
+</html>

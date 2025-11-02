@@ -4,7 +4,9 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>EcuPlot – Graficadora</title>
-    <link rel="stylesheet" href="/static/styles.css" />
+  <link rel="stylesheet" href="/static/base.css" />
+  <link rel="stylesheet" href="/static/components.css" />
+  <link rel="stylesheet" href="/static/pages.css" />
 
   </head>
   <body class="page page--graph">
@@ -79,7 +81,6 @@
               <div id="coord-hud" class="coord-hud" hidden>(x, y)</div>
             </div>
           </div>
-
           <div class="controls-bar" role="group" aria-label="Acciones de graficación">
             <form id="plot-form" class="controls-bar__form" autocomplete="off" aria-describedby="plotter-hint">
               <label class="sr-only" for="plot-input">Expresión</label>
@@ -117,6 +118,15 @@
               </div>
             </form>
           </div>
+          <button
+            id="controls-bar-toggle"
+            class="controls-bar__fab btn btn--icon btn--icon-only"
+            type="button"
+            aria-pressed="true"
+            aria-label="Ocultar barra de controles"
+          >
+            <span class="controls-bar__fab-icon" aria-hidden="true">-</span>
+          </button>
         </section>
       </div>
     </div>

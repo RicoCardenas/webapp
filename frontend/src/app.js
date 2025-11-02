@@ -14,15 +14,6 @@ const SELECTORS = {
   drawer: '#mobile-drawer',
   drawerOverlay: '.drawer__overlay',
   drawerToggle: '[data-drawer-toggle]',
-  modalLogin: '#modal-login',
-  modalSignup: '#modal-signup',
-  modalForgot: '#modal-forgot',
-  modalOverlay: '.modal__overlay',
-  modalDialog: '.modal__dialog',
-  modalClose: '[data-close="modal"]',
-  modalOpenLogin: '[data-open="modal-login"]',
-  modalOpenSignup: '[data-open="modal-signup"]',
-  modalOpenForgot: '[data-open="modal-forgot"]',
   themeToggle: '[data-theme-toggle]',
   backendStatus: '[data-status]',
   ctaGraficar: '#cta-graficar',
@@ -36,15 +27,15 @@ const SELECTORS = {
   year: '[data-year]',
   rootFallback: '#root',
 
-  signupForm: '#modal-signup .form',
+  signupForm: '#signup-form',
   signupEmail: '#signup-email',
   signupPassword: '#signup-password',
   signupPasswordConfirm: '#signup-password-confirm',
   signupTerms: '#signup-terms',
-  loginForm: '#modal-login .form',
+  loginForm: '#login-form',
   loginEmail: '#login-email',
   loginPassword: '#login-password',
-  forgotForm: '#modal-forgot .form',
+  forgotForm: '#forgot-form',
   forgotEmail: '#forgot-email',
   errorForgotEmail: '#error-forgot-email',
   btnLogout: '#btn-logout',
@@ -145,7 +136,6 @@ function initForgotPassword() {
         );
         forgotForm.reset();
         hideFieldError(errorEmail);
-        ForgotModal.close();
       } else {
         toast.error(data.error || 'No se pudo enviar la solicitud de restablecimiento.');
       }
@@ -473,14 +463,17 @@ async function safeFetch(url, opts = {}, timeoutMs = 5000) {
   }
 }
 
-/** Tema */
+/** Tema: ahora basado en clases del <body> (.theme-dark / .theme-light) con compatibilidad */
 function applyTheme(theme) {
   const root = document.documentElement;
-  if (theme === 'dark') {
-    root.dataset.theme = 'dark';
-  } else {
-    delete root.dataset.theme;
-  }
+  const body = document.body;
+  const isDark = theme === 'dark';
+  // Nuevo sistema basado en clases
+  body.classList.toggle('theme-dark', isDark);
+  body.classList.toggle('theme-light', !isDark);
+  // Compatibilidad con estilos existentes
+  if (isDark) root.dataset.theme = 'dark';
+  else delete root.dataset.theme;
   window.dispatchEvent(new CustomEvent('themechange', { detail: { theme } }));
 }
 
@@ -495,7 +488,7 @@ function initTheme() {
 }
 
 function toggleTheme() {
-  const isDark = document.documentElement.dataset.theme === 'dark';
+  const isDark = document.body.classList.contains('theme-dark') || document.documentElement.dataset.theme === 'dark';
   const next = isDark ? 'light' : 'dark';
   applyTheme(next);
   localStorage.setItem(KEYS.theme, next);
@@ -837,26 +830,6 @@ function bindGlobalTriggers() {
     DrawerController.open();
     });
 
-  qsa('[data-open="modal-login"]').forEach((btn) =>
-    on(btn, 'click', (e) => {
-      e.preventDefault();
-      LoginModal.open();
-    })
-  );
-
-  qsa('[data-open="modal-signup"]').forEach((btn) =>
-    on(btn, 'click', (e) => {
-      e.preventDefault();
-      SignupModal.open();
-    })
-  );
-
-  qsa('[data-open="modal-forgot"]').forEach((btn) =>
-    on(btn, 'click', (e) => {
-      e.preventDefault();
-      ForgotModal.open();
-    })
-  );
 }
 
 // Utilidades de autenticación
@@ -925,8 +898,8 @@ function ensureAccountButton() {
 }
 
 function setAuthUI(isLogged) {
-  const btnLogin = qsa('[data-open="modal-login"]');
-  const btnSignup = qsa('[data-open="modal-signup"]');
+  const btnLogin = qsa('[data-auth-link="login"]');
+  const btnSignup = qsa('[data-auth-link="signup"]');
   const btnAccount = qs('#btn-account') || ensureAccountButton();
   const btnLogout = qs('#btn-logout');
 
@@ -1036,7 +1009,6 @@ function initAuthForms() {
         const data = await res.json();
         if (res.ok) {
           toast.success(data.message || '¡Registro exitoso! Revisa tu correo.');
-          SignupModal.close();
           signupForm.reset();
         } else {
           toast.error(data.error || `Error (${res.status}): No se pudo registrar.`);
@@ -1102,8 +1074,12 @@ function initAuthForms() {
           setAuthUI(true);
           await refreshCurrentUser();
           window.dispatchEvent(new CustomEvent('ecuplot:login'));
-          LoginModal.close();
           loginForm.reset();
+          if (window.location.pathname === '/login') {
+            setTimeout(() => {
+              window.location.href = '/account';
+            }, 500);
+          }
         } else {
           toast.error(data.error || `Error (${res.status}): Credenciales inválidas.`);
         }
@@ -1124,10 +1100,17 @@ function checkEmailVerification() {
   if (params.size === 0) return;
 
   let shouldReplace = false;
+  const redirectToLogin = () => {
+    if (window.location.pathname !== '/login') {
+      setTimeout(() => {
+        window.location.href = '/login';
+      }, 400);
+    }
+  };
 
   if (params.get('verified') === 'true') {
     toast.success('¡Correo verificado! Ya puedes iniciar sesión.', 8000);
-    LoginModal.open();
+    redirectToLogin();
     params.delete('verified');
     shouldReplace = true;
   }
@@ -1150,7 +1133,7 @@ function checkEmailVerification() {
       case 'success':
         message = 'Tu cuenta fue desbloqueada. Inicia sesión nuevamente.';
         toast.success(message, 8000);
-        LoginModal.open();
+        redirectToLogin();
         break;
       case 'used':
         message = 'Este enlace de desbloqueo ya fue utilizado.';
@@ -1174,7 +1157,7 @@ function checkEmailVerification() {
   if (reset) {
     if (reset === 'success') {
       toast.success('Tu contraseña fue actualizada. Inicia sesión con tus nuevas credenciales.', 8000);
-      LoginModal.open();
+      redirectToLogin();
     } else if (reset === 'invalid') {
       toast.error('El enlace de restablecimiento no es válido.', 8000);
     }

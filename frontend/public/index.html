@@ -14,7 +14,9 @@
     <link rel="manifest" href="/static/manifest.webmanifest" />
     <link rel="mask-icon" href="/static/icons/safari-pinned-tab.svg" color="#0f172a" />
     <meta name="msapplication-TileColor" content="#0f172a" />
-    <link rel="stylesheet" href="/static/styles.css" /> 
+  <link rel="stylesheet" href="/static/base.css" />
+  <link rel="stylesheet" href="/static/components.css" />
+  <link rel="stylesheet" href="/static/pages.css" />
   </head>
   <body class="page page--landing">
     <a class="skip-link" href="#app">Saltar al contenido principal</a>
@@ -45,32 +47,28 @@
         </nav>
 
         <div class="header__actions">
-          <button
+          <a
             class="btn btn--ghost header__btn btn--has-icon btn--icon-only"
-            type="button"
-            data-open="modal-login"
-            aria-haspopup="dialog"
-            aria-controls="modal-login"
+            href="/login"
+            data-auth-link="login"
             aria-label="Iniciar sesión"
           >
             <span class="btn__icon" aria-hidden="true">
               <img class="btn__icon-img btn__icon-img--light" src="/static/images/loginclaro.png" alt="" decoding="async" />
               <img class="btn__icon-img btn__icon-img--dark" src="/static/images/loginoscuro.png" alt="" decoding="async" />
             </span>
-          </button>
-          <button
+          </a>
+          <a
             class="btn btn--primary header__btn btn--has-icon btn--icon-only"
-            type="button"
-            data-open="modal-signup"
-            aria-haspopup="dialog"
-            aria-controls="modal-signup"
+            href="/signup"
+            data-auth-link="signup"
             aria-label="Crear cuenta"
           >
             <span class="btn__icon" aria-hidden="true">
               <img class="btn__icon-img btn__icon-img--light" src="/static/images/signinclaro.png" alt="" decoding="async" />
               <img class="btn__icon-img btn__icon-img--dark" src="/static/images/signinoscuro.png" alt="" decoding="async" />
             </span>
-          </button>
+          </a>
           <button
             id="btn-logout"
             class="btn header__btn header__btn--logout btn--has-icon btn--icon-only"
@@ -125,8 +123,8 @@
             <li class="drawer__item"><a class="drawer__link" href="#contact">Contacto</a></li>
           </ul>
           <div class="drawer__actions">
-            <button class="btn btn--ghost drawer__btn" type="button" data-open="modal-login" aria-haspopup="dialog" aria-controls="modal-login">Iniciar sesión</button>
-            <button class="btn btn--primary drawer__btn" type="button" data-open="modal-signup" aria-haspopup="dialog" aria-controls="modal-signup">Crear cuenta</button>
+            <a class="btn btn--ghost drawer__btn" href="/login" data-auth-link="login">Iniciar sesión</a>
+            <a class="btn btn--primary drawer__btn" href="/signup" data-auth-link="signup">Crear cuenta</a>
           </div>
         </nav>
       </div>
@@ -316,158 +314,6 @@
         <p class="footer__credit">Un proyecto educativo de código limpio y accesible.</p>
       </div>
     </footer>
-
-    <!-- Modal: Login -->
-    <div id="modal-login" class="modal" role="dialog" aria-modal="true" aria-labelledby="login-title" aria-describedby="login-desc" aria-hidden="true">
-      <div class="modal__overlay" data-close="modal" tabindex="-1" aria-hidden="true"></div>
-      <div class="modal__dialog" role="document" tabindex="-1">
-        <header class="modal__header">
-          <h2 id="login-title" class="modal__title">Iniciar sesión</h2>
-          <p id="login-desc" class="modal__desc">Accede a tu cuenta para gestionar tus funciones y exportaciones.</p>
-          <button class="modal__close btn btn--icon" type="button" data-close="modal" aria-label="Cerrar">
-            <span class="btn__icon" aria-hidden="true">
-              <img class="btn__icon-img btn__icon-img--light" src="/static/images/closeclaro.png" alt="" decoding="async" />
-              <img class="btn__icon-img btn__icon-img--dark" src="/static/images/closeoscuro.png" alt="" decoding="async" />
-            </span>
-          </button>
-        </header>
-        <div class="modal__body">
-          <form class="form" action="/login" method="post" novalidate data-form-validate>
-            <div class="form__field">
-              <label class="form__label" for="login-email">Correo electrónico</label>
-              <input class="form__input" type="email" id="login-email" name="email" autocomplete="email" inputmode="email" aria-describedby="error-login-email" required />
-              <p id="error-login-email" class="form__error" aria-hidden="true"></p>
-            </div>
-
-            <div class="form__field">
-              <label class="form__label" for="login-password">Contraseña</label>
-              <div class="password-input">
-                <input class="form__input" type="password" id="login-password" name="password" autocomplete="current-password" aria-describedby="error-login-password" required />
-                <button class="password-toggle" type="button" data-password-toggle="login-password" aria-label="Mostrar contraseña">
-                  <img src="/static/images/seepassword.png" alt="" data-icon="show" aria-hidden="true" />
-                  <img src="/static/images/hidepassword.png" alt="" data-icon="hide" aria-hidden="true" hidden />
-                </button>
-              </div>
-              <p id="error-login-password" class="form__error" aria-hidden="true"></p>
-            </div>
-
-            <div class="form__actions form__actions--split">
-              <button class="btn btn--primary" type="submit">Entrar</button>
-              <button class="form__link" type="button" data-open="modal-forgot">¿Olvidaste tu contraseña?</button>
-            </div>
-
-            <p class="form__hint">¿No tienes cuenta? <button class="link" type="button" data-open="modal-signup">Crear cuenta</button></p>
-          </form>
-        </div>
-      </div>
-    </div>
-
-    <!-- Modal: Signup -->
-    <div id="modal-signup" class="modal" role="dialog" aria-modal="true" aria-labelledby="signup-title" aria-describedby="signup-desc" aria-hidden="true">
-      <div class="modal__overlay" data-close="modal" tabindex="-1" aria-hidden="true"></div>
-      <div class="modal__dialog" role="document" tabindex="-1">
-        <header class="modal__header">
-          <h2 id="signup-title" class="modal__title">Crear cuenta</h2>
-          <p id="signup-desc" class="modal__desc">Regístrate para guardar funciones, historiales y exportaciones.</p>
-          <button class="modal__close btn btn--icon" type="button" data-close="modal" aria-label="Cerrar">
-            <span class="btn__icon" aria-hidden="true">
-              <img class="btn__icon-img btn__icon-img--light" src="/static/images/closeclaro.png" alt="" decoding="async" />
-              <img class="btn__icon-img btn__icon-img--dark" src="/static/images/closeoscuro.png" alt="" decoding="async" />
-            </span>
-          </button>
-        </header>
-
-        <div class="modal__body">
-          <form class="form" action="/signup" method="post" novalidate data-form-validate>
-            <div class="form__field" data-layout="left">
-              <label class="form__label" for="signup-name">Nombre</label>
-              <input class="form__input" type="text" id="signup-name" name="name" autocomplete="name" aria-describedby="error-signup-name" required />
-              <p id="error-signup-name" class="form__error" aria-hidden="true"></p>
-            </div>
-
-            <div class="form__field" data-layout="left">
-              <label class="form__label" for="signup-email">Correo electrónico</label>
-              <input class="form__input" type="email" id="signup-email" name="email" autocomplete="email" inputmode="email" aria-describedby="error-signup-email" required />
-              <p id="error-signup-email" class="form__error" aria-hidden="true"></p>
-            </div>
-
-            <div class="form__field" data-layout="right">
-              <label class="form__label" for="signup-password">Contraseña</label>
-              <div class="password-input">
-                <input class="form__input" type="password" id="signup-password" name="password" autocomplete="new-password" aria-describedby="error-signup-password" required />
-                <button class="password-toggle" type="button" data-password-toggle="signup-password" aria-label="Mostrar contraseña">
-                  <img src="/static/images/seepassword.png" alt="" data-icon="show" aria-hidden="true" />
-                  <img src="/static/images/hidepassword.png" alt="" data-icon="hide" aria-hidden="true" hidden />
-                </button>
-              </div>
-              <p id="error-signup-password" class="form__error" aria-hidden="true"></p>
-            </div>
-
-            <div class="form__field" data-layout="right">
-              <label class="form__label" for="signup-password-confirm">Confirmar contraseña</label>
-              <div class="password-input">
-                <input class="form__input" type="password" id="signup-password-confirm" name="password_confirm" autocomplete="new-password" aria-describedby="error-signup-password-confirm" required />
-                <button class="password-toggle" type="button" data-password-toggle="signup-password-confirm" aria-label="Mostrar contraseña">
-                  <img src="/static/images/seepassword.png" alt="" data-icon="show" aria-hidden="true" />
-                  <img src="/static/images/hidepassword.png" alt="" data-icon="hide" aria-hidden="true" hidden />
-                </button>
-              </div>
-              <p id="error-signup-password-confirm" class="form__error" aria-hidden="true"></p>
-            </div>
-
-            <div class="form__field" data-layout="left">
-              <label class="form__label" for="signup-role">Tipo de cuenta</label>
-              <select class="form__input" id="signup-role" name="role" aria-describedby="error-signup-role">
-                <option value="user" selected>Usuario</option>
-                <option value="student">Estudiante</option>
-              </select>
-              <p id="error-signup-role" class="form__error" aria-hidden="true"></p>
-            </div>
-
-            <div class="form__field form__field--checkbox" data-layout="full">
-              <input class="form__checkbox" type="checkbox" id="signup-terms" name="terms" required aria-describedby="error-signup-terms" />
-              <label class="form__label" for="signup-terms">Acepto los <a href="/terminos">términos y condiciones</a>.</label>
-              <p id="error-signup-terms" class="form__error" aria-hidden="true"></p>
-            </div>
-
-            <div class="form__actions" data-layout="full">
-              <button class="btn btn--primary" type="submit">Crear cuenta</button>
-              <p class="form__hint">¿Ya tienes cuenta? <button class="link" type="button" data-open="modal-login">Inicia sesión</button></p>
-            </div>
-          </form>
-        </div>
-      </div>
-    </div>
-
-    <div id="modal-forgot" class="modal" role="dialog" aria-modal="true" aria-labelledby="forgot-title" aria-hidden="true">
-      <div class="modal__overlay" data-close="modal" tabindex="-1" aria-hidden="true"></div>
-      <div class="modal__dialog" role="document" tabindex="-1">
-        <header class="modal__header">
-          <h2 id="forgot-title" class="modal__title">Recuperar contraseña</h2>
-          <p class="modal__desc">Ingresa tu correo y te enviaremos un enlace para restablecer tu contraseña.</p>
-          <button class="modal__close btn btn--icon" type="button" data-close="modal" aria-label="Cerrar">
-            <span class="btn__icon" aria-hidden="true">
-              <img class="btn__icon-img btn__icon-img--light" src="/static/images/closeclaro.png" alt="" decoding="async" />
-              <img class="btn__icon-img btn__icon-img--dark" src="/static/images/closeoscuro.png" alt="" decoding="async" />
-            </span>
-          </button>
-        </header>
-        <div class="modal__body">
-          <form class="form" novalidate>
-            <div class="form__field">
-              <label class="form__label" for="forgot-email">Correo electrónico</label>
-              <input class="form__input" type="email" id="forgot-email" name="email" autocomplete="email" inputmode="email" aria-describedby="error-forgot-email" required />
-              <p id="error-forgot-email" class="form__error" aria-hidden="true"></p>
-            </div>
-            <div class="form__actions form__actions--split">
-              <button class="btn btn--primary" type="submit">Enviar instrucciones</button>
-              <button class="form__link" type="button" data-close="modal">Cancelar</button>
-            </div>
-            <p class="form__hint">¿Recordaste tu contraseña? <button class="link" type="button" data-open="modal-login">Inicia sesión</button></p>
-          </form>
-        </div>
-      </div>
-    </div>
 
     <!-- Toasts -->
     <div id="toasts" class="toasts" aria-live="polite" aria-atomic="true"></div>

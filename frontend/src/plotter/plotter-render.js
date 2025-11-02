@@ -124,10 +124,14 @@ export function createPlotterRenderer(params) {
     const stepX = baseStep;
     const stepY = baseStep;
 
-    ctx.save();
+  ctx.save();
+  const styles = getComputedStyle(container || document.body);
+  const gridLine = (styles.getPropertyValue('--grid-line') || 'rgba(148, 163, 184, 0.2)').trim();
+  const gridAxis = (styles.getPropertyValue('--grid-axis') || 'rgba(148, 163, 184, 0.5)').trim();
+  const gridText = (styles.getPropertyValue('--grid-text') || 'rgba(148, 163, 184, 0.7)').trim();
     ctx.scale(1, 1);
-    ctx.lineWidth = 1 * dpi;
-    ctx.strokeStyle = 'rgba(148, 163, 184, 0.2)';
+  ctx.lineWidth = 1 * dpi;
+  ctx.strokeStyle = gridLine;
 
     const drawLines = (axis, step, min, max, drawFn) => {
       let start = Math.ceil(min / step) * step;
@@ -154,7 +158,7 @@ export function createPlotterRenderer(params) {
       ctx.stroke();
     });
 
-    ctx.strokeStyle = 'rgba(148, 163, 184, 0.5)';
+  ctx.strokeStyle = gridAxis;
     ctx.lineWidth = 1.5 * dpi;
 
     // eje X
@@ -177,8 +181,8 @@ export function createPlotterRenderer(params) {
       ctx.stroke();
     }
 
-    ctx.fillStyle = 'rgba(148, 163, 184, 0.7)';
-    ctx.font = `${12 * dpi}px Inter, system-ui, sans-serif`;
+  ctx.fillStyle = gridText;
+  ctx.font = `${12 * dpi}px Inter, system-ui, sans-serif`;
 
     drawLines('x-labels', stepX, view.xmin, view.xmax, (value) => {
       const [sx] = worldToScreen(value, view.ymin);

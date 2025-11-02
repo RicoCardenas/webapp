@@ -189,6 +189,16 @@ def account():
 def reset_password_page():
     return send_from_directory(current_app.template_folder, "reset-password.html")
 
+
+@frontend.get("/login")
+def login_page():
+    return send_from_directory(current_app.template_folder, "login.html")
+
+
+@frontend.get("/signup")
+def signup_page():
+    return send_from_directory(current_app.template_folder, "signup.html")
+
 # --- Rutas de la API ---
 
 @api.get("/health")
