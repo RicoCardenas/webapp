@@ -1438,6 +1438,19 @@
   gap: clamp(1rem, 3vw, 1.5rem);
 }
 
+.role-panel__list--compact {
+  gap: clamp(0.75rem, 2.5vw, 1.1rem);
+}
+
+.role-panel__empty {
+  padding: 0.95rem 1.1rem;
+  border-radius: var(--radius-md);
+  border: 1px dashed color-mix(in srgb, var(--border, var(--color-border)) 75%, transparent);
+  background: color-mix(in srgb, var(--card, var(--color-panel)) 94%, transparent);
+  color: color-mix(in srgb, var(--color-text-muted) 85%, transparent);
+  font-size: var(--fs-sm);
+}
+
 .role-panel__card {
   display: grid;
   gap: 1rem;
@@ -1781,9 +1794,77 @@ body.account--guest {
 
 .functions-panel__body {
   padding: 0.75rem 0.9rem;
-  overflow: auto;
   display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
   gap: var(--space-2);
+  overflow: auto;
+}
+
+.functions-panel__body--history {
+  overflow: hidden;
+}
+
+.functions-panel__tabs {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.functions-panel__tab {
+  font-size: var(--fs-xs);
+  padding: 0.35rem 0.75rem;
+}
+
+.functions-panel__tab.is-active {
+  background: color-mix(in srgb, var(--color-primary) 18%, transparent);
+  border-color: color-mix(in srgb, var(--color-primary) 32%, var(--color-border) 68%);
+  color: color-mix(in srgb, var(--color-primary) 78%, var(--color-text) 22%);
+}
+
+.functions-panel__section {
+  min-height: 0;
+}
+
+.functions-panel__section[data-panel="functions"] {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: var(--space-2);
+}
+
+.functions-panel__section[data-panel="functions"] #expr-list {
+  overflow: auto;
+}
+
+.functions-panel__section[data-panel="history"] {
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr) auto;
+  gap: var(--space-2);
+}
+
+.functions-panel__history-selectall {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.functions-panel__history-actions {
+  justify-content: flex-end;
+}
+
+.functions-panel__section[data-panel="history"] .history__list {
+  overflow: auto;
+  padding-right: 0.25rem;
+}
+
+.history-search-input {
+  box-sizing: border-box;
+  min-height: 2.75rem;
+  padding: 0.75rem 0.9rem;
+  line-height: 1.35;
+  width: 100%;
+  position: relative;
+  z-index: 1;
 }
 
 .functions-panel__eyebrow {

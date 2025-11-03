@@ -6,7 +6,8 @@ const SESSION_KEY = 'ecuplot_session_token';
 let unauthorizedHandled = false;
 const teacherState = { bound: false };
 const adminState = { bound: false };
-const developmentState = { bound: false };
+const developmentState = { bound: false, admins: [], adminsTotal: 0, adminsLoading: false };
+const developmentRemovalState = { target: null, loading: false };
 const adminRequestState = { bound: false, loading: false, status: 'none' };
 const historyState = {
   bound: false,
@@ -86,6 +87,12 @@ const ui = {
   developmentBackupBtn: qs('#development-create-backup'),
   developmentRestoreForm: qs('#development-restore-form'),
   developmentBackupName: qs('#development-backup-name'),
+  developmentAdminList: qs('#development-admin-list'),
+  developmentAdminEmpty: qs('#development-admin-empty'),
+  developmentRemoveModal: qs('#development-remove-modal'),
+  developmentRemoveMessage: qs('#development-remove-message'),
+  developmentRemoveConfirm: qs('#development-remove-confirm'),
+  developmentRemoveCancel: qs('[data-development-remove-cancel]'),
   developmentRequestsList: qs('#development-role-requests'),
   adminRequestBox: qs('#admin-request-box'),
   adminRequestButton: qs('#btn-request-admin'),
@@ -145,6 +152,44 @@ function initialsFrom(name = '', email = '') {
     .slice(0, 2)
     .map((part) => part.charAt(0).toUpperCase());
   return chunks.join('') || source.charAt(0).toUpperCase() || 'EC';
+}
+
+function openModal(modal) {
+  if (!modal || modal.classList.contains('is-open')) return;
+  modal.hidden = false;
+  modal.classList.add('is-open');
+  document.body.classList.add('has-modal');
+  modal.__lastFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+  const focusable = modal.querySelector(
+    'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+  );
+  if (focusable instanceof HTMLElement) focusable.focus({ preventScroll: true });
+  const handleKey = (event) => {
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      closeModal(modal);
+    }
+  };
+  modal.__escHandler = handleKey;
+  document.addEventListener('keydown', handleKey);
+}
+
+function closeModal(modal) {
+  if (!modal || !modal.classList.contains('is-open')) return;
+  modal.classList.remove('is-open');
+  modal.hidden = true;
+  if (modal.__escHandler) {
+    document.removeEventListener('keydown', modal.__escHandler);
+    delete modal.__escHandler;
+  }
+  const previous = modal.__lastFocus;
+  if (previous && typeof previous.focus === 'function') {
+    previous.focus({ preventScroll: true });
+  }
+  delete modal.__lastFocus;
+  if (!document.querySelector('.modal.is-open')) {
+    document.body.classList.remove('has-modal');
+  }
 }
 
 function setAuthVisibility(isAuthenticated) {
@@ -1764,6 +1809,7 @@ function renderDevelopmentPanel() {
     bindDevelopmentPanel();
     developmentState.bound = true;
   }
+  loadDevelopmentAdmins();
   loadDevelopmentRequests();
 }
 
@@ -1776,6 +1822,21 @@ function bindDevelopmentPanel() {
   }
   if (ui.developmentRestoreForm) {
     on(ui.developmentRestoreForm, 'submit', onDevelopmentRestore);
+  }
+  if (ui.developmentAdminList) {
+    on(ui.developmentAdminList, 'click', onDevelopmentAdminListClick);
+  }
+  if (ui.developmentRemoveModal) {
+    on(ui.developmentRemoveModal, 'click', onDevelopmentRemoveModalClick);
+  }
+  if (ui.developmentRemoveCancel) {
+    on(ui.developmentRemoveCancel, 'click', (event) => {
+      event.preventDefault();
+      closeDevelopmentRemoveModal();
+    });
+  }
+  if (ui.developmentRemoveConfirm) {
+    on(ui.developmentRemoveConfirm, 'click', onDevelopmentRemoveConfirm);
   }
 }
 
@@ -1814,7 +1875,286 @@ async function handleDevelopmentAssignAdmin(payload) {
 
   toast?.success?.('Rol admin asignado.');
   if (ui.developmentAssignForm instanceof HTMLFormElement) ui.developmentAssignForm.reset();
+  await loadDevelopmentAdmins();
   await loadDevelopmentRequests();
+}
+
+async function loadDevelopmentAdmins() {
+  if (!ui.developmentAdminList) return;
+
+  developmentState.adminsLoading = true;
+  if (ui.developmentAdminEmpty) ui.developmentAdminEmpty.hidden = true;
+  ui.developmentAdminList.innerHTML = '';
+  const loading = document.createElement('p');
+  loading.className = 'role-panel__meta';
+  loading.textContent = 'Cargando administradores...';
+  ui.developmentAdminList.appendChild(loading);
+
+  const res = await requestWithAuth('/api/development/admins');
+  developmentState.adminsLoading = false;
+
+  if (!res) {
+    developmentState.admins = [];
+    developmentState.adminsTotal = 0;
+    ui.developmentAdminList.innerHTML = '';
+    const errorMsg = document.createElement('p');
+    errorMsg.className = 'role-panel__empty';
+    errorMsg.textContent = 'No se pudieron cargar los administradores.';
+    ui.developmentAdminList.appendChild(errorMsg);
+    return;
+  }
+
+  if (res.status === 403) {
+    developmentState.admins = [];
+    developmentState.adminsTotal = 0;
+    ui.developmentAdminList.innerHTML = '';
+    const info = document.createElement('p');
+    info.className = 'role-panel__empty';
+    info.textContent = 'Esta sección es exclusiva para el equipo de desarrollo.';
+    ui.developmentAdminList.appendChild(info);
+    return;
+  }
+
+  if (res.status === 204) {
+    developmentState.admins = [];
+    developmentState.adminsTotal = 0;
+    renderDevelopmentAdmins([], 0);
+    return;
+  }
+
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    toast?.error?.(err?.error || 'No se pudo cargar el listado de administradores.');
+    developmentState.admins = [];
+    developmentState.adminsTotal = 0;
+    ui.developmentAdminList.innerHTML = '';
+    const errorMsg = document.createElement('p');
+    errorMsg.className = 'role-panel__empty';
+    errorMsg.textContent = 'Se produjo un error al consultar los administradores.';
+    ui.developmentAdminList.appendChild(errorMsg);
+    return;
+  }
+
+  const data = await res.json().catch(() => ({}));
+  const admins = Array.isArray(data?.admins) ? data.admins : [];
+  const totalRaw = Number(data?.total);
+  const total = Number.isFinite(totalRaw) ? totalRaw : admins.length;
+  developmentState.admins = admins;
+  developmentState.adminsTotal = total;
+  renderDevelopmentAdmins(admins, total);
+}
+
+function renderDevelopmentAdmins(admins, total = Array.isArray(admins) ? admins.length : 0) {
+  if (!ui.developmentAdminList) return;
+  ui.developmentAdminList.innerHTML = '';
+
+  const count = Array.isArray(admins) ? admins.length : 0;
+  if (count === 0) {
+    if (ui.developmentAdminEmpty) ui.developmentAdminEmpty.hidden = false;
+    return;
+  }
+
+  if (ui.developmentAdminEmpty) ui.developmentAdminEmpty.hidden = true;
+
+  const totalAdmins = Number.isFinite(total) ? total : count;
+
+  admins.forEach((admin) => {
+    const card = document.createElement('article');
+    card.className = 'role-panel__card';
+
+    const header = document.createElement('div');
+    header.className = 'role-panel__bar';
+
+    const titleWrap = document.createElement('div');
+    titleWrap.className = 'role-panel__header-main';
+
+    const title = document.createElement('h3');
+    title.className = 'role-panel__title';
+    title.textContent = admin?.name || admin?.email || 'Usuario';
+
+    const badge = document.createElement('span');
+    badge.className = 'role-panel__pill';
+    badge.textContent = 'Admin activo';
+
+    titleWrap.appendChild(title);
+    titleWrap.appendChild(badge);
+
+    const removeBtn = document.createElement('button');
+    removeBtn.type = 'button';
+    removeBtn.className = 'btn btn--ghost btn--sm';
+    removeBtn.dataset.removeAdmin = 'true';
+    removeBtn.dataset.userId = admin?.id || '';
+    removeBtn.dataset.userName = admin?.name || '';
+    removeBtn.dataset.userEmail = admin?.email || '';
+    removeBtn.dataset.userPublicId = admin?.public_id || '';
+    removeBtn.textContent = 'Quitar rol';
+
+    const isRemovable = totalAdmins > 1 && !!(admin?.removable ?? true);
+    if (!isRemovable) {
+      removeBtn.disabled = true;
+      removeBtn.title = 'Mantén al menos un administrador activo.';
+      removeBtn.textContent = 'No disponible';
+    }
+
+    header.appendChild(titleWrap);
+    header.appendChild(removeBtn);
+    card.appendChild(header);
+
+    const emailMeta = document.createElement('p');
+    emailMeta.className = 'role-panel__meta';
+    emailMeta.textContent = admin?.email || 'Correo no registrado';
+    card.appendChild(emailMeta);
+
+  const detailMeta = document.createElement('p');
+  detailMeta.className = 'role-panel__meta role-panel__meta--muted';
+  const uuidLabel = admin?.id ? `UUID: ${admin.id}` : 'UUID: N/D';
+  const publicLabel = admin?.public_id ? `ID: ${admin.public_id}` : 'ID: N/D';
+  detailMeta.textContent = `${uuidLabel} | ${publicLabel}`;
+    card.appendChild(detailMeta);
+
+    if (Array.isArray(admin?.roles) && admin.roles.length) {
+      const rolesMeta = document.createElement('p');
+      rolesMeta.className = 'role-panel__meta role-panel__meta--muted';
+      rolesMeta.textContent = `Roles: ${admin.roles.join(', ')}`;
+      card.appendChild(rolesMeta);
+    }
+
+    if (admin?.is_self) {
+      const selfMeta = document.createElement('p');
+      selfMeta.className = 'role-panel__meta role-panel__meta--muted';
+      selfMeta.textContent = 'Esta es tu cuenta actual.';
+      card.appendChild(selfMeta);
+    }
+
+    if (!isRemovable) {
+      const warning = document.createElement('p');
+      warning.className = 'role-panel__meta role-panel__meta--muted';
+      warning.textContent = 'No es posible quitar el rol al último administrador.';
+      card.appendChild(warning);
+    }
+
+    ui.developmentAdminList.appendChild(card);
+  });
+}
+
+function onDevelopmentAdminListClick(event) {
+  const trigger = event.target instanceof Element ? event.target.closest('[data-remove-admin]') : null;
+  if (!trigger) return;
+  if (trigger instanceof HTMLButtonElement && trigger.disabled) return;
+  event.preventDefault();
+
+  const admin = {
+    id: trigger.dataset.userId || '',
+    name: trigger.dataset.userName || '',
+    email: trigger.dataset.userEmail || '',
+    publicId: trigger.dataset.userPublicId || '',
+  };
+
+  openDevelopmentRemoveModal(admin);
+}
+
+function openDevelopmentRemoveModal(admin) {
+  if (!admin || !admin.id) return;
+  developmentRemovalState.target = admin;
+  developmentRemovalState.loading = false;
+
+  if (ui.developmentRemoveMessage) {
+    const parts = [];
+    if (admin.name) parts.push(admin.name);
+    if (admin.email) parts.push(`(${admin.email})`);
+    const label = parts.length ? parts.join(' ') : 'este usuario';
+    const idLabel = admin.publicId ? `ID público: ${admin.publicId}.` : '';
+    ui.developmentRemoveMessage.textContent = `Vas a quitar el rol administrador de ${label}. ${idLabel}`.trim();
+  }
+
+  if (ui.developmentRemoveConfirm instanceof HTMLButtonElement) {
+    ui.developmentRemoveConfirm.disabled = false;
+    ui.developmentRemoveConfirm.textContent = 'Quitar rol';
+  }
+
+  openModal(ui.developmentRemoveModal);
+}
+
+function closeDevelopmentRemoveModal() {
+  if (developmentRemovalState.loading) return;
+  developmentRemovalState.target = null;
+  if (ui.developmentRemoveConfirm instanceof HTMLButtonElement) {
+    ui.developmentRemoveConfirm.disabled = false;
+    ui.developmentRemoveConfirm.textContent = 'Quitar rol';
+  }
+  closeModal(ui.developmentRemoveModal);
+}
+
+function onDevelopmentRemoveModalClick(event) {
+  const closeTrigger = event.target instanceof Element ? event.target.closest('[data-modal-close]') : null;
+  if (!closeTrigger) return;
+  event.preventDefault();
+  closeDevelopmentRemoveModal();
+}
+
+function onDevelopmentRemoveConfirm(event) {
+  event.preventDefault();
+  handleDevelopmentRemoveAdmin();
+}
+
+async function handleDevelopmentRemoveAdmin() {
+  if (developmentRemovalState.loading) return;
+  const target = developmentRemovalState.target;
+  if (!target || !target.id) {
+    closeDevelopmentRemoveModal();
+    return;
+  }
+
+  if (!(ui.developmentRemoveConfirm instanceof HTMLButtonElement)) return;
+
+  const originalLabel = ui.developmentRemoveConfirm.textContent;
+  ui.developmentRemoveConfirm.disabled = true;
+  ui.developmentRemoveConfirm.textContent = 'Quitando...';
+  developmentRemovalState.loading = true;
+
+  const res = await requestWithAuth(`/api/development/users/${encodeURIComponent(target.id)}/roles/admin`, {
+    method: 'DELETE',
+  });
+
+  if (!res) {
+    developmentRemovalState.loading = false;
+    if (ui.developmentRemoveConfirm instanceof HTMLButtonElement) {
+      ui.developmentRemoveConfirm.disabled = false;
+      ui.developmentRemoveConfirm.textContent = originalLabel || 'Quitar rol';
+    }
+    return;
+  }
+
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    toast?.error?.(err?.error || 'No se pudo quitar el rol admin.');
+    developmentRemovalState.loading = false;
+    if (ui.developmentRemoveConfirm instanceof HTMLButtonElement) {
+      ui.developmentRemoveConfirm.disabled = false;
+      ui.developmentRemoveConfirm.textContent = originalLabel || 'Quitar rol';
+    }
+    return;
+  }
+
+  const data = await res.json().catch(() => ({}));
+  toast?.success?.(data?.message || 'Rol admin removido.');
+
+  developmentRemovalState.loading = false;
+  if (ui.developmentRemoveConfirm instanceof HTMLButtonElement) {
+    ui.developmentRemoveConfirm.disabled = false;
+    ui.developmentRemoveConfirm.textContent = originalLabel || 'Quitar rol';
+  }
+
+  closeDevelopmentRemoveModal();
+  await loadDevelopmentAdmins();
+  await loadDevelopmentRequests();
+
+  const currentUser = getCurrentUser();
+  if (currentUser && currentUser.id === target.id) {
+    const { user, status } = await refreshCurrentUser();
+    if (user) renderAccountDetails(user);
+    else if (status === 401) handleUnauthorized(false);
+  }
 }
 
 function onDevelopmentCreateBackup() {

@@ -38,6 +38,8 @@ from .models import (
     RequestTicket,
     TwoFactorBackupCode,
     Tags,
+    AuditLog,
+    user_roles_table,
 )
 from flask_mail import Message
 from sqlalchemy import and_, asc, desc, func, cast, String, or_, delete
@@ -2091,6 +2093,83 @@ def _assign_role_to_user(user, role_name):
     return role
 
 
+def _remove_role_from_user(user, role_name, *, fallback_role="user"):
+    role = _get_role_by_name(role_name)
+    if not role:
+        raise ValueError(f"Rol '{role_name}' no existe.")
+
+    removed = False
+    current_roles = list(user.roles or [])
+    for assigned in current_roles:
+        if assigned.id == role.id:
+            user.roles.remove(assigned)
+            removed = True
+
+    if not removed:
+        return False
+
+    if user.role_id == role.id:
+        replacement = next((r for r in user.roles if r.id != role.id), None)
+        if not replacement and fallback_role:
+            replacement = _get_role_by_name(fallback_role)
+            if not replacement:
+                raise ValueError(f"Rol '{fallback_role}' no existe.")
+            if replacement not in user.roles:
+                user.roles.append(replacement)
+        if not replacement:
+            raise ValueError("No hay un rol alternativo para el usuario.")
+        user.role_id = replacement.id
+        user.role = replacement
+
+    return True
+
+
+def _record_audit(action, *, target_entity_type=None, target_entity_id=None, details=None):
+    try:
+        actor = getattr(getattr(g, "current_user", None), "id", None)
+        payload = dict(details or {})
+        entry = AuditLog(
+            user_id=actor,
+            action=action,
+            target_entity_type=target_entity_type,
+            target_entity_id=target_entity_id,
+            details=payload,
+            ip_address=request.headers.get('X-Forwarded-For') or request.remote_addr,
+        )
+        db.session.add(entry)
+    except Exception as exc:
+        current_app.logger.warning("No se pudo registrar auditoría (%s): %s", action, exc)
+
+
+def _find_user_by_identifier(identifier):
+    if not identifier:
+        return None
+    user = None
+    try:
+        user = db.session.get(Users, identifier)
+    except Exception:
+        user = None
+    if user:
+        return user
+    return db.session.execute(
+        db.select(Users).where(Users.public_id == identifier)
+    ).scalar_one_or_none()
+
+
+def _count_active_role_members(role_id):
+    stmt = (
+        db.select(func.count())
+        .select_from(
+            user_roles_table.join(Users, user_roles_table.c.user_id == Users.id)
+        )
+        .where(
+            user_roles_table.c.role_id == role_id,
+            Users.deleted_at.is_(None),
+        )
+    )
+    return db.session.execute(stmt).scalar_one()
+
+
 @api.post("/development/users/assign-admin")
 @require_session
 def development_assign_admin():
@@ -2128,6 +2207,16 @@ def development_assign_admin():
             pending_request.status = 'approved'
             pending_request.resolver_id = g.current_user.id
             pending_request.resolved_at = datetime.now(timezone.utc)
+        audit_details = {
+            "target_public_id": user.public_id,
+            "request_id": str(pending_request.id) if pending_request else None,
+        }
+        _record_audit(
+            "role.admin.assigned",
+            target_entity_type="user",
+            target_entity_id=user.id,
+            details={k: v for k, v in audit_details.items() if v is not None},
+        )
     except ValueError as exc:
         db.session.rollback()
         current_app.logger.error("Error en asignación de admin: %s", exc)
@@ -2148,6 +2237,116 @@ def development_assign_admin():
             "roles": [r.name for r in user.roles],
             "primary_role": user.role.name if user.role else None,
         }
+    )
+
+
+@api.get("/development/admins")
+@require_session
+def development_list_admins():
+    guard = _require_roles({'development'})
+    if guard:
+        return guard
+
+    admin_role = _get_role_by_name('admin')
+    if not admin_role:
+        return jsonify(admins=[], total=0)
+
+    stmt = (
+        db.select(Users)
+        .options(selectinload(Users.roles))
+        .join(user_roles_table, user_roles_table.c.user_id == Users.id)
+        .where(
+            user_roles_table.c.role_id == admin_role.id,
+            Users.deleted_at.is_(None),
+        )
+        .order_by(func.lower(Users.name))
+    )
+
+    rows = (
+        db.session.execute(stmt)
+        .scalars()
+        .unique()
+        .all()
+    )
+
+    total = len(rows)
+    current_id = getattr(getattr(g, "current_user", None), "id", None)
+
+    payload = []
+    for row in rows:
+        payload.append({
+            "id": str(row.id),
+            "public_id": row.public_id,
+            "name": row.name,
+            "email": row.email,
+            "roles": [r.name for r in (row.roles or [])],
+            "created_at": row.created_at.isoformat() if row.created_at else None,
+            "removable": total > 1,
+            "is_self": row.id == current_id,
+        })
+
+    return jsonify(admins=payload, total=total)
+
+
+@api.delete("/development/users/<user_identifier>/roles/admin")
+@require_session
+def development_remove_admin(user_identifier):
+    guard = _require_roles({'development'})
+    if guard:
+        return guard
+
+    admin_role = _get_role_by_name('admin')
+    if not admin_role:
+        return jsonify(error="Rol 'admin' no está configurado."), 500
+
+    user = _find_user_by_identifier(user_identifier)
+    if not user or user.deleted_at:
+        return jsonify(error="Usuario no encontrado."), 404
+
+    if admin_role not in (user.roles or []):
+        return jsonify(error="El usuario no tiene el rol admin."), 400
+
+    total_admins = _count_active_role_members(admin_role.id)
+    if total_admins <= 1:
+        return jsonify(error="Debe permanecer al menos un administrador activo."), 409
+
+    try:
+        removed = _remove_role_from_user(user, 'admin')
+        if not removed:
+            return jsonify(error="El usuario no tiene el rol admin."), 400
+
+        db.session.flush()
+        remaining_admins = _count_active_role_members(admin_role.id)
+        audit_details = {
+            "target_public_id": user.public_id,
+            "target_user_id": str(user.id),
+            "remaining_admins": int(remaining_admins),
+        }
+        _record_audit(
+            "role.admin.removed",
+            target_entity_type="user",
+            target_entity_id=user.id,
+            details=audit_details,
+        )
+        db.session.commit()
+    except ValueError as exc:
+        db.session.rollback()
+        return jsonify(error=str(exc)), 400
+    except Exception as exc:
+        db.session.rollback()
+        current_app.logger.error("Error al remover rol admin: %s", exc)
+        return jsonify(error="No se pudo remover el rol admin."), 500
+
+    return jsonify(
+        message="Rol 'admin' eliminado.",
+        user={
+            "id": str(user.id),
+            "name": user.name,
+            "public_id": user.public_id,
+            "roles": [r.name for r in (user.roles or [])],
+            "primary_role": user.role.name if user.role else None,
+        },
+        remaining_admins=int(remaining_admins),
     )
 
 

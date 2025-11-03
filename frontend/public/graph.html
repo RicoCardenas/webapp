@@ -36,8 +36,60 @@
                 </button>
               </header>
               <div class="functions-panel__body">
-                <div class="sidebar__header">Funciones</div>
-                <div id="expr-list" class="sidebar__list" aria-live="polite" aria-atomic="true"></div>
+                <div class="functions-panel__tabs" role="tablist" aria-label="Contenido del panel">
+                  <button
+                    id="functions-panel-tab-functions"
+                    class="btn btn--ghost btn--sm functions-panel__tab is-active"
+                    type="button"
+                    aria-controls="functions-panel-functions"
+                    aria-pressed="true"
+                    data-tab="functions"
+                  >Funciones</button>
+                  <button
+                    id="functions-panel-tab-history"
+                    class="btn btn--ghost btn--sm functions-panel__tab"
+                    type="button"
+                    aria-controls="functions-panel-history"
+                    aria-pressed="false"
+                    data-tab="history"
+                  >Historial</button>
+                </div>
+
+                <div id="functions-panel-functions" class="functions-panel__section" data-panel="functions">
+                  <div class="sidebar__header">Funciones</div>
+                  <div id="expr-list" class="sidebar__list" aria-live="polite" aria-atomic="true"></div>
+                </div>
+
+                <div
+                  id="functions-panel-history"
+                  class="functions-panel__section"
+                  data-panel="history"
+                  role="region"
+                  aria-live="polite"
+                  hidden
+                >
+                  <div class="form__field">
+                    <label class="form__label" for="history-search-inline">Buscar</label>
+                    <input
+                      class="form__input history-search-input js-history-search"
+                      id="history-search-inline"
+                      type="text"
+                      placeholder="filtrar por texto..."
+                    />
+                  </div>
+
+                  <div class="form__field functions-panel__history-selectall">
+                    <input id="history-select-all-inline" class="js-history-select-all" type="checkbox" />
+                    <label for="history-select-all-inline">Seleccionar todo</label>
+                    <button id="history-panel-refresh" class="btn btn--ghost btn--sm" type="button">Actualizar</button>
+                  </div>
+
+                  <div class="history__list js-history-list" role="list" aria-live="polite"></div>
+
+                  <div class="form__actions functions-panel__history-actions">
+                    <button class="btn btn--primary js-history-plot-selected" type="button">Graficar seleccionadas</button>
+                  </div>
+                </div>
               </div>
             </div>
             <div class="graph-floating-actions" role="toolbar" aria-label="Controles de paneles">
@@ -150,21 +202,21 @@
           </button>
         </header>
 
-        <div class="modal__body">
+        <div class="modal__body modal__body--history">
           <div class="form__field">
             <label class="form__label" for="history-search">Buscar</label>
-            <input class="form__input" id="history-search" type="text" placeholder="filtrar por texto..." />
+            <input class="form__input history-search-input js-history-search" id="history-search" type="text" placeholder="filtrar por texto..." />
           </div>
 
           <div class="form__field" style="display:flex;align-items:center;gap:.5rem;">
-            <input id="history-select-all" type="checkbox" />
+            <input id="history-select-all" class="js-history-select-all" type="checkbox" />
             <label for="history-select-all">Seleccionar todo</label>
           </div>
 
-          <div id="history-list" class="history__list" role="list" style="max-height:45vh; overflow:auto;"></div>
+          <div id="history-list" class="history__list js-history-list" role="list"></div>
 
           <div class="form__actions" style="justify-content:flex-end;">
-            <button id="history-plot-selected" class="btn btn--primary" type="button">Graficar seleccionadas</button>
+            <button id="history-plot-selected" class="btn btn--primary js-history-plot-selected" type="button">Graficar seleccionadas</button>
           </div>
         </div>
       </div>

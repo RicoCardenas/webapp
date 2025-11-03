@@ -21,13 +21,18 @@ export const UI_SELECTORS = {
   btnExportSvg: '#btn-export-svg',
   btnHistory: '#btn-history',
   modalHistory: '#modal-history',
-  historySearch: '#history-search',
-  historyList: '#history-list',
-  historySelectAll: '#history-select-all',
-  historyPlotSelected: '#history-plot-selected',
+  historySearch: '.js-history-search',
+  historyList: '.js-history-list',
+  historySelectAll: '.js-history-select-all',
+  historyPlotSelected: '.js-history-plot-selected',
   historyClose: '[data-close="history"]',
   toasts: '#toasts',
   btnFullscreen: '#btn-fullscreen',
+  historyPanelTabFunctions: '#functions-panel-tab-functions',
+  historyPanelTabHistory: '#functions-panel-tab-history',
+  historyPanelFunctions: '#functions-panel-functions',
+  historyPanelHistory: '#functions-panel-history',
+  historyPanelRefresh: '#history-panel-refresh',
 };
 
 /**

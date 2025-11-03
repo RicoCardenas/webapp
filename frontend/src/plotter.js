@@ -16,7 +16,6 @@ const expressionNodes = new Map();
 const container = qs(UI_SELECTORS.container);
 const core = createPlotterCore({
   authFetch,
-  getSessionToken: () => localStorage.getItem(SESSION_KEY),
 });
 
 const renderer = container instanceof HTMLElement
@@ -42,6 +41,7 @@ function bindUI() {
   bindForm();
   bindControls();
   bindHistoryModal();
+  bindHistoryPanel();
   bindShortcuts();
 }
 
@@ -126,27 +126,104 @@ function bindHistoryModal() {
     on(node, 'click', closeHistoryModal);
   });
 
-  const search = qs(UI_SELECTORS.historySearch, modal);
-  if (search) {
-    on(search, 'input', debounceSearch(async () => {
-      const query = search.value.trim();
-      await fetchAndRenderHistory(query);
-    }));
-  }
+  setupHistorySearch(modal);
+  setupHistorySelectAll(modal);
+  setupHistoryPlotSelected(modal);
+}
 
-  const selectAll = qs(UI_SELECTORS.historySelectAll, modal);
-  if (selectAll instanceof HTMLInputElement) {
-    on(selectAll, 'change', () => {
-      core.selectAllHistoryItems(selectAll.checked);
+function bindHistoryPanel() {
+  const tabFunctions = qs(UI_SELECTORS.historyPanelTabFunctions);
+  const tabHistory = qs(UI_SELECTORS.historyPanelTabHistory);
+  const sectionFunctions = qs(UI_SELECTORS.historyPanelFunctions);
+  const sectionHistory = qs(UI_SELECTORS.historyPanelHistory);
+  const panelBody = sectionFunctions?.parentElement;
+  if (!tabFunctions || !tabHistory || !sectionFunctions || !sectionHistory) return;
+
+  let activeTab = 'functions';
+
+  const applyTabState = () => {
+    const showHistory = activeTab === 'history';
+    sectionHistory.hidden = !showHistory;
+    sectionFunctions.hidden = showHistory;
+    tabHistory.classList.toggle('is-active', showHistory);
+    tabFunctions.classList.toggle('is-active', !showHistory);
+    tabHistory.setAttribute('aria-pressed', String(showHistory));
+    tabFunctions.setAttribute('aria-pressed', String(!showHistory));
+    if (panelBody instanceof HTMLElement) {
+      panelBody.classList.toggle('functions-panel__body--history', showHistory);
+    }
+  };
+
+  applyTabState();
+
+  const ensureHistoryLoaded = async () => {
+    const query = getHistoryQuery(sectionHistory);
+    await fetchAndRenderHistory(query);
+  };
+
+  on(tabFunctions, 'click', () => {
+    if (activeTab === 'functions') return;
+    activeTab = 'functions';
+    applyTabState();
+  });
+
+  on(tabHistory, 'click', async () => {
+    if (activeTab !== 'history') {
+      activeTab = 'history';
+      applyTabState();
+      core.clearHistorySelection();
       renderHistoryList();
       syncHistorySelectAll();
+    }
+    await ensureHistoryLoaded();
+  });
+
+  const refreshBtn = qs(UI_SELECTORS.historyPanelRefresh, sectionHistory);
+  if (refreshBtn) {
+    on(refreshBtn, 'click', async () => {
+      core.clearHistorySelection();
+      renderHistoryList();
+      syncHistorySelectAll();
+      await ensureHistoryLoaded();
     });
   }
 
-  const plotSelectedBtn = qs(UI_SELECTORS.historyPlotSelected, modal);
-  on(plotSelectedBtn, 'click', () => {
-    plotSelectedHistory();
+  setupHistorySearch(sectionHistory);
+  setupHistorySelectAll(sectionHistory);
+  setupHistoryPlotSelected(sectionHistory, { closeModal: false });
+}
+
+function setupHistorySearch(root) {
+  const search = qs(UI_SELECTORS.historySearch, root);
+  if (!(search instanceof HTMLInputElement)) return;
+  on(search, 'input', debounceSearch(async () => {
+    const query = search.value.trim();
+    await fetchAndRenderHistory(query);
+  }));
+}
+
+function setupHistorySelectAll(root) {
+  const selectAll = qs(UI_SELECTORS.historySelectAll, root);
+  if (!(selectAll instanceof HTMLInputElement)) return;
+  on(selectAll, 'change', () => {
+    core.selectAllHistoryItems(selectAll.checked);
+    renderHistoryList();
+    syncHistorySelectAll();
   });
+}
+
+function setupHistoryPlotSelected(root, options = {}) {
+  const plotSelectedBtn = qs(UI_SELECTORS.historyPlotSelected, root);
+  if (!plotSelectedBtn) return;
+  const { closeModal = true } = options;
+  on(plotSelectedBtn, 'click', () => {
+    plotSelectedHistory({ closeModal });
+  });
+}
+
+function getHistoryQuery(root) {
+  const search = qs(UI_SELECTORS.historySearch, root);
+  return search instanceof HTMLInputElement ? search.value.trim() : '';
 }
 
 function bindShortcuts() {
@@ -548,62 +625,79 @@ async function fetchAndRenderHistory(query) {
     }
     return;
   }
+  syncHistorySearchInputs(core.history.q);
   renderHistoryList();
   syncHistorySelectAll();
 }
 
 function renderHistoryList() {
-  const list = qs(UI_SELECTORS.historyList);
-  if (!list) return;
-
-  list.innerHTML = '';
-  const fragment = document.createDocumentFragment();
   const items = core.getHistoryItems();
+  const lists = qsa(UI_SELECTORS.historyList);
+  if (!lists.length) return;
 
-  items.forEach((item) => {
-    const row = document.createElement('label');
-    row.className = 'history__row';
+  lists.forEach((list) => {
+    list.innerHTML = '';
+    const fragment = document.createDocumentFragment();
 
-    const checkbox = document.createElement('input');
-    checkbox.type = 'checkbox';
-    checkbox.className = 'history__check';
-    checkbox.value = item.id;
-    checkbox.checked = core.history.selected.has(item.id);
+    items.forEach((item) => {
+      const row = document.createElement('label');
+      row.className = 'history__row';
 
-    on(checkbox, 'change', () => {
-      core.selectHistory(item.id, checkbox.checked);
-      syncHistorySelectAll();
+      const checkbox = document.createElement('input');
+      checkbox.type = 'checkbox';
+      checkbox.className = 'history__check';
+      checkbox.value = item.id;
+      checkbox.checked = core.history.selected.has(item.id);
+
+      on(checkbox, 'change', () => {
+        core.selectHistory(item.id, checkbox.checked);
+        syncHistorySelectAll();
+      });
+
+      const expr = document.createElement('span');
+      expr.className = 'history__expr';
+      expr.textContent = item.expression || '';
+
+      const date = document.createElement('time');
+      date.className = 'history__date';
+      date.textContent = item.created_at
+        ? new Date(item.created_at).toLocaleString()
+        : '';
+
+      row.appendChild(checkbox);
+      row.appendChild(expr);
+      row.appendChild(date);
+      fragment.appendChild(row);
     });
 
-    const expr = document.createElement('span');
-    expr.className = 'history__expr';
-    expr.textContent = item.expression || '';
-
-    const date = document.createElement('time');
-    date.className = 'history__date';
-    date.textContent = item.created_at
-      ? new Date(item.created_at).toLocaleString()
-      : '';
-
-    row.appendChild(checkbox);
-    row.appendChild(expr);
-    row.appendChild(date);
-    fragment.appendChild(row);
+    list.appendChild(fragment);
   });
-
-  list.appendChild(fragment);
 }
 
 function syncHistorySelectAll() {
-  const selectAll = qs(UI_SELECTORS.historySelectAll);
-  if (!(selectAll instanceof HTMLInputElement)) return;
+  const inputs = qsa(UI_SELECTORS.historySelectAll);
+  if (!inputs.length) return;
   const items = core.getHistoryItems();
   const totalSelected = core.getHistorySelection().length;
-  selectAll.indeterminate = totalSelected > 0 && totalSelected < items.length;
-  selectAll.checked = totalSelected > 0 && totalSelected === items.length;
+  const shouldIndeterminate = totalSelected > 0 && totalSelected < items.length;
+  const shouldChecked = totalSelected > 0 && totalSelected === items.length;
+
+  inputs.forEach((input) => {
+    if (!(input instanceof HTMLInputElement)) return;
+    input.indeterminate = shouldIndeterminate;
+    input.checked = shouldChecked;
+  });
 }
 
-function plotSelectedHistory() {
+function syncHistorySearchInputs(value) {
+  const inputs = qsa(UI_SELECTORS.historySearch);
+  inputs.forEach((input) => {
+    if (!(input instanceof HTMLInputElement)) return;
+    if (input.value !== value) input.value = value;
+  });
+}
+
+function plotSelectedHistory({ closeModal = true } = {}) {
   const items = core.getSelectedHistoryExpressions();
   if (!items.length) {
     toast?.warn?.('No hay expresiones seleccionadas.');
@@ -614,7 +708,7 @@ function plotSelectedHistory() {
     addExpressionText(item.expression || '');
   });
 
-  closeHistoryModal();
+  if (closeModal) closeHistoryModal();
 }
 
 function handleMarkerSelection(marker) {

@@ -14,11 +14,10 @@ import {
 
 /**
  * Create the plotter core logic (no DOM side effects).
- * @param {{ authFetch?: typeof fetch, getSessionToken?: () => string | null }} [deps]
+ * @param {{ authFetch?: typeof fetch }} [deps]
  */
 export function createPlotterCore(deps = {}) {
   const authFetch = deps.authFetch;
-  const getSessionToken = deps.getSessionToken ?? (() => null);
 
   /** @type {PlotterView} */
   const view = { ...DEFAULT_VIEW };
@@ -179,9 +178,6 @@ export function createPlotterCore(deps = {}) {
     if (!authFetch) {
       return { ok: false, reason: 'no-auth-fetch' };
     }
-    if (!getSessionToken()) {
-      return { ok: false, reason: 'unauthorized' };
-    }
 
     history.q = query;
     history.selected.clear();
@@ -199,13 +195,26 @@ export function createPlotterCore(deps = {}) {
       return { ok: false, reason: 'network' };
     }
 
-    if (!response || !response.ok) {
-      return { ok: false, reason: 'bad-response', status: response?.status };
+    if (!response) {
+      return { ok: false, reason: 'bad-response' };
+    }
+
+    if (response.status === 401 || response.status === 403) {
+      return { ok: false, reason: 'unauthorized', status: response.status };
+    }
+
+    if (!response.ok) {
+      return { ok: false, reason: 'bad-response', status: response.status };
     }
 
     const data = await response.json().catch(() => ({}));
-    const items = Array.isArray(data?.items) ? data.items : [];
-    history.items = items.map((item, index) => {
+    const payloadItems = Array.isArray(data?.items)
+      ? data.items
+      : Array.isArray(data?.data)
+        ? data.data
+        : [];
+
+    history.items = payloadItems.map((item, index) => {
       const expression = String(item?.expression ?? '');
       const id =
         item?.id != null
@@ -213,7 +222,9 @@ export function createPlotterCore(deps = {}) {
           : `${expression || 'expr'}-${index}`;
       return { ...item, id, expression };
     });
-    history.total = Number.isFinite(data?.total) ? data.total : history.items.length;
+    const metaTotal = Number.isFinite(data?.meta?.total) ? data.meta.total : undefined;
+    const rootTotal = Number.isFinite(data?.total) ? data.total : undefined;
+    history.total = rootTotal ?? metaTotal ?? history.items.length;
     return { ok: true, items: history.items, total: history.total };
   }
 

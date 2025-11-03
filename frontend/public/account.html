@@ -464,13 +464,20 @@
                   <input class="form__input" type="text" id="development-visible-id" autocomplete="off" placeholder="ID (opcional)" />
                 </div>
                 <div class="form__field">
-                  <label class="form__label" for="development-request-id">ID de solicitud</label>
+              <label class="form__label" for="development-request-id">ID de solicitud</label>
                   <input class="form__input" type="text" id="development-request-id" autocomplete="off" placeholder="ID de solicitud (opcional)" />
                 </div>
                 <div class="form__actions">
                   <button class="btn btn--primary btn--sm" type="submit">Asignar rol admin</button>
                 </div>
               </form>
+
+              <div class="role-panel__section">
+                <h3 class="account-card__subtitle">Administradores activos</h3>
+                <p class="role-panel__hint">Retira el rol cuando un usuario ya no necesite privilegios elevados. Siempre debe permanecer al menos una cuenta administradora.</p>
+                <div id="development-admin-empty" class="role-panel__empty" hidden>No hay usuarios con rol administrador.</div>
+                <ul id="development-admin-list" class="role-panel__list role-panel__list--compact" role="list"></ul>
+              </div>
 
               <div class="role-panel__actions">
                 <div class="role-panel__cluster">
@@ -514,6 +521,26 @@
         </div>
       </section>
     </main>
+
+    <div id="development-remove-modal" class="modal" role="dialog" aria-modal="true" aria-labelledby="development-remove-title" hidden>
+      <div class="modal__overlay" data-modal-close aria-hidden="true"></div>
+      <div class="modal__dialog" role="document">
+        <div class="modal__header">
+          <h2 id="development-remove-title" class="modal__title">Quitar rol administrador</h2>
+          <button class="modal__close" type="button" data-modal-close aria-label="Cerrar">
+            <span aria-hidden="true">&times;</span>
+          </button>
+        </div>
+        <div class="modal__body">
+          <p id="development-remove-message">Confirma que deseas quitar el rol administrador del usuario seleccionado.</p>
+          <div class="modal__alert" role="alert">Esta acción es inmediata y el usuario perderá acceso a todas las herramientas de administración.</div>
+        </div>
+        <div class="modal__footer">
+          <button class="btn btn--ghost" type="button" data-development-remove-cancel>Cancelar</button>
+          <button class="btn btn--danger" type="button" id="development-remove-confirm">Quitar rol</button>
+        </div>
+      </div>
+    </div>
 
     <!-- Toasts -->
     <div id="toasts" class="toasts" aria-live="polite" aria-atomic="true"></div>
