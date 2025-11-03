@@ -2,7 +2,7 @@ import re
 import secrets
 from dataclasses import asdict
 from datetime import datetime, timedelta, timezone
-from flask import Blueprint, current_app, jsonify, send_from_directory, request, redirect, url_for, g
+from flask import Blueprint, current_app, jsonify, send_from_directory, request, redirect, url_for, g, render_template_string
 from .extensions import db, bcrypt, mail
 from .models import Users, Roles, UserTokens, UserSessions, PlotHistory, StudentGroup, GroupMember, RoleRequest
 from flask_mail import Message
@@ -67,6 +67,88 @@ def _issue_user_token(user, token_type, expires_delta):
     )
     db.session.add(token)
     return token
+
+
+def _validate_contact_submission(name, email, message):
+    errors = {}
+    if len(name) < 2:
+        errors['name'] = 'Ingresa tu nombre (mínimo 2 caracteres).'
+    if not email or '@' not in email:
+        errors['email'] = 'Proporciona un correo válido.'
+    if len(message) < 10:
+        errors['message'] = 'El mensaje debe tener al menos 10 caracteres.'
+    return errors
+
+
+def _send_contact_notification(name, email, message):
+    recipient = current_app.config.get('CONTACT_RECIPIENT')
+    sender = current_app.config.get('MAIL_DEFAULT_SENDER') or current_app.config.get('MAIL_USERNAME')
+
+    if not recipient or not sender:
+        current_app.logger.info('Contacto recibido sin destinatario configurado: %s <%s>', name, email)
+        return None
+
+    try:
+        msg = Message(
+            subject='Nuevo contacto de EcuPlot',
+            sender=sender,
+            recipients=[recipient],
+            body=f"Nombre: {name}\nEmail: {email}\n\n{message}",
+        )
+        mail.send(msg)
+    except Exception as exc:
+        current_app.logger.error('No se pudo reenviar el contacto: %s', exc)
+        return 'No se pudo enviar el mensaje en este momento.'
+    return None
+
+
+def _contact_response_page(success, message, errors=None, status_code=200):
+    errors = [err for err in (errors or []) if err]
+    home_url = url_for('frontend.serve_frontend')
+    rendered = render_template_string(
+        """<!DOCTYPE html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <title>{{ 'Mensaje enviado' if success else 'No se pudo enviar tu mensaje' }} | EcuPlot</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <style>
+      :root { color-scheme: light dark; font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }
+      body { margin: 0; padding: 2.5rem 1.5rem; display: grid; place-items: center; background: #0c1424; color: #f4f6fb; }
+      .card { max-width: 520px; background: rgba(12,20,36,0.85); border-radius: 18px; padding: 2.5rem; box-shadow: 0 30px 60px rgba(3,12,35,0.35); backdrop-filter: blur(16px); }
+      h1 { margin-top: 0; font-size: 1.75rem; }
+      p { line-height: 1.6; }
+      ul { margin: 1rem 0; padding-left: 1.25rem; }
+      a { color: #7ab4ff; text-decoration: none; font-weight: 600; }
+      a:hover { text-decoration: underline; }
+      .status { margin-bottom: 1rem; font-weight: 600; color: {{ '#64d5a1' if success else '#ff8799' }}; }
+      .actions { margin-top: 2rem; }
+      button, .btn { display: inline-flex; align-items: center; justify-content: center; gap: 0.5rem; padding: 0.65rem 1.4rem; border-radius: 999px; background: #1c7cf2; color: white; border: none; font-weight: 600; cursor: pointer; text-decoration: none; }
+      button:hover, .btn:hover { background: #115dcc; }
+    </style>
+  </head>
+  <body>
+    <main class="card" role="main">
+      <p class="status">{{ 'Mensaje enviado correctamente.' if success else 'No se envió el mensaje.' }}</p>
+      <h1>{{ 'Gracias por escribirnos.' if success else 'Necesitamos que revises tus datos.' }}</h1>
+      <p>{{ message }}</p>
+      {% if errors %}
+      <ul>
+        {% for item in errors %}
+        <li>{{ item }}</li>
+        {% endfor %}
+      </ul>
+      {% endif %}
+      <p class="actions"><a class="btn" href="{{ home_url }}">Volver al inicio</a></p>
+    </main>
+  </body>
+</html>""",
+        success=success,
+        message=message,
+        errors=errors,
+        home_url=home_url,
+    )
+    return rendered, status_code
 
 
 def _require_roles(allowed):
@@ -279,6 +361,37 @@ def login_page():
 def signup_page():
     return send_from_directory(current_app.template_folder, "signup.html")
 
+
+@frontend.post("/contact")
+def contact_form_submit():
+    """Procesa el formulario de contacto cuando el usuario no tiene JavaScript."""
+    name = (request.form.get('name') or '').strip()
+    email = _normalize_email(request.form.get('email'))
+    message = (request.form.get('message') or '').strip()
+
+    errors = _validate_contact_submission(name, email, message)
+    if errors:
+        return _contact_response_page(
+            success=False,
+            message="No pudimos enviar tu mensaje. Revisa los datos e inténtalo de nuevo.",
+            errors=list(errors.values()),
+            status_code=400,
+        )
+
+    delivery_error = _send_contact_notification(name, email, message)
+    if delivery_error:
+        return _contact_response_page(
+            success=False,
+            message=delivery_error,
+            status_code=502,
+        )
+
+    return _contact_response_page(
+        success=True,
+        message="Mensaje enviado. Gracias por escribirnos.",
+        status_code=200,
+    )
+
 # --- Rutas de la API ---
 
 @api.get("/health")
@@ -300,34 +413,13 @@ def contact_message():
     email = _normalize_email(data.get('email'))
     message = (data.get('message') or '').strip()
 
-    errors = {}
-    if len(name) < 2:
-        errors['name'] = 'Ingresa tu nombre (mínimo 2 caracteres).'
-    if not email or '@' not in email:
-        errors['email'] = 'Proporciona un correo válido.'
-    if len(message) < 10:
-        errors['message'] = 'El mensaje debe tener al menos 10 caracteres.'
-
+    errors = _validate_contact_submission(name, email, message)
     if errors:
         return jsonify(error="Datos inválidos", fields=errors), 400
 
-    recipient = current_app.config.get('CONTACT_RECIPIENT')
-    sender = current_app.config.get('MAIL_DEFAULT_SENDER') or current_app.config.get('MAIL_USERNAME')
-
-    try:
-        if recipient and sender:
-            msg = Message(
-                subject='Nuevo contacto de EcuPlot',
-                sender=sender,
-                recipients=[recipient],
-                body=f"Nombre: {name}\nEmail: {email}\n\n{message}",
-            )
-            mail.send(msg)
-        else:
-            current_app.logger.info('Contacto recibido sin destinatario configurado: %s', data)
-    except Exception as exc:
-        current_app.logger.error('No se pudo reenviar el contacto: %s', exc)
-        return jsonify(error='No se pudo enviar el mensaje en este momento.'), 502
+    delivery_error = _send_contact_notification(name, email, message)
+    if delivery_error:
+        return jsonify(error=delivery_error), 502
 
     return jsonify(message='Mensaje enviado. Gracias por escribirnos.'), 200
 

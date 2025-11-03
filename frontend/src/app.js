@@ -1021,11 +1021,34 @@ function initContactForm() {
   if (!form) return;
 
   const globalError = qs(SELECTORS.contactErrorsGlobal);
+  const globalMessages = globalError?.querySelector('[data-global-error-messages]') || null;
   const submitBtn = qs('button[type="submit"]', form);
   const fieldErrors = {
     name: qs(SELECTORS.errorName),
     email: qs(SELECTORS.errorEmail),
     message: qs(SELECTORS.errorMessage),
+  };
+
+  const clearGlobalMessage = () => {
+    if (!globalError) return;
+    if (globalMessages) globalMessages.innerHTML = '';
+    else globalError.textContent = '';
+    globalError.classList.remove('is-visible');
+    globalError.setAttribute('aria-hidden', 'true');
+  };
+
+  const showGlobalMessage = (message) => {
+    if (!globalError) return;
+    if (globalMessages) {
+      globalMessages.innerHTML = '';
+      const item = document.createElement('li');
+      item.textContent = message;
+      globalMessages.appendChild(item);
+    } else {
+      globalError.textContent = message;
+    }
+    globalError.classList.add('is-visible');
+    globalError.setAttribute('aria-hidden', 'false');
   };
 
   on(form, 'submit', async (e) => {
@@ -1040,21 +1063,13 @@ function initContactForm() {
 
     Object.values(fieldErrors).forEach(hideFieldError);
 
-    if (globalError) {
-      globalError.textContent = '';
-      globalError.classList.remove('is-visible');
-      globalError.setAttribute('aria-hidden', 'true');
-    }
+    clearGlobalMessage();
 
     const errors = validate(contactValidators, values);
     const invalid = renderErrors(errors, fieldErrors);
 
     if (invalid) {
-      if (globalError) {
-        globalError.textContent = 'Por favor corrige los errores en el formulario.';
-        globalError.classList.add('is-visible');
-        globalError.setAttribute('aria-hidden', 'false');
-      }
+      showGlobalMessage('Por favor corrige los errores en el formulario.');
       return;
     }
 
@@ -1095,21 +1110,15 @@ function initContactForm() {
       }
 
       const errorMsg = data.error || 'No se pudo enviar tu mensaje.';
-      if (globalError) {
-        globalError.textContent = errorMsg;
-        globalError.classList.add('is-visible');
-        globalError.setAttribute('aria-hidden', 'false');
-      } else {
+      if (!globalMessages && !globalError) {
         toast.error(errorMsg);
+      } else {
+        showGlobalMessage(errorMsg);
       }
     } catch (error) {
       console.error('Contact request failed', error);
       toast.error('Error de red al enviar tu mensaje.');
-      if (globalError) {
-        globalError.textContent = 'No se pudo enviar el mensaje. Intenta nuevamente.';
-        globalError.classList.add('is-visible');
-        globalError.setAttribute('aria-hidden', 'false');
-      }
+      showGlobalMessage('No se pudo enviar el mensaje. Intenta nuevamente.');
     }
     finally {
       if (submitBtn) {

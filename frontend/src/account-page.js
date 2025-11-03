@@ -904,7 +904,7 @@ function renderAdminUsers(users) {
 
     const details = document.createElement('p');
     details.className = 'role-panel__meta role-panel__meta--muted';
-    details.textContent = `ID: ${user?.id || 'N/D'} | visible_id: ${user?.public_id || 'N/D'}`;
+    details.textContent = `UUID: ${user?.id || 'N/D'} | ID: ${user?.public_id || 'N/D'}`;
 
     card.appendChild(title);
     card.appendChild(meta);
@@ -1200,8 +1200,8 @@ function renderDevelopmentRequests(requests) {
 
     const details = document.createElement('p');
     details.className = 'role-panel__meta role-panel__meta--muted';
-    const visible = req?.user?.public_id ? `visible_id: ${req.user.public_id}` : 'visible_id: N/D';
-    details.textContent = `${visible} | ID solicitud: ${req?.id || 'N/D'}`;
+    const visible = req?.user?.public_id ? `ID: ${req.user.public_id}` : 'ID: N/D';
+    details.textContent = `${visible} | UUID solicitud: ${req?.id || 'N/D'}`;
 
     let notes = null;
     if (req?.notes) {
