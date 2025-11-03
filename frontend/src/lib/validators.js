@@ -1,6 +1,8 @@
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const PASSWORD_POLICY_MESSAGE = 'La contraseña debe tener al menos 8 caracteres, e incluir una letra mayúscula, una letra minúscula, un número y un carácter especial.';
 const PASSWORD_COMPLEXITY_RE = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[^A-Za-z0-9\s]).{8,}$/;
+const TOTP_CODE_RE = /^\d{6}$/;
+const BACKUP_CODE_RE = /^[A-Za-z0-9]{8,16}$/;
 
 export const contactValidators = {
   name(value) {
@@ -34,6 +36,12 @@ export const authValidators = {
   },
   terms(checked) {
     return checked ? '' : 'Debes aceptar los términos';
+  },
+  otp(value) {
+    const code = (value || '').trim();
+    if (!code) return 'Ingresa el código de verificación';
+    if (TOTP_CODE_RE.test(code) || BACKUP_CODE_RE.test(code)) return '';
+    return 'Ingresa un código de 6 dígitos o un código de respaldo válido';
   },
 };
 

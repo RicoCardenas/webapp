@@ -208,16 +208,158 @@
                 <p>Historial oculto. Usa “Mostrar historial” para consultarlo cuando lo necesites.</p>
               </div>
               <div id="history-panel" class="account-history__panel" hidden>
+                <div class="account-history__filters">
+                  <form id="history-filters" class="history-filters" novalidate>
+                    <div class="history-filters__row">
+                      <div class="history-filters__field">
+                        <label for="history-search">Buscar</label>
+                        <input type="search" id="history-search" name="q" placeholder="Expresión o etiqueta" autocomplete="off" />
+                      </div>
+                      <div class="history-filters__field">
+                        <label for="history-from">Desde</label>
+                        <input type="date" id="history-from" name="from" />
+                      </div>
+                      <div class="history-filters__field">
+                        <label for="history-to">Hasta</label>
+                        <input type="date" id="history-to" name="to" />
+                      </div>
+                      <div class="history-filters__field">
+                        <label for="history-tags">Etiquetas</label>
+                        <input type="text" id="history-tags" name="tags" placeholder="ej. algebra, trigonometria" autocomplete="off" />
+                      </div>
+                    </div>
+                    <div class="history-filters__actions">
+                      <div class="history-filters__buttons">
+                        <button type="submit" class="btn btn--primary btn--sm">Aplicar</button>
+                        <button type="reset" class="btn btn--ghost btn--sm">Limpiar</button>
+                      </div>
+                      <div class="history-filters__exports">
+                        <button type="button" class="btn btn--ghost btn--sm" data-history-export="csv">Exportar CSV</button>
+                        <button type="button" class="btn btn--ghost btn--sm" data-history-export="json">Exportar JSON</button>
+                      </div>
+                    </div>
+                  </form>
+                  <p id="history-error" class="account-history__error" role="alert" hidden></p>
+                </div>
                 <div id="history-loading" class="account-history__loading">
                   <p>Cargando historial...</p>
                 </div>
                 <div id="history-empty" class="account-history__empty" hidden>
                   <span class="account-history__icon" aria-hidden="true"></span>
-                  <p>No tienes ningún historial de gráficas guardado.</p>
+                  <p>No encontramos registros para los filtros actuales.</p>
                   <a href="/graph" class="btn btn--primary btn--sm">Ir al Graficador</a>
                 </div>
-                <ul id="plot-history-list" class="history-list"></ul>
+                <ul id="plot-history-list" class="history-list" role="list"></ul>
+                <nav id="history-pagination" class="history-pagination" aria-label="Paginación del historial" hidden>
+                  <button type="button" class="btn btn--ghost btn--sm" id="history-prev">Anterior</button>
+                  <span id="history-page-info" aria-live="polite">Página 1 de 1</span>
+                  <button type="button" class="btn btn--ghost btn--sm" id="history-next">Siguiente</button>
+                </nav>
               </div>
+            </div>
+            </section>
+            <section class="account-card account-card--tickets" id="account-tickets-box">
+            <div class="account-card__header">
+              <div>
+                <p class="account-card__eyebrow">Soporte</p>
+                <h2 class="account-card__title">Mis solicitudes</h2>
+                <p class="account-card__subtitle">Envía solicitudes de soporte o cambios de rol y consulta su estado.</p>
+              </div>
+            </div>
+            <div class="account-card__body account-tickets__body">
+              <form id="ticket-form" class="ticket-form" novalidate>
+                <div class="ticket-form__fields">
+                  <div class="ticket-form__field">
+                    <label class="form__label" for="ticket-type">Tipo</label>
+                    <select id="ticket-type" class="form__input">
+                      <option value="soporte">Soporte</option>
+                      <option value="rol">Solicitud de rol</option>
+                      <option value="consulta">Consulta</option>
+                      <option value="otro">Otro</option>
+                    </select>
+                  </div>
+                  <div class="ticket-form__field">
+                    <label class="form__label" for="ticket-title">Título</label>
+                    <input id="ticket-title" class="form__input" type="text" maxlength="120" placeholder="Breve resumen" required />
+                  </div>
+                </div>
+                <div class="ticket-form__field">
+                  <label class="form__label" for="ticket-description">Descripción</label>
+                  <textarea id="ticket-description" class="form__input" rows="3" placeholder="Describe lo que necesitas" required></textarea>
+                </div>
+                <div class="ticket-form__actions">
+                  <button id="ticket-submit" class="btn btn--primary btn--sm" type="submit">Enviar solicitud</button>
+                </div>
+              </form>
+              <p id="ticket-feedback" class="account-tickets__feedback" aria-live="polite" hidden></p>
+              <div id="tickets-empty" class="account-tickets__empty" hidden>
+                <p>No has enviado solicitudes todavía.</p>
+                <p class="account-card__hint">Usa el formulario para contarnos qué necesitas.</p>
+              </div>
+              <ul id="tickets-list" class="tickets-list" role="list"></ul>
+              <nav id="tickets-pagination" class="tickets-pagination" aria-label="Paginación de solicitudes" hidden>
+                <button type="button" class="btn btn--ghost btn--sm" id="tickets-prev">Anterior</button>
+                <span id="tickets-page-info" aria-live="polite">Página 1 de 1</span>
+                <button type="button" class="btn btn--ghost btn--sm" id="tickets-next">Siguiente</button>
+              </nav>
+            </div>
+            </section>
+            <section class="account-card account-card--security" id="account-2fa-box">
+            <div class="account-card__header">
+              <div>
+                <p class="account-card__eyebrow">Seguridad</p>
+                <h2 class="account-card__title">Autenticación en dos pasos</h2>
+                <p class="account-card__subtitle">Protege tu cuenta generando códigos temporales desde tu dispositivo móvil.</p>
+              </div>
+            </div>
+            <div class="account-card__body account-2fa__body">
+              <p id="twofa-status" class="account-2fa__status">Autenticación en dos pasos desactivada</p>
+              <button id="twofa-setup" class="btn btn--primary btn--sm" type="button">Activar 2FA</button>
+
+              <div id="twofa-setup-panel" class="account-2fa__panel" hidden>
+                <div class="account-2fa__qr">
+                  <img id="twofa-qr" src="" alt="Código QR para configurar autenticación en dos pasos" hidden />
+                </div>
+                <p class="account-card__hint">Escanea el código con tu aplicación de autenticación o ingresa esta clave manualmente:</p>
+                <code id="twofa-secret" class="account-2fa__secret"></code>
+                <form id="twofa-verify-form" class="account-2fa__form" novalidate>
+                  <label class="form__label" for="twofa-verify-code">Código de verificación</label>
+                  <input class="form__input" id="twofa-verify-code" type="text" inputmode="numeric" autocomplete="one-time-code" placeholder="000000" required />
+                  <div class="account-2fa__form-actions">
+                    <button id="twofa-verify-submit" class="btn btn--primary btn--sm" type="submit">Verificar y activar</button>
+                  </div>
+                </form>
+              </div>
+
+              <div id="twofa-enabled-actions" class="account-2fa__actions" hidden>
+                <div class="account-2fa__buttons">
+                  <button id="twofa-show-disable" class="btn btn--ghost btn--sm" type="button">Desactivar 2FA</button>
+                  <button id="twofa-show-regenerate" class="btn btn--ghost btn--sm" type="button">Regenerar códigos</button>
+                </div>
+                <form id="twofa-disable-form" class="account-2fa__form" novalidate hidden>
+                  <label class="form__label" for="twofa-disable-code">Código actual</label>
+                  <input class="form__input" id="twofa-disable-code" type="text" inputmode="numeric" autocomplete="one-time-code" placeholder="000000" required />
+                  <div class="account-2fa__form-actions">
+                    <button class="btn btn--primary btn--sm" id="twofa-disable-submit" type="submit">Desactivar</button>
+                    <button class="btn btn--ghost btn--sm" data-twofa-cancel type="button">Cancelar</button>
+                  </div>
+                </form>
+                <form id="twofa-regenerate-form" class="account-2fa__form" novalidate hidden>
+                  <label class="form__label" for="twofa-regenerate-code">Código actual</label>
+                  <input class="form__input" id="twofa-regenerate-code" type="text" inputmode="numeric" autocomplete="one-time-code" placeholder="000000" required />
+                  <div class="account-2fa__form-actions">
+                    <button class="btn btn--primary btn--sm" id="twofa-regenerate-submit" type="submit">Regenerar</button>
+                    <button class="btn btn--ghost btn--sm" data-twofa-cancel type="button">Cancelar</button>
+                  </div>
+                </form>
+              </div>
+
+              <div id="twofa-backup-codes" class="account-2fa__codes" hidden>
+                <p>Guarda estos códigos en un lugar seguro. Cada uno puede usarse una sola vez cuando no tengas acceso a tu aplicación 2FA.</p>
+                <ul id="twofa-codes-list" class="account-2fa__codes-list"></ul>
+              </div>
+
+              <p id="twofa-feedback" class="account-2fa__feedback" aria-live="polite" hidden></p>
             </div>
             </section>
           </div>
@@ -249,6 +391,28 @@
               </div>
             </div>
             <div class="account-card__body admin-panel__body">
+              <div class="admin-stats" id="admin-stats" hidden>
+                <article class="admin-stat" aria-live="polite">
+                  <h3 class="admin-stat__title">Usuarios</h3>
+                  <p class="admin-stat__value" id="admin-stats-users-total">—</p>
+                  <p class="admin-stat__meta">Activos 7 días: <span id="admin-stats-users-active">—</span></p>
+                  <ul class="admin-stat__list" id="admin-stats-users-roles" aria-label="Usuarios por rol">
+                    <li>Sin datos disponibles</li>
+                  </ul>
+                </article>
+                <article class="admin-stat" aria-live="polite">
+                  <h3 class="admin-stat__title">Solicitudes</h3>
+                  <p class="admin-stat__value" id="admin-stats-requests-open">—</p>
+                  <p class="admin-stat__meta">Pendientes: <span id="admin-stats-requests-pending">—</span></p>
+                  <p class="admin-stat__meta">Atendidas: <span id="admin-stats-requests-resolved">—</span></p>
+                </article>
+                <article class="admin-stat" aria-live="polite">
+                  <h3 class="admin-stat__title">Gráficas</h3>
+                  <p class="admin-stat__value" id="admin-stats-plots-total">—</p>
+                  <p class="admin-stat__meta">Hoy: <span id="admin-stats-plots-today">—</span></p>
+                  <p class="admin-stat__meta">Últimos 7 días: <span id="admin-stats-plots-week">—</span></p>
+                </article>
+              </div>
               <div class="admin-panel__layout">
                 <form id="admin-assign-teacher-form" class="role-form role-form--inline admin-panel__card" novalidate>
                   <div class="form__field">

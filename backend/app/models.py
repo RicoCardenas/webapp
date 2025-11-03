@@ -126,6 +126,8 @@ class Users(db.Model):
     group_memberships = db.relationship('GroupMember', back_populates='student', cascade="all, delete-orphan", foreign_keys='GroupMember.student_user_id', lazy='selectin')
     role_requests_submitted = db.relationship('RoleRequest', back_populates='user', foreign_keys='RoleRequest.user_id', cascade="all, delete-orphan")
     role_requests_resolved = db.relationship('RoleRequest', back_populates='resolver', foreign_keys='RoleRequest.resolver_id')
+    tickets = db.relationship('RequestTicket', back_populates='user', cascade="all, delete-orphan", lazy='selectin')
+    backup_codes = db.relationship('TwoFactorBackupCode', back_populates='user', cascade="all, delete-orphan", lazy='selectin')
 
     @validates('email')
     def _normalize_email(self, key, value):
@@ -248,6 +250,33 @@ class RoleRequest(db.Model):
 
     user = db.relationship('Users', foreign_keys=[user_id], back_populates='role_requests_submitted')
     resolver = db.relationship('Users', foreign_keys=[resolver_id], back_populates='role_requests_resolved')
+
+
+class RequestTicket(db.Model):
+    __tablename__ = 'request_tickets'
+
+    id = db.Column(GUID(), primary_key=True, server_default=func.gen_random_uuid())
+    user_id = db.Column(GUID(), db.ForeignKey('users.id', ondelete='CASCADE'), nullable=False)
+    type = db.Column(db.String(50), nullable=False)
+    title = db.Column(db.String(120), nullable=False)
+    description = db.Column(db.Text, nullable=False)
+    status = db.Column(db.String(20), nullable=False, default='pendiente')
+    created_at = db.Column(db.DateTime(timezone=True), nullable=False, server_default=func.now())
+    updated_at = db.Column(db.DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())
+
+    user = db.relationship('Users', back_populates='tickets')
+
+
+class TwoFactorBackupCode(db.Model):
+    __tablename__ = 'user_backup_codes'
+
+    id = db.Column(GUID(), primary_key=True, server_default=func.gen_random_uuid())
+    user_id = db.Column(GUID(), db.ForeignKey('users.id', ondelete='CASCADE'), nullable=False, index=True)
+    code_hash = db.Column(db.String(128), nullable=False)
+    used_at = db.Column(db.DateTime(timezone=True))
+    created_at = db.Column(db.DateTime(timezone=True), nullable=False, server_default=func.now())
+
+    user = db.relationship('Users', back_populates='backup_codes')
 
 # Modelo de Presets 
 class PlotPresets(db.Model):

@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{{ 'Mensaje enviado' if success else 'No se pudo enviar tu mensaje' }} | EcuPlot</title>
+    <meta name="theme-color" content="#0f172a" />
+    <link rel="stylesheet" href="/static/base.css" />
+    <link rel="stylesheet" href="/static/components.css" />
+    <link rel="stylesheet" href="/static/pages.css" />
+  </head>
+  <body class="page page--contact-result">
+    <main class="contact-result" role="main">
+      <section class="contact-result__card" aria-labelledby="contact-result-title">
+        <p
+          class="contact-result__status contact-result__status--{{ 'success' if success else 'error' }}"
+          role="status"
+        >
+          {{ 'Mensaje enviado correctamente.' if success else 'No pudimos enviar tu mensaje.' }}
+        </p>
+        <h1 id="contact-result-title" class="contact-result__title">
+          {{ 'Gracias por escribirnos.' if success else 'Necesitamos que revises tus datos.' }}
+        </h1>
+        <p class="contact-result__message">{{ message }}</p>
+
+        {% if errors %}
+        <div
+          class="contact-result__errors"
+          data-global-error
+          role="alert"
+          aria-live="assertive"
+        >
+          <ul data-global-error-messages>
+            {% for item in errors %}
+            <li>{{ item }}</li>
+            {% endfor %}
+          </ul>
+        </div>
+        {% endif %}
+
+        {% if not success and (form.name or form.email or form.message) %}
+        <div class="contact-result__summary">
+          <h2 class="contact-result__subtitle">Tu mensaje</h2>
+          <dl>
+            {% if form.name %}
+            <div class="contact-result__row">
+              <dt>Nombre:</dt>
+              <dd>{{ form.name }}</dd>
+            </div>
+            {% endif %}
+            {% if form.email %}
+            <div class="contact-result__row">
+              <dt>Correo:</dt>
+              <dd>{{ form.email }}</dd>
+            </div>
+            {% endif %}
+            {% if form.message %}
+            <div class="contact-result__row">
+              <dt>Mensaje:</dt>
+              <dd>{{ form.message }}</dd>
+            </div>
+            {% endif %}
+          </dl>
+        </div>
+        {% endif %}
+
+        <div class="contact-result__actions">
+          <a class="btn btn--ghost" href="{{ url_for('frontend.serve_frontend') }}">Volver al inicio</a>
+          <a class="btn btn--primary" href="{{ url_for('frontend.serve_frontend') }}#contact">Intentar nuevamente</a>
+        </div>
+      </section>
+    </main>
+  </body>
+</html>

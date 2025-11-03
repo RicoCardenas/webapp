@@ -1021,7 +1021,23 @@ function initContactForm() {
   if (!form) return;
 
   const globalError = qs(SELECTORS.contactErrorsGlobal);
-  const globalMessages = globalError?.querySelector('[data-global-error-messages]') || null;
+  const setGlobalErrors = (messages = []) => {
+    if (!globalError) return;
+    const list = globalError.querySelector('[data-global-error-messages]');
+    if (!(list instanceof HTMLUListElement)) return;
+
+    const items = Array.isArray(messages) ? messages.flat().filter(Boolean) : [messages].filter(Boolean);
+    list.innerHTML = '';
+    items.forEach((message) => {
+      const li = document.createElement('li');
+      li.textContent = String(message);
+      list.appendChild(li);
+    });
+
+    const hasErrors = items.length > 0;
+    globalError.classList.toggle('is-visible', hasErrors);
+    globalError.setAttribute('aria-hidden', hasErrors ? 'false' : 'true');
+  };
   const submitBtn = qs('button[type="submit"]', form);
   const fieldErrors = {
     name: qs(SELECTORS.errorName),
@@ -1030,25 +1046,11 @@ function initContactForm() {
   };
 
   const clearGlobalMessage = () => {
-    if (!globalError) return;
-    if (globalMessages) globalMessages.innerHTML = '';
-    else globalError.textContent = '';
-    globalError.classList.remove('is-visible');
-    globalError.setAttribute('aria-hidden', 'true');
+    setGlobalErrors([]);
   };
 
   const showGlobalMessage = (message) => {
-    if (!globalError) return;
-    if (globalMessages) {
-      globalMessages.innerHTML = '';
-      const item = document.createElement('li');
-      item.textContent = message;
-      globalMessages.appendChild(item);
-    } else {
-      globalError.textContent = message;
-    }
-    globalError.classList.add('is-visible');
-    globalError.setAttribute('aria-hidden', 'false');
+    setGlobalErrors([message]);
   };
 
   on(form, 'submit', async (e) => {
@@ -1110,7 +1112,7 @@ function initContactForm() {
       }
 
       const errorMsg = data.error || 'No se pudo enviar tu mensaje.';
-      if (!globalMessages && !globalError) {
+      if (!globalError) {
         toast.error(errorMsg);
       } else {
         showGlobalMessage(errorMsg);
@@ -1344,6 +1346,40 @@ function initAuthForms() {
     const loginErrors = {
       email: qs('#error-login-email', loginForm),
       password: qs('#error-login-password', loginForm),
+      otp: qs('#error-login-otp', loginForm),
+    };
+
+    const otpField = loginForm.querySelector('[data-otp-field]');
+    const otpInput = /** @type {HTMLInputElement|null} */ (qs('#login-otp', loginForm));
+    let otpRequired = otpField instanceof HTMLElement ? !otpField.hasAttribute('hidden') : false;
+
+    const setOtpVisible = (visible, message = '') => {
+      if (!(otpField instanceof HTMLElement)) {
+        otpRequired = false;
+        return;
+      }
+      otpRequired = visible;
+      otpField.hidden = !visible;
+      otpField.classList.toggle('is-visible', visible);
+
+      if (!visible) {
+        if (otpInput) otpInput.value = '';
+        hideFieldError(loginErrors.otp);
+        return;
+      }
+
+      if (message) {
+        showFieldError(loginErrors.otp, message);
+      } else {
+        hideFieldError(loginErrors.otp);
+      }
+
+      if (otpInput) {
+        requestAnimationFrame(() => {
+          otpInput.focus();
+          otpInput.select();
+        });
+      }
     };
 
     on(loginForm, 'submit', async (event) => {
@@ -1360,13 +1396,26 @@ function initAuthForms() {
         password: passwordInput.value,
       };
 
-      const errors = validate(
-        {
-          email: authValidators.email,
-          password: authValidators.loginPassword,
-        },
-        values
-      );
+      const otpValue = otpInput ? otpInput.value.trim() : '';
+      const otpActive = otpRequired || (otpField instanceof HTMLElement && !otpField.hidden);
+      if (otpActive || otpValue) {
+        values.otp = otpValue;
+      } else {
+        delete values.otp;
+      }
+
+      const schema = {
+        email: authValidators.email,
+        password: authValidators.loginPassword,
+      };
+
+      if (otpActive) {
+        schema.otp = authValidators.otp;
+      } else {
+        hideFieldError(loginErrors.otp);
+      }
+
+      const errors = validate(schema, /** @type {Record<string, string>} */ (values));
 
       const invalid = renderErrors(errors, loginErrors);
       if (invalid) return;
@@ -1392,13 +1441,25 @@ function initAuthForms() {
           await refreshCurrentUser();
           window.dispatchEvent(new CustomEvent('ecuplot:login'));
           loginForm.reset();
+          setOtpVisible(false);
           if (window.location.pathname === '/login') {
             setTimeout(() => {
               window.location.href = '/account';
             }, 500);
           }
         } else {
-          toast.error(data.error || `Error (${res.status}): Credenciales inválidas.`);
+          if (res.status === 401 && data?.requires_2fa) {
+            const message = data.error || 'Ingresa el código de tu app de autenticación para continuar.';
+            setOtpVisible(true, message);
+            const shouldInfo = !otpValue || /requiere/i.test(message);
+            if (shouldInfo) {
+              toast.info(message);
+            } else {
+              toast.error(message);
+            }
+          } else {
+            toast.error(data.error || `Error (${res.status}): Credenciales inválidas.`);
+          }
         }
       } catch (error) {
         console.error('Login request failed', error);

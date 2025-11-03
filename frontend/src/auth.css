@@ -309,6 +309,24 @@ body.theme-light .auth-shell__panel--info,
 
 .auth-form .form__field--checkbox { flex-direction: row; align-items: center; gap: 0.6rem; }
 
+.form__field--otp {
+  border-top: 1px solid color-mix(in srgb, var(--color-border) 70%, transparent);
+  padding-top: clamp(0.75rem, 2vw, 1rem);
+  margin-top: clamp(0.5rem, 1.5vw, 0.75rem);
+  opacity: 0;
+  transform: translateY(8px);
+  transition: opacity var(--dur-2) var(--easing), transform var(--dur-2) var(--easing);
+}
+
+.form__field--otp.is-visible {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.form__field--otp[hidden] {
+  display: none !important;
+}
+
 .auth-form .form__hint,
 .auth-form .form__microcopy { color: color-mix(in srgb, var(--color-text-muted) 82%, transparent); font-size: 0.78rem; }
 

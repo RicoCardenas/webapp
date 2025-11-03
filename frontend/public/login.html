@@ -46,6 +46,23 @@
               <p id="error-login-password" class="form__error" aria-hidden="true"></p>
             </div>
 
+            <div class="form__field form__field--otp" data-otp-field hidden>
+              <label class="form__label" for="login-otp">Código de autenticación</label>
+              <input
+                class="form__input"
+                type="text"
+                id="login-otp"
+                name="otp"
+                inputmode="numeric"
+                pattern="[0-9]*"
+                autocomplete="one-time-code"
+                placeholder="000000"
+                aria-describedby="error-login-otp"
+              />
+              <p class="form__microcopy" data-otp-help>Ingresa el código de 6 dígitos de tu app de autenticación o un código de respaldo.</p>
+              <p id="error-login-otp" class="form__error" aria-hidden="true"></p>
+            </div>
+
             <div class="form__actions form__actions--split">
               <button class="btn btn--primary auth-btn" type="submit">
                 <span>Entrar</span>

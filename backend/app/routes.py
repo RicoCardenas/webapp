@@ -1,13 +1,50 @@
+import base64
+import csv
+import hmac
+import hashlib
+import io
+import math
 import re
 import secrets
+import string
+import struct
+import time
 from dataclasses import asdict
 from datetime import datetime, timedelta, timezone
-from flask import Blueprint, current_app, jsonify, send_from_directory, request, redirect, url_for, g, render_template_string
+from flask import (
+    Blueprint,
+    current_app,
+    flash,
+    get_flashed_messages,
+    jsonify,
+    render_template,
+    request,
+    redirect,
+    send_from_directory,
+    url_for,
+    g,
+)
 from .extensions import db, bcrypt, mail
-from .models import Users, Roles, UserTokens, UserSessions, PlotHistory, StudentGroup, GroupMember, RoleRequest
+from .models import (
+    Users,
+    Roles,
+    UserTokens,
+    UserSessions,
+    PlotHistory,
+    PlotHistoryTags,
+    StudentGroup,
+    GroupMember,
+    RoleRequest,
+    RequestTicket,
+    TwoFactorBackupCode,
+    Tags,
+)
 from flask_mail import Message
-from sqlalchemy import and_, desc, cast, String, or_, delete
+from sqlalchemy import and_, asc, desc, func, cast, String, or_, delete
 from sqlalchemy.orm import selectinload
+from urllib.parse import quote
+
+import qrcode
 
 from .backup import BackupError, RestoreError, run_backup, restore_backup
 
@@ -102,53 +139,281 @@ def _send_contact_notification(name, email, message):
     return None
 
 
-def _contact_response_page(success, message, errors=None, status_code=200):
-    errors = [err for err in (errors or []) if err]
-    home_url = url_for('frontend.serve_frontend')
-    rendered = render_template_string(
-        """<!DOCTYPE html>
-<html lang="es">
-  <head>
-    <meta charset="utf-8" />
-    <title>{{ 'Mensaje enviado' if success else 'No se pudo enviar tu mensaje' }} | EcuPlot</title>
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <style>
-      :root { color-scheme: light dark; font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }
-      body { margin: 0; padding: 2.5rem 1.5rem; display: grid; place-items: center; background: #0c1424; color: #f4f6fb; }
-      .card { max-width: 520px; background: rgba(12,20,36,0.85); border-radius: 18px; padding: 2.5rem; box-shadow: 0 30px 60px rgba(3,12,35,0.35); backdrop-filter: blur(16px); }
-      h1 { margin-top: 0; font-size: 1.75rem; }
-      p { line-height: 1.6; }
-      ul { margin: 1rem 0; padding-left: 1.25rem; }
-      a { color: #7ab4ff; text-decoration: none; font-weight: 600; }
-      a:hover { text-decoration: underline; }
-      .status { margin-bottom: 1rem; font-weight: 600; color: {{ '#64d5a1' if success else '#ff8799' }}; }
-      .actions { margin-top: 2rem; }
-      button, .btn { display: inline-flex; align-items: center; justify-content: center; gap: 0.5rem; padding: 0.65rem 1.4rem; border-radius: 999px; background: #1c7cf2; color: white; border: none; font-weight: 600; cursor: pointer; text-decoration: none; }
-      button:hover, .btn:hover { background: #115dcc; }
-    </style>
-  </head>
-  <body>
-    <main class="card" role="main">
-      <p class="status">{{ 'Mensaje enviado correctamente.' if success else 'No se envió el mensaje.' }}</p>
-      <h1>{{ 'Gracias por escribirnos.' if success else 'Necesitamos que revises tus datos.' }}</h1>
-      <p>{{ message }}</p>
-      {% if errors %}
-      <ul>
-        {% for item in errors %}
-        <li>{{ item }}</li>
-        {% endfor %}
-      </ul>
-      {% endif %}
-      <p class="actions"><a class="btn" href="{{ home_url }}">Volver al inicio</a></p>
-    </main>
-  </body>
-</html>""",
-        success=success,
-        message=message,
-        errors=errors,
-        home_url=home_url,
+DEFAULT_HISTORY_PAGE_SIZE = 20
+MIN_HISTORY_PAGE_SIZE = 10
+MAX_HISTORY_PAGE_SIZE = 100
+HISTORY_EXPORT_LIMIT = 5000
+TICKET_MIN_PAGE_SIZE = 5
+TICKET_MAX_PAGE_SIZE = 20
+TICKET_ALLOWED_TYPES = {'soporte', 'rol', 'consulta', 'otro'}
+TICKET_ALLOWED_STATUS = {'pendiente', 'atendida', 'rechazada'}
+TOTP_ISSUER = 'EcuPlot'
+BACKUP_CODE_COUNT = 8
+TOTP_PERIOD = 30
+TOTP_DIGITS = 6
+
+
+def _parse_iso_datetime(value: str | None, *, end: bool = False):
+    if not value:
+        return None
+    try:
+        dt = datetime.fromisoformat(value)
+    except ValueError:
+        return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    else:
+        dt = dt.astimezone(timezone.utc)
+    if end and value and "T" not in value:
+        dt = dt + timedelta(days=1) - timedelta(microseconds=1)
+    return dt
+
+
+def _history_query_params():
+    args = request.args
+
+    def _read_int(name, default=None):
+        try:
+            return int(args.get(name))
+        except (TypeError, ValueError):
+            return default
+
+    page = _read_int("page")
+    page_size = _read_int("page_size")
+    legacy_limit = _read_int("limit")
+
+    if page_size is None:
+        page_size = legacy_limit
+    if page_size is None:
+        page_size = DEFAULT_HISTORY_PAGE_SIZE
+
+    page_size = max(MIN_HISTORY_PAGE_SIZE, min(page_size, MAX_HISTORY_PAGE_SIZE))
+
+    if page is None:
+        offset_param = args.get("offset")
+        if offset_param is not None:
+            legacy_offset = _read_int("offset", 0) or 0
+            if legacy_offset < 0:
+                legacy_offset = 0
+            page = (legacy_offset // page_size) + 1
+    if page is None or page < 1:
+        page = 1
+
+    include_deleted = str(args.get("include_deleted", "")).strip().lower() in {"1", "true", "yes"}
+    order = (args.get("order") or "desc").strip().lower()
+    if order not in {"asc", "desc"}:
+        order = "desc"
+
+    q = (args.get("q") or "").strip()
+    date_from = _parse_iso_datetime(args.get("from"))
+    date_to = _parse_iso_datetime(args.get("to"), end=True)
+
+    tags_param = args.get("tags") or ""
+    tags = [tag.strip() for tag in tags_param.split(",") if tag.strip()]
+
+    return {
+        "page": page,
+        "page_size": page_size,
+        "offset": (page - 1) * page_size,
+        "include_deleted": include_deleted,
+        "order": order,
+        "q": q,
+        "date_from": date_from,
+        "date_to": date_to,
+        "tags": tags,
+    }
+
+
+def _build_history_query(params):
+    query = db.session.query(PlotHistory).filter(PlotHistory.user_id == g.current_user.id)
+
+    if not params["include_deleted"]:
+        query = query.filter(PlotHistory.deleted_at.is_(None))
+
+    if params["date_from"]:
+        query = query.filter(PlotHistory.created_at >= params["date_from"])
+    if params["date_to"]:
+        query = query.filter(PlotHistory.created_at <= params["date_to"])
+
+    for raw_tag in params["tags"]:
+        tag_value = raw_tag.lower()
+        query = query.filter(
+            PlotHistory.tags_association.any(
+                PlotHistoryTags.tag.has(func.lower(Tags.name) == tag_value)
+            )
+        )
+
+    q = params["q"]
+    if q:
+        terms = {q}
+        if " " in q:
+            terms.add(q.replace(" ", "+"))
+        if "+" in q:
+            terms.add(q.replace("+", " "))
+        like_filters = []
+        for term in terms:
+            pattern = f"%{term}%"
+            like_filters.append(PlotHistory.expression.ilike(pattern))
+            like_filters.append(
+                PlotHistory.tags_association.any(
+                    PlotHistoryTags.tag.has(Tags.name.ilike(pattern))
+                )
+            )
+        if like_filters:
+            query = query.filter(or_(*like_filters))
+
+    return query.options(
+        selectinload(PlotHistory.tags_association).selectinload(PlotHistoryTags.tag)
     )
-    return rendered, status_code
+
+
+def _serialize_history_item(row: PlotHistory):
+    tags = []
+    for assoc in row.tags_association or []:
+        name = getattr(getattr(assoc, "tag", None), "name", None)
+        if name:
+            tags.append(name)
+    if tags:
+        tags = sorted({t for t in tags})
+    return {
+        "id": str(row.id),
+        "uuid": str(row.id),
+        "expression": row.expression,
+        "created_at": row.created_at.isoformat() if row.created_at else None,
+        "tags": tags,
+        "deleted": bool(row.deleted_at),
+    }
+
+
+def _notify_ticket_status_change(ticket, previous_status=None):
+    try:
+        current_app.logger.info(
+            'Ticket %s status change: %s -> %s',
+            getattr(ticket, 'id', 'unknown'),
+            previous_status or 'nuevo',
+            getattr(ticket, 'status', 'desconocido'),
+        )
+    except Exception:
+        pass
+
+
+def _ticket_query_params():
+    args = request.args
+
+    def _read_int(name, default):
+        try:
+            return int(args.get(name, default))
+        except (TypeError, ValueError):
+            return default
+
+    page = _read_int('page', 1)
+    if page < 1:
+        page = 1
+
+    page_size = _read_int('page_size', TICKET_MIN_PAGE_SIZE)
+    page_size = max(TICKET_MIN_PAGE_SIZE, min(page_size, TICKET_MAX_PAGE_SIZE))
+
+    status = (args.get('status') or '').strip().lower()
+    if status and status not in TICKET_ALLOWED_STATUS:
+        status = None
+
+    return {
+        'page': page,
+        'page_size': page_size,
+        'offset': (page - 1) * page_size,
+        'status': status,
+    }
+
+
+def _serialize_ticket(ticket: RequestTicket):
+    return {
+        'id': str(ticket.id),
+        'type': ticket.type,
+        'title': ticket.title,
+        'description': ticket.description,
+        'status': ticket.status,
+        'created_at': ticket.created_at.isoformat() if ticket.created_at else None,
+        'updated_at': ticket.updated_at.isoformat() if ticket.updated_at else None,
+    }
+
+
+def _generate_backup_codes(count=BACKUP_CODE_COUNT):
+    alphabet = string.ascii_uppercase + string.digits
+    codes = []
+    for _ in range(count):
+        code = ''.join(secrets.choice(alphabet) for _ in range(10))
+        codes.append(code)
+    return codes
+
+
+def _store_backup_codes(user, codes):
+    db.session.execute(
+        delete(TwoFactorBackupCode).where(TwoFactorBackupCode.user_id == user.id)
+    )
+    for code in codes:
+        hashed = bcrypt.generate_password_hash(code).decode('utf-8')
+        db.session.add(TwoFactorBackupCode(user_id=user.id, code_hash=hashed))
+
+
+def _normalize_base32(secret):
+    value = (secret or '').strip().upper()
+    padding = '=' * ((8 - len(value) % 8) % 8)
+    return value + padding
+
+
+def _generate_totp_secret():
+    return base64.b32encode(secrets.token_bytes(20)).decode('utf-8').rstrip('=')
+
+
+def _totp_value(secret, timestamp):
+    key = base64.b32decode(_normalize_base32(secret), casefold=True)
+    counter = int(timestamp // TOTP_PERIOD)
+    msg = struct.pack('>Q', counter)
+    digest = hmac.new(key, msg, hashlib.sha1).digest()
+    offset = digest[-1] & 0x0F
+    code = (struct.unpack('>I', digest[offset:offset + 4])[0] & 0x7FFFFFFF) % (10 ** TOTP_DIGITS)
+    return f'{code:0{TOTP_DIGITS}d}'
+
+
+def _verify_totp_code(user, code):
+    secret = getattr(user, 'totp_secret', None)
+    candidate = str(code or '').strip()
+    if not secret or not candidate.isdigit():
+        return False
+    now = time.time()
+    for offset in (-1, 0, 1):
+        value = _totp_value(secret, now + offset * TOTP_PERIOD)
+        if value == candidate.zfill(TOTP_DIGITS):
+            return True
+    return False
+
+
+def _verify_backup_code(user, code):
+    if not code:
+        return None
+    candidate = str(code).strip()
+    codes = db.session.execute(
+        db.select(TwoFactorBackupCode).where(
+            TwoFactorBackupCode.user_id == user.id,
+            TwoFactorBackupCode.used_at.is_(None),
+        )
+    ).scalars()
+    for entry in codes:
+        if bcrypt.check_password_hash(entry.code_hash, candidate):
+            return entry
+    return None
+
+
+def _consume_backup_code(entry):
+    entry.used_at = datetime.now(timezone.utc)
+    db.session.add(entry)
+
+
+def _build_otpauth_url(user, secret):
+    label_name = user.email or user.public_id or 'usuario'
+    label = quote(f"{TOTP_ISSUER}:{label_name}")
+    issuer = quote(TOTP_ISSUER)
+    return f'otpauth://totp/{label}?secret={secret}&issuer={issuer}&digits={TOTP_DIGITS}&period={TOTP_PERIOD}'
 
 
 def _require_roles(allowed):
@@ -197,6 +462,10 @@ def _assign_teacher_role(user):
 
 def _require_teacher():
     return _require_roles({'teacher'})
+
+
+def _require_admin_or_dev():
+    return _require_roles({'admin', 'development'})
 
 
 def _get_role_by_name(name):
@@ -368,28 +637,67 @@ def contact_form_submit():
     name = (request.form.get('name') or '').strip()
     email = _normalize_email(request.form.get('email'))
     message = (request.form.get('message') or '').strip()
+    form_snapshot = {"name": name, "email": email, "message": message}
 
     errors = _validate_contact_submission(name, email, message)
     if errors:
-        return _contact_response_page(
-            success=False,
-            message="No pudimos enviar tu mensaje. Revisa los datos e inténtalo de nuevo.",
-            errors=list(errors.values()),
-            status_code=400,
+        flash(
+            {
+                "success": False,
+                "message": "No pudimos enviar tu mensaje. Revisa los campos señalados e inténtalo de nuevo.",
+                "errors": list(errors.values()),
+                "form": form_snapshot,
+                "status_code": 400,
+            },
+            "contact-feedback",
         )
+        return redirect(url_for('frontend.contact_feedback', status='error'))
 
     delivery_error = _send_contact_notification(name, email, message)
     if delivery_error:
-        return _contact_response_page(
-            success=False,
-            message=delivery_error,
-            status_code=502,
+        flash(
+            {
+                "success": False,
+                "message": delivery_error,
+                "errors": [],
+                "form": form_snapshot,
+                "status_code": 502,
+            },
+            "contact-feedback",
         )
+        return redirect(url_for('frontend.contact_feedback', status='error'))
 
-    return _contact_response_page(
-        success=True,
-        message="Mensaje enviado. Gracias por escribirnos.",
-        status_code=200,
+    flash(
+        {
+            "success": True,
+            "message": "Mensaje enviado. Gracias por escribirnos.",
+            "errors": [],
+            "form": {"name": "", "email": "", "message": ""},
+            "status_code": 200,
+        },
+        "contact-feedback",
+    )
+    return redirect(url_for('frontend.contact_feedback', status='ok'))
+
+
+@frontend.get("/contact/resultado")
+def contact_feedback():
+    """Muestra los mensajes resultantes del envío clásico del formulario de contacto."""
+    feedback = get_flashed_messages(category_filter=["contact-feedback"])
+    payload = feedback[-1] if feedback else None
+    if not isinstance(payload, dict):
+        return redirect(url_for('frontend.serve_frontend'))
+
+    status_code = int(payload.get("status_code") or 200)
+    return (
+        render_template(
+            "contact-result.html",
+            success=bool(payload.get("success")),
+            message=payload.get("message") or "",
+            errors=list(payload.get("errors") or []),
+            form=payload.get("form") or {},
+        ),
+        status_code,
     )
 
 # --- Rutas de la API ---
@@ -668,6 +976,16 @@ def login_user():
 
         return jsonify(error="Contraseña incorrecta."), 401 
 
+    backup_entry = None
+    if user.is_2fa_enabled:
+        otp_code = (data.get('otp') or data.get('otp_code') or data.get('code') or '').strip()
+        if not otp_code:
+            return jsonify(error="Se requiere el código de autenticación en dos pasos.", requires_2fa=True), 401
+
+        valid, backup_entry = _verify_2fa_or_backup(user, otp_code)
+        if not valid:
+            return jsonify(error="Código de verificación inválido.", requires_2fa=True), 401
+
     session_token = secrets.token_urlsafe(64)
     expires = datetime.now(timezone.utc) + timedelta(days=7)
 
@@ -685,7 +1003,7 @@ def login_user():
     try:
         db.session.add(new_session)
         db.session.commit()
-        
+
     except Exception as e:
         db.session.rollback()
         current_app.logger.error(f"Error al crear sesión: {e}")
@@ -944,44 +1262,377 @@ def plot_history_list():
       - offset: int (por defecto 0)
       - q: texto a buscar dentro de 'expression' (opcional, case-insensitive)
     """
-    try:
-        limit = min(max(int(request.args.get("limit", 50)), 1), 200)
-    except Exception:
-        limit = 50
-    try:
-        offset = max(int(request.args.get("offset", 0)), 0)
-    except Exception:
-        offset = 0
+    params = _history_query_params()
+    query = _build_history_query(params)
 
-    q = (request.args.get("q") or "").strip()
+    total = query.count()
+    total_pages = math.ceil(total / params["page_size"]) if total else 0
 
-    base_q = db.session.query(PlotHistory).filter(PlotHistory.user_id == g.current_user.id)
-    if q:
-        terms = {q}
-        if " " in q:
-            terms.add(q.replace(" ", "+"))
-        if "+" in q:
-            terms.add(q.replace("+", " "))
-        filters = [PlotHistory.expression.ilike(f"%{term}%") for term in terms if term]
-        if filters:
-            base_q = base_q.filter(or_(*filters))
+    rows = []
+    if total and params["offset"] < total:
+        order_clause = asc(PlotHistory.created_at) if params["order"] == "asc" else desc(PlotHistory.created_at)
+        rows = (
+            query.order_by(order_clause, desc(PlotHistory.id))
+            .offset(params["offset"])
+            .limit(params["page_size"])
+            .all()
+        )
 
-    total = base_q.count()
-    rows = base_q.order_by(desc(PlotHistory.created_at)).offset(offset).limit(limit).all()
+    data = [_serialize_history_item(row) for row in rows]
 
-    return jsonify({
-        "total": total,
-        "limit": limit,
-        "offset": offset,
-        "items": [
+    return jsonify(
+        {
+            "data": data,
+            "meta": {
+                "page": params["page"],
+                "page_size": params["page_size"],
+                "total": total,
+                "total_pages": total_pages,
+                "order": params["order"],
+            },
+        }
+    )
+
+
+@api.get("/plot/history/export")
+@require_session
+def export_plot_history():
+    params = _history_query_params()
+    fmt = (request.args.get("format") or "csv").strip().lower()
+    if fmt not in {"csv", "json"}:
+        return jsonify(error="Formato no soportado. Usa 'csv' o 'json'."), 400
+
+    query = _build_history_query(params)
+    total = query.count()
+    order_clause = asc(PlotHistory.created_at) if params["order"] == "asc" else desc(PlotHistory.created_at)
+
+    limit = HISTORY_EXPORT_LIMIT
+    rows = (
+        query.order_by(order_clause, desc(PlotHistory.id))
+        .limit(limit)
+        .all()
+    )
+
+    data = [_serialize_history_item(row) for row in rows]
+    truncated = total > len(data)
+    generated_at = datetime.now(timezone.utc).strftime("%Y%m%d")
+
+    if fmt == "json":
+        response = jsonify(
             {
-                "id": str(r.id),
-                "expression": r.expression,
-                "created_at": r.created_at.isoformat()
+                "data": data,
+                "meta": {
+                    "count": len(data),
+                    "total": total,
+                    "truncated": truncated,
+                },
             }
-            for r in rows
-        ],
-    })
+        )
+        response.headers["Content-Disposition"] = f'attachment; filename=plot-history-{generated_at}.json'
+        return response
+
+    buffer = io.StringIO()
+    writer = csv.writer(buffer)
+    writer.writerow(["id", "uuid", "expression", "tags", "created_at", "deleted"])
+    for item in data:
+        writer.writerow(
+            [
+                item["id"],
+                item["uuid"],
+                item["expression"] or "",
+                ";".join(item["tags"]) if item["tags"] else "",
+                item["created_at"] or "",
+                "1" if item["deleted"] else "0",
+            ]
+        )
+    buffer.seek(0)
+
+    response = current_app.response_class(buffer.getvalue(), mimetype="text/csv")
+    response.headers["Content-Disposition"] = f'attachment; filename=plot-history-{generated_at}.csv'
+    if truncated:
+        response.headers["X-Export-Truncated"] = "1"
+    return response
+
+
+@api.post("/account/requests")
+@require_session
+def create_request_ticket():
+    data = request.get_json(silent=True) or {}
+    ticket_type = (data.get('type') or '').strip().lower()
+    title = (data.get('title') or '').strip()
+    description = (data.get('description') or '').strip()
+
+    errors = {}
+    if not ticket_type or ticket_type not in TICKET_ALLOWED_TYPES:
+        errors['type'] = 'Selecciona un tipo válido.'
+    if len(title) < 4:
+        errors['title'] = 'El título debe tener al menos 4 caracteres.'
+    if len(description) < 10:
+        errors['description'] = 'Describe tu solicitud con un poco más de detalle.'
+
+    if errors:
+        return jsonify(error='Datos inválidos', fields=errors), 400
+
+    ticket = RequestTicket(
+        user_id=g.current_user.id,
+        type=ticket_type,
+        title=title,
+        description=description,
+        status='pendiente',
+    )
+    db.session.add(ticket)
+    try:
+        db.session.commit()
+    except Exception as exc:
+        db.session.rollback()
+        current_app.logger.error('No se pudo crear el ticket: %s', exc)
+        return jsonify(error='No se pudo registrar tu solicitud.'), 500
+
+    _notify_ticket_status_change(ticket)
+    return jsonify(message='Solicitud registrada.', ticket=_serialize_ticket(ticket)), 201
+
+
+@api.get("/account/requests")
+@require_session
+def list_request_tickets():
+    params = _ticket_query_params()
+
+    query = db.session.query(RequestTicket).filter(RequestTicket.user_id == g.current_user.id)
+    if params['status']:
+        query = query.filter(RequestTicket.status == params['status'])
+
+    total = query.count()
+    rows = (
+        query.order_by(desc(RequestTicket.created_at))
+        .offset(params['offset'])
+        .limit(params['page_size'])
+        .all()
+    )
+
+    total_pages = math.ceil(total / params['page_size']) if total else 0
+    data = [_serialize_ticket(row) for row in rows]
+
+    return jsonify(
+        {
+            'data': data,
+            'meta': {
+                'page': params['page'],
+                'page_size': params['page_size'],
+                'total': total,
+                'total_pages': total_pages,
+                'status': params['status'],
+            },
+        }
+    )
+
+
+@api.get("/account/2fa/status")
+@require_session
+def two_factor_status():
+    backup_count = (
+        db.session.query(func.count(TwoFactorBackupCode.id))
+        .filter(
+            TwoFactorBackupCode.user_id == g.current_user.id,
+            TwoFactorBackupCode.used_at.is_(None),
+        )
+        .scalar()
+        or 0
+    )
+    return jsonify(
+        enabled=bool(g.current_user.is_2fa_enabled),
+        has_backup_codes=backup_count > 0,
+    )
+
+
+@api.post("/account/2fa/setup")
+@require_session
+def two_factor_setup():
+    secret = _generate_totp_secret()
+    g.current_user.totp_secret = secret
+    g.current_user.is_2fa_enabled = False
+    _store_backup_codes(g.current_user, [])
+
+    try:
+        db.session.commit()
+    except Exception as exc:
+        db.session.rollback()
+        current_app.logger.error('No se pudo preparar 2FA: %s', exc)
+        return jsonify(error='No se pudo generar la configuración de 2FA.'), 500
+
+    otpauth = _build_otpauth_url(g.current_user, secret)
+    return jsonify(secret=secret, otpauth_url=otpauth)
+
+
+@api.post("/account/2fa/enable")
+@require_session
+def two_factor_enable():
+    data = request.get_json(silent=True) or {}
+    code = (data.get('code') or data.get('otp') or '').strip()
+
+    if not _verify_totp_code(g.current_user, code):
+        return jsonify(error='El código proporcionado no es válido.'), 400
+
+    backup_codes = _generate_backup_codes()
+    _store_backup_codes(g.current_user, backup_codes)
+    g.current_user.is_2fa_enabled = True
+
+    try:
+        db.session.commit()
+    except Exception as exc:
+        db.session.rollback()
+        current_app.logger.error('No se pudo activar 2FA: %s', exc)
+        return jsonify(error='No se pudo activar la autenticación de dos pasos.'), 500
+
+    return jsonify(message='Autenticación en dos pasos activada.', backup_codes=backup_codes)
+
+
+def _verify_2fa_or_backup(user, code):
+    if _verify_totp_code(user, code):
+        return True, None
+    entry = _verify_backup_code(user, code)
+    if entry:
+        _consume_backup_code(entry)
+        return True, entry
+    return False, None
+
+
+@api.post("/account/2fa/disable")
+@require_session
+def two_factor_disable():
+    data = request.get_json(silent=True) or {}
+    code = (data.get('code') or '').strip()
+
+    valid, _ = _verify_2fa_or_backup(g.current_user, code)
+    if not valid:
+        return jsonify(error='El código proporcionado no es válido.'), 400
+
+    g.current_user.is_2fa_enabled = False
+    g.current_user.totp_secret = None
+    _store_backup_codes(g.current_user, [])
+
+    try:
+        db.session.commit()
+    except Exception as exc:
+        db.session.rollback()
+        current_app.logger.error('No se pudo desactivar 2FA: %s', exc)
+        return jsonify(error='No se pudo desactivar la autenticación en dos pasos.'), 500
+
+    return jsonify(message='Autenticación en dos pasos desactivada.')
+
+
+@api.post("/account/2fa/backup-codes/regenerate")
+@require_session
+def regenerate_backup_codes():
+    data = request.get_json(silent=True) or {}
+    code = (data.get('code') or '').strip()
+
+    valid, _ = _verify_2fa_or_backup(g.current_user, code)
+    if not valid:
+        return jsonify(error='El código proporcionado no es válido.'), 400
+
+    new_codes = _generate_backup_codes()
+    _store_backup_codes(g.current_user, new_codes)
+
+    try:
+        db.session.commit()
+    except Exception as exc:
+        db.session.rollback()
+        current_app.logger.error('No se pudieron regenerar los códigos de respaldo: %s', exc)
+        return jsonify(error='No se pudieron regenerar los códigos de respaldo.'), 500
+
+    return jsonify(message='Códigos de respaldo regenerados.', backup_codes=new_codes)
+
+
+@api.get("/admin/stats/users")
+@require_session
+def admin_stats_users():
+    guard = _require_admin_or_dev()
+    if guard:
+        return guard
+
+    total = (
+        db.session.query(func.count(Users.id))
+        .filter(Users.deleted_at.is_(None))
+        .scalar()
+        or 0
+    )
+
+    seven_days_ago = datetime.now(timezone.utc) - timedelta(days=7)
+    active = (
+        db.session.query(func.count(func.distinct(UserSessions.user_id)))
+        .filter(UserSessions.last_seen_at.isnot(None), UserSessions.last_seen_at >= seven_days_ago)
+        .scalar()
+        or 0
+    )
+
+    role_rows = (
+        db.session.query(Roles.name, func.count(Users.id))
+        .join(Users, Roles.id == Users.role_id)
+        .filter(Users.deleted_at.is_(None))
+        .group_by(Roles.name)
+        .all()
+    )
+    role_map = {str(name or 'sin_rol'): int(count or 0) for name, count in role_rows}
+
+    return jsonify(total=int(total), activos_7d=int(active), por_rol=role_map)
+
+
+@api.get("/admin/stats/requests")
+@require_session
+def admin_stats_requests():
+    guard = _require_admin_or_dev()
+    if guard:
+        return guard
+
+    total = db.session.query(func.count(RoleRequest.id)).scalar() or 0
+    pending = (
+        db.session.query(func.count(RoleRequest.id))
+        .filter(RoleRequest.status == 'pending')
+        .scalar()
+        or 0
+    )
+    resolved = (
+        db.session.query(func.count(RoleRequest.id))
+        .filter(RoleRequest.status.in_(("approved", "rejected")))
+        .scalar()
+        or 0
+    )
+    open_count = max(int(total) - int(resolved), 0)
+
+    return jsonify(abiertas=open_count, pendientes=int(pending), atendidas=int(resolved))
+
+
+@api.get("/admin/stats/plots")
+@require_session
+def admin_stats_plots():
+    guard = _require_admin_or_dev()
+    if guard:
+        return guard
+
+    now = datetime.now(timezone.utc)
+    start_today = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    week_ago = now - timedelta(days=7)
+
+    total = (
+        db.session.query(func.count(PlotHistory.id))
+        .filter(PlotHistory.deleted_at.is_(None))
+        .scalar()
+        or 0
+    )
+    today = (
+        db.session.query(func.count(PlotHistory.id))
+        .filter(PlotHistory.deleted_at.is_(None), PlotHistory.created_at >= start_today)
+        .scalar()
+        or 0
+    )
+    week = (
+        db.session.query(func.count(PlotHistory.id))
+        .filter(PlotHistory.deleted_at.is_(None), PlotHistory.created_at >= week_ago)
+        .scalar()
+        or 0
+    )
+
+    return jsonify(hoy=int(today), ultimos_7d=int(week), total=int(total))
 
 
 @api.post("/groups")
