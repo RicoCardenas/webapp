@@ -1021,6 +1021,7 @@ function initContactForm() {
   if (!form) return;
 
   const globalError = qs(SELECTORS.contactErrorsGlobal);
+  const submitBtn = qs('button[type="submit"]', form);
   const fieldErrors = {
     name: qs(SELECTORS.errorName),
     email: qs(SELECTORS.errorEmail),
@@ -1057,9 +1058,15 @@ function initContactForm() {
       return;
     }
 
+    const originalLabel = submitBtn?.textContent;
     try {
+      if (submitBtn) {
+        submitBtn.disabled = true;
+        submitBtn.textContent = 'Enviando...';
+      }
+
       const res = await safeFetch(
-        '/contact',
+        '/api/contact',
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -1068,14 +1075,47 @@ function initContactForm() {
         5000
       );
 
+      const data = await res.json().catch(() => ({}));
+
       if (res.ok) {
-        toast.success('Mensaje enviado (simulación)');
+        toast.success(data.message || 'Mensaje enviado. Gracias por escribirnos.');
         form.reset();
-      } else {
-        toast.error('No se pudo enviar tu mensaje (simulación)');
+        return;
       }
-    } catch {
-      toast.error('No se pudo enviar tu mensaje (simulación)');
+
+      if (data?.fields && typeof data.fields === 'object') {
+        renderErrors(
+          {
+            name: data.fields.name || '',
+            email: data.fields.email || '',
+            message: data.fields.message || '',
+          },
+          fieldErrors
+        );
+      }
+
+      const errorMsg = data.error || 'No se pudo enviar tu mensaje.';
+      if (globalError) {
+        globalError.textContent = errorMsg;
+        globalError.classList.add('is-visible');
+        globalError.setAttribute('aria-hidden', 'false');
+      } else {
+        toast.error(errorMsg);
+      }
+    } catch (error) {
+      console.error('Contact request failed', error);
+      toast.error('Error de red al enviar tu mensaje.');
+      if (globalError) {
+        globalError.textContent = 'No se pudo enviar el mensaje. Intenta nuevamente.';
+        globalError.classList.add('is-visible');
+        globalError.setAttribute('aria-hidden', 'false');
+      }
+    }
+    finally {
+      if (submitBtn) {
+        submitBtn.disabled = false;
+        submitBtn.textContent = originalLabel || 'Enviar';
+      }
     }
   });
 }

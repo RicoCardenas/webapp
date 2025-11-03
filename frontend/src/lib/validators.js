@@ -1,4 +1,6 @@
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const PASSWORD_POLICY_MESSAGE = 'La contraseña debe tener al menos 8 caracteres, e incluir una letra mayúscula, una letra minúscula, un número y un carácter especial.';
+const PASSWORD_COMPLEXITY_RE = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[^A-Za-z0-9\s]).{8,}$/;
 
 export const contactValidators = {
   name(value) {
@@ -17,7 +19,7 @@ export const authValidators = {
     return EMAIL_RE.test(value || '') ? '' : 'Ingresa un correo válido';
   },
   password(value) {
-    return value && value.length >= 8 ? '' : 'La contraseña debe tener al menos 8 caracteres';
+    return PASSWORD_COMPLEXITY_RE.test(value || '') ? '' : PASSWORD_POLICY_MESSAGE;
   },
   loginPassword(value) {
     return value && value.length > 0 ? '' : 'Ingresa tu contraseña';

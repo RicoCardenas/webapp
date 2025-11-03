@@ -6,13 +6,22 @@ def test_register_requires_json(client):
     assert "No se proporcionaron" in res.get_json()["error"]
 
 def test_register_requires_terms(client):
-    payload = {"email": "a@test.com", "password": "x"}
+    payload = {
+        "email": "a@test.com",
+        "password": "Str0ng!Pass1",
+        "password_confirm": "Str0ng!Pass1",
+    }
     res = client.post("/api/register", json=payload)
     assert res.status_code == 400
     assert "términos" in res.get_json()["error"]
 
 def test_register_happy_path(client, mail_outbox):
-    payload = {"email": "a@test.com", "password": "x", "terms": True}
+    payload = {
+        "email": "a@test.com",
+        "password": "Str0ng!Pass1",
+        "password_confirm": "Str0ng!Pass1",
+        "terms": True,
+    }
     res = client.post("/api/register", json=payload)
     assert res.status_code == 201
     msg = res.get_json()["message"]
@@ -25,7 +34,12 @@ def test_register_happy_path(client, mail_outbox):
     assert re.search(r"/api/verify-email\?token=[A-Za-z0-9_\-]+", m.body)
 
 def test_register_conflict(client):
-    payload = {"email": "dup@test.com", "password": "x", "terms": True}
+    payload = {
+        "email": "dup@test.com",
+        "password": "Str0ng!Pass1",
+        "password_confirm": "Str0ng!Pass1",
+        "terms": True,
+    }
     res1 = client.post("/api/register", json=payload)
     assert res1.status_code == 201
     res2 = client.post("/api/register", json=payload)

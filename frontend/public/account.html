@@ -151,11 +151,11 @@
 
               <dl class="account-stats">
                 <div>
-                  <dt>ID visible</dt>
+                  <dt>ID</dt>
                   <dd id="user-visible-id">—</dd>
                 </div>
                 <div id="user-internal-id-row" hidden>
-                  <dt>ID interno (UUID)</dt>
+                  <dt>UUID</dt>
                   <dd id="user-internal-id">—</dd>
                 </div>
                 <div>
@@ -171,6 +171,17 @@
                   <dd id="history-count">—</dd>
                 </div>
               </dl>
+
+              <div class="account-request" id="admin-request-box" hidden>
+                <div class="account-request__copy">
+                  <h3 class="account-request__title">Solicitar rol administrador</h3>
+                  <p class="account-request__text">Pide acceso de administrador para gestionar usuarios, grupos y respaldos. Enviaremos la petición al equipo para su revisión.</p>
+                </div>
+                <div class="account-request__actions">
+                  <button class="btn btn--primary btn--sm" type="button" id="btn-request-admin">Solicitar rol de administrador</button>
+                </div>
+                <p class="account-request__status" id="admin-request-status" role="status" aria-live="polite" hidden></p>
+              </div>
             </div>
 
             <div class="account-card__footer">
@@ -217,7 +228,7 @@
               <div>
                 <p class="account-card__eyebrow">Gestión docente</p>
                 <h2 class="account-card__title">Mis grupos</h2>
-                <p class="account-card__subtitle">Crea grupos y agrega estudiantes utilizando su ID visible.</p>
+                <p class="account-card__subtitle">Crea grupos y agrega estudiantes utilizando su ID.</p>
               </div>
               <div class="account-card__actions">
                 <button id="teacher-create-group" class="btn btn--primary btn--sm" type="button">Crear grupo</button>
@@ -237,25 +248,34 @@
                 <p class="account-card__subtitle">Consulta el listado de docentes y promueve nuevos usuarios.</p>
               </div>
             </div>
-            <div class="account-card__body">
-              <form id="admin-assign-teacher-form" class="role-form role-form--inline" novalidate>
-                <div class="form__field">
-                  <label class="form__label" for="admin-assign-user-id">ID del usuario (UUID)</label>
-                  <input class="form__input" type="text" id="admin-assign-user-id" autocomplete="off" placeholder="Ej. 123e4567-e89b-12d3-a456-426614174000" />
-                  <p class="form__hint">Ingresa el identificador del usuario al que deseas otorgar el rol docente. Puedes dejarlo vacío si usas el ID visible.</p>
+            <div class="account-card__body admin-panel__body">
+              <div class="admin-panel__layout">
+                <form id="admin-assign-teacher-form" class="role-form role-form--inline admin-panel__card" novalidate>
+                  <div class="form__field">
+                    <label class="form__label" for="admin-assign-user-id">UUID</label>
+                    <input class="form__input" type="text" id="admin-assign-user-id" autocomplete="off" placeholder="Ej. 123e4567-e89b-12d3-a456-426614174000" />
+                    <p class="form__hint">Ingresa el identificador único del usuario al que deseas otorgar el rol docente.</p>
+                  </div>
+                  <div class="form__field">
+                    <label class="form__label" for="admin-assign-visible-id">ID</label>
+                    <input class="form__input" type="text" id="admin-assign-visible-id" autocomplete="off" placeholder="Ej. d2XBK2p6" />
+                    <p class="form__hint">Si no cuentas con el UUID, escribe el ID mostrado al usuario.</p>
+                  </div>
+                  <div class="form__actions">
+                    <button class="btn btn--primary btn--sm" type="submit">Asignar rol docente</button>
+                  </div>
+                </form>
+
+                <div class="admin-panel__card admin-panel__list">
+                  <h3 class="account-card__subtitle">Docentes registrados</h3>
+                  <p class="account-card__hint">Consulta los usuarios con rol docente activo.</p>
+                  <div id="admin-user-list" class="role-panel__list"></div>
                 </div>
-                <div class="form__field">
-                  <label class="form__label" for="admin-assign-visible-id">ID visible</label>
-                  <input class="form__input" type="text" id="admin-assign-visible-id" autocomplete="off" placeholder="Ej. d2XBK2p6" />
-                  <p class="form__hint">Alternativamente, escribe el ID visible mostrado al usuario.</p>
-                </div>
-                <div class="form__actions">
-                  <button class="btn btn--primary btn--sm" type="submit">Asignar rol docente</button>
-                </div>
-              </form>
-              <div id="admin-user-list" class="role-panel__list"></div>
-              <div class="role-panel__section">
+              </div>
+
+              <div class="admin-panel__card admin-panel__list admin-panel__groups">
                 <h3 class="account-card__subtitle">Grupos docentes</h3>
+                <p class="account-card__hint">Resumen de los grupos creados por docentes y su estado actual.</p>
                 <div id="admin-group-list" class="role-panel__list"></div>
               </div>
             </div>
@@ -276,8 +296,8 @@
                   <input class="form__input" type="text" id="development-user-id" autocomplete="off" placeholder="UUID del usuario" />
                 </div>
                 <div class="form__field">
-                  <label class="form__label" for="development-visible-id">ID visible</label>
-                  <input class="form__input" type="text" id="development-visible-id" autocomplete="off" placeholder="visible_id (opcional)" />
+                  <label class="form__label" for="development-visible-id">ID</label>
+                  <input class="form__input" type="text" id="development-visible-id" autocomplete="off" placeholder="ID (opcional)" />
                 </div>
                 <div class="form__field">
                   <label class="form__label" for="development-request-id">ID de solicitud</label>

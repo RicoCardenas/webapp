@@ -54,6 +54,7 @@ class Config:
     CORS_ORIGINS = parse_list_env('CORS_ORIGINS')
     CONTACT_RECIPIENTS = parse_list_env('CONTACT_RECIPIENTS')
     CONTACT_RECIPIENT = CONTACT_RECIPIENTS[0] if CONTACT_RECIPIENTS else None
+    ROLE_REQUEST_RECIPIENTS = parse_list_env('ROLE_REQUEST_RECIPIENTS') or CONTACT_RECIPIENTS
 
     # --- backups ---
     BACKUP_DIR = os.getenv('BACKUP_DIR', str(PROJECT_ROOT / "BackupsDB"))

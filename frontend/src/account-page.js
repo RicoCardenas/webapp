@@ -7,6 +7,7 @@ let unauthorizedHandled = false;
 const teacherState = { bound: false };
 const adminState = { bound: false };
 const developmentState = { bound: false };
+const adminRequestState = { bound: false, loading: false, status: 'none' };
 
 const ui = {
   authShell: qs('#account-authenticated'),
@@ -43,6 +44,9 @@ const ui = {
   developmentRestoreForm: qs('#development-restore-form'),
   developmentBackupName: qs('#development-backup-name'),
   developmentRequestsList: qs('#development-role-requests'),
+  adminRequestBox: qs('#admin-request-box'),
+  adminRequestButton: qs('#btn-request-admin'),
+  adminRequestStatus: qs('#admin-request-status'),
 };
 
 function initialsFrom(name = '', email = '') {
@@ -94,6 +98,20 @@ function resetAccountUI() {
     const message = qs('p', ui.historyEmpty);
     if (message) message.textContent = 'Inicia sesión para ver tu historial.';
   }
+  if (ui.adminRequestBox) ui.adminRequestBox.hidden = true;
+  if (ui.adminRequestStatus) {
+    ui.adminRequestStatus.textContent = '';
+    ui.adminRequestStatus.hidden = true;
+    ui.adminRequestStatus.removeAttribute('data-state');
+  }
+  if (ui.adminRequestButton) {
+    const defaultLabel = ui.adminRequestButton.dataset.defaultLabel || ui.adminRequestButton.textContent;
+    ui.adminRequestButton.disabled = false;
+    ui.adminRequestButton.textContent = defaultLabel || 'Solicitar rol de administrador';
+  }
+  adminRequestState.status = 'none';
+  adminRequestState.loading = false;
+
   toggleHistoryPanel(false);
 }
 
@@ -182,6 +200,7 @@ function renderAccountDetails(user) {
   if (avatar) avatar.textContent = initialsFrom(user.name, user.email);
 
   renderRolePanels(user, roles);
+  renderAdminRequestSection(user, roles);
 }
 
 function hideRolePanels() {
@@ -213,6 +232,201 @@ function renderRolePanels(user, precomputedRoles) {
   if (roles.has('teacher')) renderTeacherPanel();
   if (roles.has('admin')) renderAdminPanel();
   if (roles.has('development')) renderDevelopmentPanel();
+}
+
+function renderAdminRequestSection(user, precomputedRoles) {
+  if (!ui.adminRequestBox) return;
+  const roles = precomputedRoles ?? getNormalizedRoles(user);
+  const hasElevatedRole = roles.has('admin') || roles.has('development');
+  const shouldShow = Boolean(user) && !hasElevatedRole;
+  ui.adminRequestBox.hidden = !shouldShow;
+
+  if (!shouldShow) {
+    updateAdminRequestStatus('none');
+    return;
+  }
+
+  if (!adminRequestState.bound) {
+    bindAdminRequestSection();
+    adminRequestState.bound = true;
+  }
+
+  loadAdminRequestStatus();
+}
+
+function bindAdminRequestSection() {
+  const button = ui.adminRequestButton;
+  if (!button) return;
+  if (!button.dataset.defaultLabel) {
+    button.dataset.defaultLabel = button.textContent || 'Solicitar rol de administrador';
+  }
+  on(button, 'click', handleAdminRoleRequestClick);
+}
+
+function formatRequestTimestamp(value) {
+  if (!value) return null;
+  const dt = new Date(value);
+  if (Number.isNaN(dt.getTime())) return null;
+  return dt.toLocaleString('es-CO', { dateStyle: 'medium', timeStyle: 'short' });
+}
+
+async function loadAdminRequestStatus() {
+  if (!ui.adminRequestBox || ui.adminRequestBox.hidden) return;
+  if (adminRequestState.loading) return;
+  adminRequestState.loading = true;
+
+  const res = await requestWithAuth('/api/role-requests/me');
+  adminRequestState.loading = false;
+  if (!res) return;
+
+  if (!res.ok) {
+    updateAdminRequestStatus('error', 'No se pudo consultar el estado de tu solicitud.');
+    return;
+  }
+
+  const data = await res.json().catch(() => ({}));
+  const req = data?.request;
+
+  if (!req) {
+    updateAdminRequestStatus('none');
+    return;
+  }
+
+  const createdLabel = formatRequestTimestamp(req.created_at);
+  let message = '';
+
+  switch (req.status) {
+    case 'pending':
+      message = createdLabel
+        ? `Solicitud pendiente desde ${createdLabel}. Te avisaremos por correo.`
+        : 'Solicitud pendiente. Te avisaremos por correo.';
+      break;
+    case 'rejected': {
+      const resolverInfo = req.resolver?.name ? ` Resolver: ${req.resolver.name}.` : '';
+      message = `Tu última solicitud fue rechazada.${resolverInfo} Puedes intentar nuevamente cuando estés listo.`;
+      break;
+    }
+    case 'approved':
+      message = 'Tu solicitud fue aprobada. Recarga la página para ver los permisos actualizados.';
+      break;
+    default:
+      message = `Estado de solicitud: ${req.status}.`;
+      break;
+  }
+
+  updateAdminRequestStatus(req.status, message, req);
+}
+
+function updateAdminRequestStatus(status, message = '', request = null) {
+  adminRequestState.status = status || 'none';
+
+  if (ui.adminRequestStatus) {
+    if (!status || status === 'none') {
+      ui.adminRequestStatus.textContent = '';
+      ui.adminRequestStatus.hidden = true;
+      ui.adminRequestStatus.removeAttribute('data-state');
+    } else {
+      ui.adminRequestStatus.textContent = message || `Estado de solicitud: ${status}`;
+      ui.adminRequestStatus.hidden = false;
+      ui.adminRequestStatus.dataset.state = status;
+    }
+  }
+
+  const button = ui.adminRequestButton;
+  if (!button) return;
+  const defaultLabel = button.dataset.defaultLabel || button.textContent || 'Solicitar rol de administrador';
+
+  switch (status) {
+    case 'pending':
+      button.disabled = true;
+      button.textContent = 'Solicitud enviada';
+      break;
+    case 'approved':
+      button.disabled = true;
+      button.textContent = 'Solicitud aprobada';
+      break;
+    case 'error':
+      button.disabled = false;
+      button.textContent = defaultLabel;
+      break;
+    case 'rejected':
+      button.disabled = false;
+      button.textContent = defaultLabel;
+      break;
+    case 'none':
+    default:
+      button.disabled = false;
+      button.textContent = defaultLabel;
+      break;
+  }
+
+  if (request && (request.id || request.request_id)) {
+    button.dataset.requestId = String(request.id || request.request_id);
+  } else if (button.dataset.requestId) {
+    delete button.dataset.requestId;
+  }
+}
+
+async function handleAdminRoleRequestClick(event) {
+  event.preventDefault();
+  const button = event?.currentTarget instanceof HTMLButtonElement ? event.currentTarget : ui.adminRequestButton;
+  if (!button) return;
+
+  const defaultLabel = button.dataset.defaultLabel || button.textContent || 'Solicitar rol de administrador';
+  button.disabled = true;
+  button.textContent = 'Enviando...';
+
+  try {
+    const res = await requestWithAuth('/api/role-requests', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ role: 'admin' }),
+    });
+
+    if (!res) {
+      button.disabled = false;
+      button.textContent = defaultLabel;
+      return;
+    }
+
+    const data = await res.json().catch(() => ({}));
+
+    if (res.ok) {
+      const message = data?.message || 'Solicitud registrada. Te avisaremos cuando sea revisada.';
+      toast?.success?.(message);
+      updateAdminRequestStatus('pending', message, data);
+      await loadAdminRequestStatus();
+      return;
+    }
+
+    const errorMsg = data?.error || 'No se pudo registrar la solicitud.';
+
+    if (res.status === 409) {
+      toast?.info?.(errorMsg);
+      updateAdminRequestStatus('pending', errorMsg);
+      return;
+    }
+
+    toast?.error?.(errorMsg);
+    updateAdminRequestStatus('error', errorMsg);
+  } catch (err) {
+    console.error('[account] Error al solicitar rol admin', err);
+    toast?.error?.('No se pudo enviar tu solicitud en este momento.');
+    updateAdminRequestStatus('error', 'No se pudo enviar la solicitud. Intenta de nuevo.');
+  } finally {
+    const currentStatus = adminRequestState.status;
+    if (!button) return;
+    if (currentStatus === 'pending') {
+      button.disabled = true;
+      button.textContent = 'Solicitud enviada';
+    } else if (currentStatus === 'approved') {
+      button.disabled = true;
+      button.textContent = 'Solicitud aprobada';
+    } else {
+      button.disabled = false;
+      button.textContent = defaultLabel;
+    }
+  }
 }
 
 function renderTeacherPanel() {
@@ -415,7 +629,7 @@ function createTeacherGroupCard(group) {
   const label = document.createElement('label');
   label.className = 'form__label';
   label.setAttribute('for', inputId);
-  label.textContent = 'Agregar estudiante (visible_id)';
+  label.textContent = 'Agregar estudiante (ID)';
 
   const input = document.createElement('input');
   input.className = 'form__input';
@@ -492,7 +706,7 @@ function onTeacherAddMember(event) {
 
   const visibleId = input.value.trim();
   if (!visibleId) {
-    toast?.error?.('Ingresa un ID visible.');
+    toast?.error?.('Ingresa un ID.');
     return;
   }
 
@@ -576,7 +790,7 @@ function onAdminAssignTeacher(event) {
   const visibleId = visibleIdInput instanceof HTMLInputElement ? visibleIdInput.value.trim() : '';
 
   if (!userId && !visibleId) {
-    toast?.error?.('Ingresa el ID del usuario o su ID visible.');
+    toast?.error?.('Ingresa el ID del usuario.');
     return;
   }
 
@@ -822,7 +1036,7 @@ function onDevelopmentAssignAdmin(event) {
   const requestId = ui.developmentRequestId instanceof HTMLInputElement ? ui.developmentRequestId.value.trim() : '';
 
   if (!userId && !visibleId) {
-    toast?.error?.('Ingresa el ID del usuario o su ID visible.');
+    toast?.error?.('Ingresa el ID del usuario.');
     return;
   }
 

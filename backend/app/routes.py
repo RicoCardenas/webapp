@@ -1,3 +1,4 @@
+import re
 import secrets
 from dataclasses import asdict
 from datetime import datetime, timedelta, timezone
@@ -19,6 +20,26 @@ frontend = Blueprint("frontend", __name__)
 MAX_FAILED_LOGIN_ATTEMPTS = 3
 ACCOUNT_UNLOCK_TOKEN_TTL = timedelta(hours=24)
 PASSWORD_RESET_TOKEN_TTL = timedelta(hours=1)
+PASSWORD_POLICY_MESSAGE = (
+    "La contraseña debe tener al menos 8 caracteres, con una letra mayúscula, "
+    "una letra minúscula, un número y un carácter especial."
+)
+
+
+def _password_strength_error(password: str | None) -> str | None:
+    if not password:
+        return PASSWORD_POLICY_MESSAGE
+    if len(password) < 8:
+        return PASSWORD_POLICY_MESSAGE
+    if not re.search(r"[A-Z]", password):
+        return PASSWORD_POLICY_MESSAGE
+    if not re.search(r"[a-z]", password):
+        return PASSWORD_POLICY_MESSAGE
+    if not re.search(r"\d", password):
+        return PASSWORD_POLICY_MESSAGE
+    if not re.search(r"[^\w\s]", password):
+        return PASSWORD_POLICY_MESSAGE
+    return None
 
 
 def _normalize_email(value):
@@ -168,6 +189,65 @@ def _send_password_reset_email(user, reset_link):
         )
 
 
+def _notify_role_request_created(user, role_request):
+    """Notifica al equipo cuando se registra una solicitud de rol administrador."""
+    configured = current_app.config.get('ROLE_REQUEST_RECIPIENTS') or current_app.config.get('CONTACT_RECIPIENTS')
+    if isinstance(configured, str):
+        recipients = [configured]
+    else:
+        recipients = list(configured or [])
+
+    recipients = [r for r in recipients if r]
+    if not recipients:
+        current_app.logger.info(
+            "Solicitud de rol registrada pero sin destinatarios configurados (usuario: %s).",
+            user.email,
+        )
+        return
+
+    sender = current_app.config.get('MAIL_DEFAULT_SENDER') or current_app.config.get('MAIL_USERNAME')
+    if not sender:
+        current_app.logger.warning(
+            "No se pudo notificar solicitud de rol: remitente no configurado (usuario: %s).",
+            user.email,
+        )
+        return
+
+    created_at = role_request.created_at
+    if created_at and created_at.tzinfo is None:
+        created_at = created_at.replace(tzinfo=timezone.utc)
+    created_label = created_at.isoformat() if created_at else datetime.now(timezone.utc).isoformat()
+
+    roles = sorted({(r.name or '').strip() or 'sin rol' for r in getattr(user, 'roles', [])})
+    role_list = ', '.join(roles) if roles else 'sin roles adicionales'
+
+    body = (
+        "Se registró una nueva solicitud para otorgar el rol 'admin'.\n\n"
+        f"Usuario: {user.name} <{user.email}>\n"
+        f"ID visible: {user.public_id}\n"
+        f"ID interno: {user.id}\n"
+        f"Roles actuales: {role_list}\n"
+        f"Fecha de solicitud: {created_label}\n"
+        f"Notas del solicitante: {role_request.notes or 'Sin notas adicionales.'}\n"
+        f"ID solicitud: {role_request.id}\n"
+    )
+
+    try:
+        msg = Message(
+            subject="Nueva solicitud de rol administrador",
+            sender=sender,
+            recipients=recipients,
+            body=body,
+        )
+        mail.send(msg)
+    except Exception as exc:
+        current_app.logger.error(
+            "No se pudo enviar la notificación de solicitud de rol (usuario: %s): %s",
+            user.email,
+            exc,
+        )
+
+
 # --- Rutas del Frontend ---
 @frontend.get("/")
 def serve_frontend():
@@ -271,6 +351,11 @@ def register_user():
 
     if not email or not password:
         return jsonify(error="Email y contraseña son requeridos."), 400
+
+    strength_error = _password_strength_error(password)
+    if strength_error:
+        return jsonify(error=strength_error), 400
+
     if password != password_confirm:
         return jsonify(error="Las contraseñas no coinciden."), 400
     if not terms:
@@ -611,8 +696,11 @@ def reset_password():
         return jsonify(error="Token de restablecimiento requerido."), 400
     if not password:
         return jsonify(error="Debes ingresar una nueva contraseña."), 400
-    if len(password) < 8:
-        return jsonify(error="La contraseña debe tener al menos 8 caracteres."), 400
+
+    strength_error = _password_strength_error(password)
+    if strength_error:
+        return jsonify(error=strength_error), 400
+
     if password != password_confirm:
         return jsonify(error="Las contraseñas no coinciden."), 400
 
@@ -1172,11 +1260,44 @@ def create_role_request():
         db.session.rollback()
         current_app.logger.error("Error al registrar solicitud de rol: %s", exc)
         return jsonify(error="No se pudo registrar la solicitud."), 500
+    else:
+        _notify_role_request_created(g.current_user, req)
 
     return jsonify(
-        message="Solicitud registrada. El equipo de desarrollo revisará tu caso.",
+        message="Solicitud registrada. Enviamos un aviso al equipo de desarrollo para revisar tu caso.",
         request_id=str(req.id),
     ), 201
+
+
+@api.get("/role-requests/me")
+@require_session
+def get_my_role_request_status():
+    latest = (
+        db.session.query(RoleRequest)
+        .options(selectinload(RoleRequest.resolver))
+        .filter(RoleRequest.user_id == g.current_user.id)
+        .order_by(desc(RoleRequest.created_at))
+        .first()
+    )
+
+    if not latest:
+        return jsonify(request=None)
+
+    resolver = latest.resolver
+    return jsonify(
+        request={
+            "id": str(latest.id),
+            "requested_role": latest.requested_role,
+            "status": latest.status,
+            "created_at": latest.created_at.isoformat() if latest.created_at else None,
+            "resolved_at": latest.resolved_at.isoformat() if latest.resolved_at else None,
+            "resolver": {
+                "id": str(resolver.id),
+                "name": resolver.name,
+            } if resolver else None,
+            "notes": latest.notes,
+        }
+    )
 
 
 @api.get("/development/role-requests")
