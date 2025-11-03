@@ -1039,6 +1039,51 @@
   gap: 0.75rem;
 }
 
+.learning-progress {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0.75rem;
+}
+
+.learning-progress__item {
+  display: grid;
+  gap: 0.25rem;
+  padding: 0.85rem 1rem;
+  border-radius: var(--radius-md);
+  border: 1px solid color-mix(in srgb, var(--border, var(--color-border)) 75%, transparent);
+  background: color-mix(in srgb, var(--card, var(--color-panel)) 96%, transparent);
+  transition: border-color 180ms ease, background 180ms ease;
+}
+
+.learning-progress__item.is-completed {
+  border-color: color-mix(in srgb, var(--success, var(--color-success)) 60%, transparent);
+  background: color-mix(in srgb, var(--success, var(--color-success)) 14%, transparent);
+}
+
+.learning-progress__title {
+  font-weight: 600;
+  color: var(--color-heading);
+}
+
+.learning-progress__status {
+  font-size: var(--fs-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-weight: 600;
+  color: var(--color-text-muted);
+}
+
+.learning-progress__status.is-success {
+  color: var(--success, var(--color-success));
+}
+
+.learning-progress__meta {
+  font-size: var(--fs-xs);
+  color: var(--color-text-muted);
+}
+
 .account-history__empty .btn {
   justify-self: center;
 }

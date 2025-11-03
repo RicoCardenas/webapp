@@ -61,6 +61,7 @@ from .notifications import (
 )
 from flask_mail import Message
 from sqlalchemy import and_, asc, desc, func, cast, String, or_, delete
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import selectinload
 from urllib.parse import quote
 
@@ -3531,10 +3532,33 @@ def learning_exercise_complete(exercise_id):
             message="Ejercicio ya registrado.",
             completed=True,
             completed_at=existing.completed_at.isoformat() if existing.completed_at else None,
-        )
+        ), 200
 
     entry = LearningProgress(user_id=g.current_user.id, exercise_id=exercise_id)
     db.session.add(entry)
+
+    try:
+        db.session.flush()
+    except IntegrityError:
+        db.session.rollback()
+        existing = db.session.execute(
+            db.select(LearningProgress).where(
+                LearningProgress.user_id == g.current_user.id,
+                LearningProgress.exercise_id == exercise_id,
+            )
+        ).scalar_one_or_none()
+        if existing:
+            return jsonify(
+                message="Ejercicio ya registrado.",
+                completed=True,
+                completed_at=existing.completed_at.isoformat() if existing.completed_at else None,
+            ), 200
+        current_app.logger.error("Conflicto al registrar ejercicio (duplicado no encontrado): %s", exercise_id)
+        return jsonify(error="No se pudo registrar el progreso."), 500
+
+    completed_at = entry.completed_at or datetime.now(timezone.utc)
+    completed_iso = completed_at.isoformat()
+
     try:
         db.session.commit()
     except Exception as exc:
@@ -3549,13 +3573,12 @@ def learning_exercise_complete(exercise_id):
         data={
             "exercise_id": exercise_id,
             "completed": True,
-            "completed_at": entry.completed_at.isoformat() if entry.completed_at else datetime.now(timezone.utc).isoformat(),
+            "completed_at": completed_iso,
         },
     )
 
-    completed_at = entry.completed_at or datetime.now(timezone.utc)
     return jsonify(
         message="Ejercicio completado.",
         completed=True,
-        completed_at=completed_at.isoformat(),
-    )
+        completed_at=completed_iso,
+    ), 201

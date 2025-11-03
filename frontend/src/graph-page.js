@@ -1,6 +1,15 @@
+import { toast } from '/static/app.js';
 import { qs, toggleClass } from './lib/dom.js';
 import { on } from './lib/events.js';
 import { getSessionToken } from './lib/session.js';
+import {
+  DEFAULT_EXERCISES,
+  mergeLearningCatalog,
+  readLocalLearningProgress,
+  updateLocalLearningEntry,
+  buildProgressMapFromExercises,
+  writeLocalLearningProgress,
+} from './lib/learning-data.js';
 
 const VALUE_LIMIT = 20;
 
@@ -31,30 +40,50 @@ const valueState = {
 
 const learningState = {
   exercises: [],
+  serverExercises: [],
+  localProgress: {},
   list: null,
   tooltip: null,
 };
 
-const DEFAULT_EXERCISES = [
-  {
-    id: 'sine-wave',
-    title: 'Onda seno',
-    expression: 'y = sin(x)',
-    description: 'Explora la oscilación de la función seno entre -1 y 1.',
-  },
-  {
-    id: 'parabola-basic',
-    title: 'Parábola desplazada',
-    expression: 'y = (x - 1)^2 - 3',
-    description: 'Analiza cómo se traslada una parábola respecto al origen.',
-  },
-  {
-    id: 'exponential-growth',
-    title: 'Crecimiento exponencial',
-    expression: 'y = e^(0.3 * x)',
-    description: 'Visualiza una función exponencial de crecimiento suave.',
-  },
-];
+const LEARNING_TOOLTIP_DEFAULT = 'Selecciona un ejercicio para cargarlo en la graficadora.';
+const learningDateFormatter = new Intl.DateTimeFormat('es-CO', {
+  dateStyle: 'short',
+  timeStyle: 'short',
+});
+
+function computeLearningExercises() {
+  return mergeLearningCatalog(DEFAULT_EXERCISES, learningState.serverExercises, learningState.localProgress);
+}
+
+function applyServerLearningExercises(exercises) {
+  if (!Array.isArray(exercises)) return false;
+  learningState.serverExercises = exercises;
+  const serverProgress = buildProgressMapFromExercises(exercises);
+  const merged = { ...readLocalLearningProgress(), ...serverProgress };
+  learningState.localProgress = merged;
+  writeLocalLearningProgress(merged);
+  renderLearningExercises(mergeLearningCatalog(DEFAULT_EXERCISES, learningState.serverExercises, learningState.localProgress));
+  return true;
+}
+
+async function refreshLearningFromServer(options = {}) {
+  const result = await fetchLearningExercises();
+  if (!result) return;
+  if (result.status === 401) {
+    if (!options.silent) {
+      toast?.info?.('Inicia sesión para sincronizar tu progreso en la nube.');
+    }
+    return;
+  }
+  if (!result.ok) {
+    if (!options.silent) {
+      toast?.error?.('No se pudo sincronizar el progreso de aprendizaje.');
+    }
+    return;
+  }
+  applyServerLearningExercises(result.exercises);
+}
 
 async function requestLearning(url, options = {}) {
   const token = getSessionToken();
@@ -71,29 +100,48 @@ async function requestLearning(url, options = {}) {
 
 async function fetchLearningExercises() {
   const token = getSessionToken();
-  if (!token) return null;
+  if (!token) {
+    return { ok: false, status: 401, exercises: [] };
+  }
   const res = await requestLearning('/api/learning/exercises');
-  if (!res || !res.ok) return null;
-  const data = await res.json().catch(() => ({}));
-  if (!Array.isArray(data?.exercises)) return null;
-  return data.exercises;
+  if (!res) {
+    return { ok: false, status: 0, exercises: [] };
+  }
+  const payload = await res.json().catch(() => ({}));
+  const exercises = Array.isArray(payload?.exercises) ? payload.exercises : [];
+  return { ok: res.ok, status: res.status, exercises };
 }
 
 async function completeExercise(exerciseId) {
   const token = getSessionToken();
-  if (!token) return false;
+  if (!token) return { ok: false, status: 401 };
   const res = await requestLearning(`/api/learning/exercises/${exerciseId}/complete`, { method: 'POST' });
-  return Boolean(res && res.ok);
+  if (!res) return { ok: false, status: 0 };
+  const data = await res.json().catch(() => ({}));
+  return { ok: res.ok, status: res.status, data };
 }
 
-function renderLearningExercises(exercises = []) {
-  const list = qs(selectors.learningList);
+function renderLearningExercises(exercises) {
+  if (!learningState.list) {
+    learningState.list = qs(selectors.learningList);
+  }
+  const list = learningState.list;
   if (!list) return;
-  learningState.list = list;
-  learningState.exercises = exercises.length ? exercises : DEFAULT_EXERCISES.map((exercise) => ({ ...exercise, completed: false }));
+
+  if (Array.isArray(exercises)) {
+    learningState.exercises = exercises;
+  }
+
+  const source = Array.isArray(learningState.exercises) && learningState.exercises.length
+    ? learningState.exercises
+    : computeLearningExercises();
+
+  learningState.exercises = source;
+
   list.innerHTML = '';
 
-  learningState.exercises.forEach((exercise) => {
+  source.forEach((exercise) => {
+    if (!exercise || !exercise.id) return;
     const item = document.createElement('li');
     item.className = 'learning-list__item';
 
@@ -102,34 +150,71 @@ function renderLearningExercises(exercises = []) {
     button.className = 'learning-item';
     button.dataset.exerciseId = exercise.id;
     button.dataset.description = exercise.description || '';
-    button.dataset.expression = exercise.expression;
-    button.textContent = exercise.title;
+    button.dataset.expression = exercise.expression || '';
+    button.textContent = exercise.title || exercise.id;
     button.setAttribute('aria-pressed', exercise.completed ? 'true' : 'false');
     if (exercise.completed) button.classList.add('is-completed');
 
     on(button, 'click', () => selectExercise(exercise.id));
-    on(button, 'mouseenter', () => showLearningTooltip(exercise.description));
-    on(button, 'focus', () => showLearningTooltip(exercise.description));
+    on(button, 'mouseenter', () => showLearningTooltip(exercise));
+    on(button, 'focus', () => showLearningTooltip(exercise));
+    on(button, 'mouseleave', resetLearningTooltip);
+    on(button, 'blur', resetLearningTooltip);
 
     item.appendChild(button);
     list.appendChild(item);
   });
 
-  showLearningTooltip('Selecciona un ejercicio para cargarlo en la graficadora.');
+  resetLearningTooltip();
 }
 
-function showLearningTooltip(message) {
+function showLearningTooltip(payload) {
   if (!learningState.tooltip) {
     learningState.tooltip = qs(selectors.learningTooltip);
   }
-  if (!learningState.tooltip) return;
+  const tooltip = learningState.tooltip;
+  if (!tooltip) return;
+
+  let message = '';
+  if (typeof payload === 'string') {
+    message = payload;
+  } else if (payload && typeof payload === 'object') {
+    message = describeLearningExercise(payload);
+  }
+
   if (!message) {
-    learningState.tooltip.hidden = true;
-    learningState.tooltip.textContent = '';
+    tooltip.hidden = true;
+    tooltip.textContent = '';
     return;
   }
-  learningState.tooltip.hidden = false;
-  learningState.tooltip.textContent = message;
+
+  tooltip.hidden = false;
+  tooltip.textContent = message;
+}
+
+function resetLearningTooltip() {
+  showLearningTooltip(LEARNING_TOOLTIP_DEFAULT);
+}
+
+function describeLearningExercise(exercise) {
+  if (!exercise) return '';
+  const parts = [];
+  if (exercise.description) parts.push(exercise.description);
+  if (exercise.expression) parts.push(`Expresión: ${exercise.expression}`);
+  if (exercise.completed) {
+    const completedLabel = formatLearningTimestamp(exercise.completed_at);
+    parts.push(completedLabel ? `Completado el ${completedLabel}` : 'Completado');
+  } else {
+    parts.push('Estado: pendiente');
+  }
+  return parts.join(' · ');
+}
+
+function formatLearningTimestamp(value) {
+  if (!value) return null;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+  return learningDateFormatter.format(date);
 }
 
 function selectExercise(exerciseId) {
@@ -147,22 +232,52 @@ function selectExercise(exerciseId) {
     form.dispatchEvent(submitEvent);
   }
 
-  showLearningTooltip(exercise.description);
-  markExerciseCompleted(exerciseId);
+  showLearningTooltip(exercise);
+  void markExerciseCompleted(exerciseId);
 }
 
-function markExerciseCompleted(exerciseId) {
+async function markExerciseCompleted(exerciseId) {
   const exercise = learningState.exercises.find((ex) => ex.id === exerciseId);
   if (!exercise) return;
+
+  let optimisticCompletedAt = exercise.completed_at || null;
   if (!exercise.completed) {
-    exercise.completed = true;
-    completeExercise(exerciseId);
+    optimisticCompletedAt = new Date().toISOString();
+    learningState.localProgress = updateLocalLearningEntry(exerciseId, { completedAt: optimisticCompletedAt });
+    renderLearningExercises(computeLearningExercises());
   }
-  if (!learningState.list) return;
-  const button = learningState.list.querySelector(`[data-exercise-id="${exerciseId}"]`);
-  if (button instanceof HTMLButtonElement) {
-    button.classList.add('is-completed');
-    button.setAttribute('aria-pressed', 'true');
+
+  const result = await completeExercise(exerciseId);
+  if (!result) return;
+
+  const { ok, status, data } = result;
+
+  if (status === 401) {
+    toast?.error?.('Necesitas iniciar sesión para guardar tu progreso.');
+    learningState.localProgress = readLocalLearningProgress();
+    renderLearningExercises(computeLearningExercises());
+    return;
+  }
+
+  if (!ok && status >= 500) {
+    toast?.error?.('No se pudo registrar el progreso. Intenta nuevamente.');
+    return;
+  }
+
+  if (ok && status === 201) {
+    toast?.success?.('¡Ejercicio completado!');
+  } else if (data?.message) {
+    toast?.info?.(data.message);
+  }
+
+  if (data?.completed_at) {
+    learningState.localProgress = updateLocalLearningEntry(exerciseId, { completedAt: data.completed_at });
+  } else if (optimisticCompletedAt) {
+    learningState.localProgress = updateLocalLearningEntry(exerciseId, { completedAt: optimisticCompletedAt });
+  }
+
+  if (ok) {
+    await refreshLearningFromServer({ silent: status !== 201 });
   }
 }
 
@@ -423,25 +538,10 @@ function initLearningPane() {
   if (!list) return;
   learningState.list = list;
   learningState.tooltip = qs(selectors.learningTooltip);
-
-  renderLearningExercises();
-
-  fetchLearningExercises().then((serverExercises) => {
-    if (!Array.isArray(serverExercises) || !serverExercises.length) return;
-    const map = new Map(serverExercises.map((exercise) => [exercise.id, exercise]));
-    const merged = DEFAULT_EXERCISES.map((exercise) => {
-      const remote = map.get(exercise.id);
-      if (remote) return { ...exercise, ...remote };
-      return { ...exercise, completed: false };
-    });
-    // Include any additional exercises known by the server
-    serverExercises.forEach((exercise) => {
-      if (!merged.find((item) => item.id === exercise.id)) {
-        merged.push(exercise);
-      }
-    });
-    renderLearningExercises(merged);
-  });
+  learningState.localProgress = readLocalLearningProgress();
+  renderLearningExercises(computeLearningExercises());
+  resetLearningTooltip();
+  refreshLearningFromServer({ silent: true });
 }
 
 // Init
