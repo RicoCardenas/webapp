@@ -155,6 +155,8 @@ function bindHistoryPanel() {
     tabFunctions.classList.toggle('is-active', !showHistory);
     tabHistory.setAttribute('aria-pressed', String(showHistory));
     tabFunctions.setAttribute('aria-pressed', String(!showHistory));
+    sectionHistory.hidden = !showHistory;
+    sectionFunctions.hidden = showHistory;
     if (panelBody instanceof HTMLElement) {
       panelBody.classList.toggle('functions-panel__body--history', showHistory);
     }

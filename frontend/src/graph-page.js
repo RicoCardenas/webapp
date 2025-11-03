@@ -32,7 +32,14 @@ const selectors = {
   plotInput: '#plot-input',
   learningList: '#learning-exercise-list',
   learningTooltip: '#learning-tooltip',
+  toggleLearning: '#toggle-learning',
+  learningPanel: '#learning-panel',
+  closeLearning: '#close-learning',
 };
+
+const LEARNING_TOOLTIP_DEFAULT = 'Selecciona un ejercicio para cargarlo en la graficadora.';
+const LEARNING_TOGGLE_LABEL = 'Ejercicios';
+const LEARNING_TOGGLE_HIDE_LABEL = 'Ocultar ejercicios';
 
 const valueState = {
   rows: [],
@@ -44,9 +51,13 @@ const learningState = {
   localProgress: {},
   list: null,
   tooltip: null,
+  panel: null,
+  toggle: null,
+  open: false,
+  baseLabel: LEARNING_TOGGLE_LABEL,
+  dismissed: false,
 };
 
-const LEARNING_TOOLTIP_DEFAULT = 'Selecciona un ejercicio para cargarlo en la graficadora.';
 const learningDateFormatter = new Intl.DateTimeFormat('es-CO', {
   dateStyle: 'short',
   timeStyle: 'short',
@@ -166,6 +177,7 @@ function renderLearningExercises(exercises) {
   });
 
   resetLearningTooltip();
+    syncLearningUI();
 }
 
 function showLearningTooltip(payload) {
@@ -215,6 +227,131 @@ function formatLearningTimestamp(value) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return null;
   return learningDateFormatter.format(date);
+}
+
+function getLearningStats() {
+  const exercises = Array.isArray(learningState.exercises) ? learningState.exercises : [];
+  const total = exercises.length;
+  const completed = exercises.reduce((count, exercise) => (exercise?.completed ? count + 1 : count), 0);
+  return { total, completed };
+}
+
+function applyLearningVisibility(stats) {
+  const panel = learningState.panel || qs(selectors.learningPanel);
+  const toggle = learningState.toggle || qs(selectors.toggleLearning);
+  const isLogged = Boolean(getSessionToken());
+  const shouldDismiss = isLogged && stats.total > 0 && stats.completed >= stats.total;
+
+  if (learningState.dismissed === shouldDismiss) {
+    if (panel) {
+      const hiddenState = learningState.dismissed || !learningState.open;
+      panel.hidden = hiddenState;
+      panel.setAttribute('aria-hidden', String(hiddenState));
+    }
+    if (toggle) {
+      toggle.hidden = learningState.dismissed;
+      if (learningState.dismissed) toggle.setAttribute('aria-hidden', 'true');
+      else toggle.removeAttribute('aria-hidden');
+    }
+    return;
+  }
+
+  learningState.dismissed = shouldDismiss;
+
+  if (shouldDismiss) {
+    learningState.open = false;
+    if (toggle) {
+      toggle.hidden = true;
+      toggle.setAttribute('aria-hidden', 'true');
+      toggle.setAttribute('aria-pressed', 'false');
+      toggle.setAttribute('aria-expanded', 'false');
+    }
+    if (panel) {
+      panel.hidden = true;
+      panel.setAttribute('aria-hidden', 'true');
+    }
+  } else {
+    if (toggle) {
+      toggle.hidden = false;
+      toggle.removeAttribute('aria-hidden');
+    }
+    if (panel) {
+      panel.hidden = !learningState.open;
+      panel.setAttribute('aria-hidden', String(!learningState.open));
+    }
+  }
+}
+
+function updateLearningToggleStatus(statsArg) {
+  const toggle = learningState.toggle || qs(selectors.toggleLearning);
+  if (toggle && !learningState.toggle) {
+    learningState.toggle = toggle;
+  }
+
+  const stats = statsArg || getLearningStats();
+
+  if (!toggle) {
+    return stats;
+  }
+
+  if (learningState.dismissed) {
+    toggle.textContent = learningState.baseLabel || LEARNING_TOGGLE_LABEL;
+    toggle.title = toggle.textContent;
+    toggle.setAttribute('aria-label', toggle.textContent);
+    return stats;
+  }
+
+  const baseLabel = learningState.baseLabel || toggle.dataset.baseLabel || LEARNING_TOGGLE_LABEL;
+  const summaryLabel = stats.total ? `${baseLabel} (${stats.completed}/${stats.total})` : baseLabel;
+  const label = learningState.open ? LEARNING_TOGGLE_HIDE_LABEL : summaryLabel;
+
+  toggle.dataset.baseLabel = baseLabel;
+  toggle.dataset.total = String(stats.total);
+  toggle.dataset.completed = String(stats.completed);
+  toggle.classList.toggle('learning-toggle--has-progress', stats.completed > 0 && stats.completed < stats.total);
+  toggle.classList.toggle('learning-toggle--complete', stats.total > 0 && stats.completed === stats.total);
+  toggle.textContent = label;
+  toggle.title = label;
+  toggle.setAttribute('aria-label', label);
+
+  return stats;
+}
+
+function syncLearningUI() {
+  const stats = getLearningStats();
+  applyLearningVisibility(stats);
+  updateLearningToggleStatus(stats);
+  return stats;
+}
+
+function setLearningPanelOpen(open) {
+  const panel = learningState.panel || qs(selectors.learningPanel);
+  const toggle = learningState.toggle || qs(selectors.toggleLearning);
+  if (!panel || !toggle) return;
+
+  const next = Boolean(open);
+  learningState.panel = panel;
+  learningState.toggle = toggle;
+  if (learningState.dismissed && next) {
+    syncLearningUI();
+    return;
+  }
+
+  learningState.open = next;
+
+  panel.hidden = learningState.dismissed || !next;
+  panel.setAttribute('aria-hidden', String(learningState.dismissed || !next));
+  toggle.setAttribute('aria-pressed', String(next));
+  toggle.setAttribute('aria-expanded', String(next));
+  toggle.setAttribute('aria-controls', panel.id);
+
+  const stats = syncLearningUI();
+
+  if (next && !learningState.dismissed && stats.total > 0) {
+    window.requestAnimationFrame(() => {
+      panel.focus?.({ preventScroll: true });
+    });
+  }
 }
 
 function selectExercise(exerciseId) {
@@ -535,12 +672,38 @@ function initPlotterBridge() {
 
 function initLearningPane() {
   const list = qs(selectors.learningList);
-  if (!list) return;
+  const panel = qs(selectors.learningPanel);
+  const toggle = qs(selectors.toggleLearning);
+  if (!list || !panel || !toggle) return;
+
   learningState.list = list;
+  learningState.panel = panel;
+  learningState.toggle = toggle;
   learningState.tooltip = qs(selectors.learningTooltip);
   learningState.localProgress = readLocalLearningProgress();
+
+  const closeBtn = qs(selectors.closeLearning);
+  const initialLabel = (toggle.dataset.baseLabel || toggle.textContent || '').trim();
+  learningState.baseLabel = initialLabel || LEARNING_TOGGLE_LABEL;
+  toggle.dataset.baseLabel = learningState.baseLabel;
+  toggle.setAttribute('aria-controls', panel.id);
+
+  on(toggle, 'click', () => {
+    if (learningState.dismissed) return;
+    const willOpen = !learningState.open;
+    setLearningPanelOpen(willOpen);
+    if (willOpen && !learningState.serverExercises.length) {
+      refreshLearningFromServer({ silent: true });
+    }
+  });
+
+  if (closeBtn) {
+    on(closeBtn, 'click', () => setLearningPanelOpen(false));
+  }
+
   renderLearningExercises(computeLearningExercises());
   resetLearningTooltip();
+  setLearningPanelOpen(false);
   refreshLearningFromServer({ silent: true });
 }
 

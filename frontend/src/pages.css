@@ -2085,8 +2085,106 @@ body.account--guest {
   top: 0.75rem;
   right: 0.75rem;
   display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
   gap: 0.5rem;
   z-index: var(--z-stage-ui);
+}
+
+.learning-panel {
+  position: absolute;
+  top: 3.75rem;
+  right: 0.75rem;
+  width: min(88vw, 320px);
+  max-height: calc(100% - 4.5rem);
+  display: grid;
+  grid-template-rows: auto 1fr;
+  border-radius: var(--radius-lg);
+  background: color-mix(in srgb, var(--color-surface) 96%, transparent);
+  border: 1px solid color-mix(in srgb, var(--color-border) 82%, transparent);
+  box-shadow: var(--shadow-lg);
+  backdrop-filter: saturate(135%) blur(12px);
+  overflow: hidden;
+  z-index: var(--z-stage-ui);
+}
+
+.learning-panel__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-2);
+  padding: 0.75rem 0.9rem;
+  border-bottom: 1px solid color-mix(in srgb, var(--color-border) 82%, transparent);
+}
+
+.learning-panel__eyebrow {
+  margin: 0;
+  font-size: 0.75rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+}
+
+.learning-panel__title {
+  margin: 0.1rem 0 0;
+  font-family: var(--font-display);
+  font-size: 1rem;
+}
+
+.learning-panel__body {
+  display: grid;
+  gap: 0.65rem;
+  padding: 0.75rem 0.9rem 1rem;
+  overflow-y: auto;
+}
+
+.learning-panel__hint {
+  margin: 0;
+  font-size: var(--fs-xs);
+  color: var(--color-text-muted);
+}
+
+.learning-panel__empty {
+  margin: 0;
+  padding: 0.75rem;
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--color-border) 18%, transparent);
+  color: var(--color-text-muted);
+  text-align: center;
+}
+
+#learning-panel:focus {
+  outline: 2px solid color-mix(in srgb, var(--color-primary) 65%, transparent);
+  outline-offset: 2px;
+}
+
+#toggle-learning {
+  position: relative;
+  padding-right: 2.75rem;
+}
+
+#toggle-learning[data-total]:not([data-total="0"])::after {
+  content: attr(data-completed) "/" attr(data-total);
+  position: absolute;
+  top: 50%;
+  right: 0.75rem;
+  transform: translateY(-50%);
+  padding: 0.1rem 0.4rem;
+  border-radius: var(--radius-pill);
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  background: color-mix(in srgb, var(--color-primary) 20%, var(--color-surface) 80%);
+  color: color-mix(in srgb, var(--color-primary) 75%, var(--color-text) 25%);
+}
+
+#toggle-learning.learning-toggle--has-progress::after {
+  background: color-mix(in srgb, var(--color-warning) 35%, var(--color-surface) 65%);
+  color: color-mix(in srgb, var(--color-warning) 85%, var(--color-text) 15%);
+}
+
+#toggle-learning.learning-toggle--complete::after {
+  background: color-mix(in srgb, var(--color-success) 38%, var(--color-surface) 62%);
+  color: color-mix(in srgb, var(--color-success) 90%, var(--color-text) 10%);
 }
 
 .value-panel {
@@ -2239,18 +2337,6 @@ body.account--guest {
 .controls-bar__secondary {
   display: grid;
   gap: 0.75rem;
-}
-
-.controls-bar__learning {
-  border-top: 1px solid color-mix(in srgb, var(--color-border) 70%, transparent);
-  padding-top: 0.75rem;
-  display: grid;
-  gap: 0.6rem;
-}
-
-.controls-bar__learning-head {
-  display: grid;
-  gap: 0.25rem;
 }
 
 .learning-list {
@@ -2416,6 +2502,16 @@ body.account--guest {
     transform: translateX(-50%);
   }
 
+  .learning-panel {
+    position: fixed;
+    right: clamp(1rem, 6vw, 2rem);
+    top: clamp(5rem, 9vw, 6.5rem);
+    left: auto;
+    width: min(92vw, 360px);
+    max-height: 70vh;
+    transform: none;
+  }
+
   .graph-floating-actions {
     right: 50%;
     transform: translateX(50%);
@@ -2442,6 +2538,15 @@ body.account--guest {
   .graph-floating-actions {
     top: auto;
     bottom: var(--space-4);
+  }
+
+  .learning-panel {
+    right: 0.75rem;
+    left: 0.75rem;
+    top: auto;
+    bottom: clamp(4.5rem, 14vw, 7rem);
+    width: auto;
+    max-height: 60vh;
   }
 }
 
