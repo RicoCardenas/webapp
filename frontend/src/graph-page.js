@@ -1,5 +1,6 @@
 import { qs, toggleClass } from './lib/dom.js';
 import { on } from './lib/events.js';
+import { getSessionToken } from './lib/session.js';
 
 const VALUE_LIMIT = 20;
 
@@ -18,19 +19,151 @@ const selectors = {
   controlsBar: '.controls-bar',
   controlsBarFab: '#controls-bar-toggle',
   controlsFabIcon: '#controls-bar-toggle .controls-bar__fab-icon',
+  plotForm: '#plot-form',
+  plotInput: '#plot-input',
+  learningList: '#learning-exercise-list',
+  learningTooltip: '#learning-tooltip',
 };
 
 const valueState = {
   rows: [],
 };
 
-function forceDarkTheme() {
-  document.body.classList.add('theme-dark');
-  document.body.classList.remove('theme-light');
-  document.documentElement.dataset.theme = 'dark'; // compatibilidad
+const learningState = {
+  exercises: [],
+  list: null,
+  tooltip: null,
+};
+
+const DEFAULT_EXERCISES = [
+  {
+    id: 'sine-wave',
+    title: 'Onda seno',
+    expression: 'y = sin(x)',
+    description: 'Explora la oscilación de la función seno entre -1 y 1.',
+  },
+  {
+    id: 'parabola-basic',
+    title: 'Parábola desplazada',
+    expression: 'y = (x - 1)^2 - 3',
+    description: 'Analiza cómo se traslada una parábola respecto al origen.',
+  },
+  {
+    id: 'exponential-growth',
+    title: 'Crecimiento exponencial',
+    expression: 'y = e^(0.3 * x)',
+    description: 'Visualiza una función exponencial de crecimiento suave.',
+  },
+];
+
+async function requestLearning(url, options = {}) {
+  const token = getSessionToken();
+  const headers = new Headers(options.headers || {});
+  if (token) headers.set('Authorization', `Bearer ${token}`);
+  if (options.body && !headers.has('Content-Type')) headers.set('Content-Type', 'application/json');
   try {
-    localStorage.setItem('ecup-theme', 'dark');
-  } catch {}
+    return await fetch(url, { ...options, headers });
+  } catch (error) {
+    console.warn('No se pudo contactar el servicio de ejercicios', error);
+    return null;
+  }
+}
+
+async function fetchLearningExercises() {
+  const token = getSessionToken();
+  if (!token) return null;
+  const res = await requestLearning('/api/learning/exercises');
+  if (!res || !res.ok) return null;
+  const data = await res.json().catch(() => ({}));
+  if (!Array.isArray(data?.exercises)) return null;
+  return data.exercises;
+}
+
+async function completeExercise(exerciseId) {
+  const token = getSessionToken();
+  if (!token) return false;
+  const res = await requestLearning(`/api/learning/exercises/${exerciseId}/complete`, { method: 'POST' });
+  return Boolean(res && res.ok);
+}
+
+function renderLearningExercises(exercises = []) {
+  const list = qs(selectors.learningList);
+  if (!list) return;
+  learningState.list = list;
+  learningState.exercises = exercises.length ? exercises : DEFAULT_EXERCISES.map((exercise) => ({ ...exercise, completed: false }));
+  list.innerHTML = '';
+
+  learningState.exercises.forEach((exercise) => {
+    const item = document.createElement('li');
+    item.className = 'learning-list__item';
+
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'learning-item';
+    button.dataset.exerciseId = exercise.id;
+    button.dataset.description = exercise.description || '';
+    button.dataset.expression = exercise.expression;
+    button.textContent = exercise.title;
+    button.setAttribute('aria-pressed', exercise.completed ? 'true' : 'false');
+    if (exercise.completed) button.classList.add('is-completed');
+
+    on(button, 'click', () => selectExercise(exercise.id));
+    on(button, 'mouseenter', () => showLearningTooltip(exercise.description));
+    on(button, 'focus', () => showLearningTooltip(exercise.description));
+
+    item.appendChild(button);
+    list.appendChild(item);
+  });
+
+  showLearningTooltip('Selecciona un ejercicio para cargarlo en la graficadora.');
+}
+
+function showLearningTooltip(message) {
+  if (!learningState.tooltip) {
+    learningState.tooltip = qs(selectors.learningTooltip);
+  }
+  if (!learningState.tooltip) return;
+  if (!message) {
+    learningState.tooltip.hidden = true;
+    learningState.tooltip.textContent = '';
+    return;
+  }
+  learningState.tooltip.hidden = false;
+  learningState.tooltip.textContent = message;
+}
+
+function selectExercise(exerciseId) {
+  const exercise = learningState.exercises.find((ex) => ex.id === exerciseId);
+  if (!exercise) return;
+
+  const input = qs(selectors.plotInput);
+  const form = qs(selectors.plotForm);
+  if (input instanceof HTMLInputElement) {
+    input.value = exercise.expression;
+    input.focus({ preventScroll: true });
+  }
+  if (form instanceof HTMLFormElement) {
+    const submitEvent = new Event('submit', { bubbles: true, cancelable: true });
+    form.dispatchEvent(submitEvent);
+  }
+
+  showLearningTooltip(exercise.description);
+  markExerciseCompleted(exerciseId);
+}
+
+function markExerciseCompleted(exerciseId) {
+  const exercise = learningState.exercises.find((ex) => ex.id === exerciseId);
+  if (!exercise) return;
+  if (!exercise.completed) {
+    exercise.completed = true;
+    completeExercise(exerciseId);
+  }
+  if (!learningState.list) return;
+  const button = learningState.list.querySelector(`[data-exercise-id="${exerciseId}"]`);
+  if (button instanceof HTMLButtonElement) {
+    button.classList.add('is-completed');
+    button.setAttribute('aria-pressed', 'true');
+  }
 }
 
 // Navegacion 
@@ -285,9 +418,34 @@ function initPlotterBridge() {
   });
 }
 
+function initLearningPane() {
+  const list = qs(selectors.learningList);
+  if (!list) return;
+  learningState.list = list;
+  learningState.tooltip = qs(selectors.learningTooltip);
+
+  renderLearningExercises();
+
+  fetchLearningExercises().then((serverExercises) => {
+    if (!Array.isArray(serverExercises) || !serverExercises.length) return;
+    const map = new Map(serverExercises.map((exercise) => [exercise.id, exercise]));
+    const merged = DEFAULT_EXERCISES.map((exercise) => {
+      const remote = map.get(exercise.id);
+      if (remote) return { ...exercise, ...remote };
+      return { ...exercise, completed: false };
+    });
+    // Include any additional exercises known by the server
+    serverExercises.forEach((exercise) => {
+      if (!merged.find((item) => item.id === exercise.id)) {
+        merged.push(exercise);
+      }
+    });
+    renderLearningExercises(merged);
+  });
+}
+
 // Init
 function init() {
-  forceDarkTheme();
   bindEscToBack();
   initFullHeightCanvasSync();
   initQueryExprBoot();
@@ -297,6 +455,7 @@ function init() {
   initControlsCollapse();
   initValuePanel();
   initPlotterBridge();
+  initLearningPane();
   renderValueTable();
   setValuePanelOpen(false);
 }

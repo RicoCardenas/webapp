@@ -1,4 +1,5 @@
 import { compileExpression, evaluateCompiled } from '../lib/math.js';
+import { ensureHistoryStore } from '../lib/history-store-singleton.js';
 import {
   DEFAULT_VIEW,
   EXPRESSION_COLORS,
@@ -14,10 +15,18 @@ import {
 
 /**
  * Create the plotter core logic (no DOM side effects).
- * @param {{ authFetch?: typeof fetch }} [deps]
+ * @param {{ authFetch?: typeof fetch, eventStream?: { subscribeChannel: Function, ensure?: Function } }} [deps]
  */
 export function createPlotterCore(deps = {}) {
   const authFetch = deps.authFetch;
+  const eventStream = deps.eventStream;
+  const historyListeners = new Set();
+
+  const historyStore = ensureHistoryStore({
+    authFetch,
+    eventStream,
+    initialFilters: { pageSize: HISTORY_PAGE_SIZE },
+  });
 
   /** @type {PlotterView} */
   const view = { ...DEFAULT_VIEW };
@@ -32,10 +41,48 @@ export function createPlotterCore(deps = {}) {
     items: /** @type {Array<Record<string, any>>} */ ([]),
     selected: new Set(),
     q: '',
+    tags: /** @type {string[]} */ ([]),
     limit: HISTORY_PAGE_SIZE,
     offset: 0,
+    page: 1,
+    order: 'desc',
     total: 0,
+    loading: false,
+    error: null,
   };
+
+  historyStore.subscribe((next) => {
+    const normalized = next.items.map((item, index) => {
+      const expression = String(item?.expression ?? '');
+      const key = item?.id ?? item?.uuid ?? `${expression || 'expr'}-${index}`;
+      return { ...item, id: String(key), expression };
+    });
+    history.items = normalized;
+    history.total = Number.isFinite(next.meta?.total) ? next.meta.total : normalized.length;
+    history.order = next.filters.order;
+    history.q = next.filters.q;
+    history.tags = [...next.filters.tags];
+    history.limit = next.filters.pageSize;
+    history.page = next.filters.page;
+    history.offset = (history.page - 1) * history.limit;
+    history.loading = next.loading;
+    history.error = next.error;
+
+    const validIds = new Set(normalized.map((item) => item.id));
+    history.selected.forEach((id) => {
+      if (!validIds.has(String(id))) {
+        history.selected.delete(id);
+      }
+    });
+
+    historyListeners.forEach((listener) => {
+      try {
+        listener(getHistoryState());
+      } catch (error) {
+        console.error('plotter history listener failed', error);
+      }
+    });
+  });
 
   function pickColor(index) {
     return EXPRESSION_COLORS[index % EXPRESSION_COLORS.length];
@@ -179,53 +226,14 @@ export function createPlotterCore(deps = {}) {
       return { ok: false, reason: 'no-auth-fetch' };
     }
 
-    history.q = query;
+    const trimmed = typeof query === 'string' ? query.trim() : '';
     history.selected.clear();
+    await historyStore.setFilters({ q: trimmed }, { resetPage: true });
+    return historyStore.load();
+  }
 
-    const params = new URLSearchParams();
-    if (query) params.set('q', query);
-    params.set('limit', String(history.limit));
-    params.set('offset', String(history.offset));
-
-    let response;
-    try {
-      response = await authFetch(`/api/plot/history?${params.toString()}`);
-    } catch (error) {
-      console.error('History request failed', error);
-      return { ok: false, reason: 'network' };
-    }
-
-    if (!response) {
-      return { ok: false, reason: 'bad-response' };
-    }
-
-    if (response.status === 401 || response.status === 403) {
-      return { ok: false, reason: 'unauthorized', status: response.status };
-    }
-
-    if (!response.ok) {
-      return { ok: false, reason: 'bad-response', status: response.status };
-    }
-
-    const data = await response.json().catch(() => ({}));
-    const payloadItems = Array.isArray(data?.items)
-      ? data.items
-      : Array.isArray(data?.data)
-        ? data.data
-        : [];
-
-    history.items = payloadItems.map((item, index) => {
-      const expression = String(item?.expression ?? '');
-      const id =
-        item?.id != null
-          ? String(item.id)
-          : `${expression || 'expr'}-${index}`;
-      return { ...item, id, expression };
-    });
-    const metaTotal = Number.isFinite(data?.meta?.total) ? data.meta.total : undefined;
-    const rootTotal = Number.isFinite(data?.total) ? data.total : undefined;
-    history.total = rootTotal ?? metaTotal ?? history.items.length;
-    return { ok: true, items: history.items, total: history.total };
+  function refreshHistory() {
+    return historyStore.load();
   }
 
   function selectHistory(id, selected) {
@@ -254,9 +262,32 @@ export function createPlotterCore(deps = {}) {
     return history.items.slice();
   }
 
+  function getHistoryState() {
+    return {
+      items: getHistoryItems(),
+      selected: getHistorySelection(),
+      q: history.q,
+      tags: [...history.tags],
+      limit: history.limit,
+      offset: history.offset,
+      page: history.page,
+      order: history.order,
+      total: history.total,
+      loading: history.loading,
+      error: history.error,
+    };
+  }
+
   function getSelectedHistoryExpressions() {
     const ids = getHistorySelection();
     return history.items.filter((item) => ids.includes(String(item?.id)));
+  }
+
+  function onHistoryChange(listener) {
+    historyListeners.add(listener);
+    return () => {
+      historyListeners.delete(listener);
+    };
   }
 
   return {
@@ -274,12 +305,15 @@ export function createPlotterCore(deps = {}) {
     addMarker,
     clearMarkers,
     fetchHistory,
+    refreshHistory,
     selectHistory,
     clearHistorySelection,
     selectAllHistoryItems,
     getHistorySelection,
     getHistoryItems,
     getSelectedHistoryExpressions,
+    onHistoryChange,
+    historyStore,
     history,
   };
 }

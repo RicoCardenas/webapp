@@ -7,6 +7,9 @@ import {
 } from './lib/dom.js';
 import { on, off, debounce } from './lib/events.js';
 import { contactValidators, authValidators, validate } from './lib/validators.js';
+import { getSessionToken, setSessionToken, clearSessionToken } from './lib/session.js';
+import { initThemeSync, setThemePreference, getThemePreference } from './lib/theme.js';
+import { createEventStream } from './lib/event-stream.js';
 
 const SELECTORS = {
   siteHeader: '#site-header',
@@ -78,11 +81,6 @@ window.addEventListener('unhandledrejection', (e) => {
     toast?.error?.(`Error async: ${msg}`);
   } catch {}
 });
-
-const KEYS = {
-  theme: 'ecup-theme',
-  sessionToken: 'ecuplot_session_token',
-};
 
 const USER_STATE_KEY = 'ecuplot.currentUser';
 
@@ -169,6 +167,11 @@ function initResetPasswordPage() {
   const errorPassword = qs('#error-reset-password', form);
   const errorConfirm = qs('#error-reset-password-confirm', form);
   const statusMessage = qs('#reset-password-status');
+
+  const resetMeter = passwordInput ? createPasswordMeter(passwordInput, 'reset-strength') : null;
+  if (resetMeter && passwordInput) {
+    on(passwordInput, 'input', () => resetMeter.update(passwordInput.value));
+  }
 
   const params = new URLSearchParams(window.location.search);
   const token = params.get('token');
@@ -259,6 +262,7 @@ function setCurrentUser(user, { emit = true } = {}) {
     if (user) sessionStorage.setItem(USER_STATE_KEY, JSON.stringify(user));
     else sessionStorage.removeItem(USER_STATE_KEY);
   } catch {}
+  if (user) maybeShowTwoFactorReminder(user);
   if (emit) {
     window.dispatchEvent(new CustomEvent('ecuplot:user', { detail: userState.current }));
   }
@@ -472,37 +476,294 @@ async function safeFetch(url, opts = {}, timeoutMs = 5000) {
   }
 }
 
-/** Tema: ahora basado en clases del <body> (.theme-dark / .theme-light) con compatibilidad */
-function applyTheme(theme) {
-  const root = document.documentElement;
-  const body = document.body;
-  const isDark = theme === 'dark';
-  // Nuevo sistema basado en clases
-  body.classList.toggle('theme-dark', isDark);
-  body.classList.toggle('theme-light', !isDark);
-  // Compatibilidad con estilos existentes
-  root.dataset.theme = isDark ? 'dark' : 'light';
-  window.dispatchEvent(new CustomEvent('themechange', { detail: { theme } }));
+function evaluatePasswordStrength(password) {
+  if (!password) {
+    return { level: 0, label: 'Sin contraseña', hint: 'Escribe una contraseña segura.' };
+  }
+
+  const checks = [/[a-z]/, /[A-Z]/, /\d/, /[^\w\s]/];
+  let score = checks.reduce((acc, regex) => (regex.test(password) ? acc + 1 : acc), 0);
+  if (password.length >= 12) score += 1;
+  if (password.length >= 16) score += 1;
+
+  let level = 1;
+  if (password.length < 8 || score <= 2) level = 1;
+  else if (score === 3) level = 2;
+  else if (score === 4) level = 3;
+  else level = 4;
+
+  const labels = {
+    0: 'Sin contraseña',
+    1: 'Débil',
+    2: 'Aceptable',
+    3: 'Buena',
+    4: 'Fuerte',
+  };
+
+  return {
+    level,
+    label: labels[level] || labels[1],
+    hint: level >= 3 ? 'Contraseña segura.' : 'Usa mayúsculas, minúsculas, números y símbolos.',
+  };
 }
 
-function initTheme() {
-  const btn = qs('[data-theme-toggle]');
-  const stored = localStorage.getItem(KEYS.theme);
-  const mqDark = matchMedia('(prefers-color-scheme: dark)').matches;
-  const theme = stored || (mqDark ? 'dark' : 'light');
+function createPasswordMeter(input, idSuffix) {
+  if (!input) return null;
+  const wrapper = document.createElement('div');
+  wrapper.className = 'password-meter';
+  const meterId = `${input.id || 'password'}-${idSuffix || 'strength'}`;
+  wrapper.id = meterId;
+  wrapper.setAttribute('role', 'status');
+  wrapper.setAttribute('aria-live', 'polite');
 
-  applyTheme(theme);
-  if (btn) btn.setAttribute('aria-pressed', String(theme === 'dark'));
+  const bar = document.createElement('div');
+  bar.className = 'password-meter__bar';
+  const fill = document.createElement('div');
+  fill.className = 'password-meter__fill';
+  bar.appendChild(fill);
+
+  const label = document.createElement('span');
+  label.className = 'password-meter__label';
+  label.textContent = 'Fortaleza: ';
+
+  const value = document.createElement('strong');
+  value.className = 'password-meter__value';
+  label.appendChild(value);
+
+  wrapper.appendChild(bar);
+  wrapper.appendChild(label);
+
+  input.insertAdjacentElement('afterend', wrapper);
+
+  const describedBy = input.getAttribute('aria-describedby');
+  if (describedBy) {
+    if (!describedBy.includes(meterId)) {
+      input.setAttribute('aria-describedby', `${describedBy} ${meterId}`.trim());
+    }
+  } else {
+    input.setAttribute('aria-describedby', meterId);
+  }
+
+  const update = (password) => {
+    const strength = evaluatePasswordStrength(password);
+    wrapper.dataset.strength = String(strength.level);
+    fill.style.transform = `scaleX(${strength.level / 4})`;
+    value.textContent = strength.label;
+    wrapper.setAttribute('aria-label', `Fortaleza de contraseña: ${strength.label}`);
+  };
+
+  update(input.value || '');
+
+  return { update };
 }
 
-function toggleTheme() {
-  const isDark = document.body.classList.contains('theme-dark') || document.documentElement.dataset.theme === 'dark';
-  const next = isDark ? 'light' : 'dark';
-  applyTheme(next);
-  localStorage.setItem(KEYS.theme, next);
+async function loadAppEnvironment() {
+  if (appEnvironment && appEnvironment !== 'pending') {
+    return appEnvironment;
+  }
+  appEnvironment = 'pending';
+  try {
+    const res = await safeFetch('/api/meta/env', {}, 3000);
+    if (res && res.ok) {
+      const data = await res.json().catch(() => ({}));
+      appEnvironment = String(data?.env || 'production').toLowerCase();
+      demoModeEnabled = Boolean(data?.demo_mode);
+      return appEnvironment;
+    }
+  } catch (error) {
+    console.warn('No se pudo obtener el entorno de la app', error);
+  }
+  appEnvironment = 'production';
+  demoModeEnabled = false;
+  return appEnvironment;
+}
 
-  const btn = qs('[data-theme-toggle]');
-  if (btn) btn.setAttribute('aria-pressed', String(next === 'dark'));
+function addDemoButton(form, fillFn) {
+  if (!form || typeof fillFn !== 'function') return;
+  if (form.dataset.demoAttached) return;
+  const actions = form.querySelector('.form__actions') || form;
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = 'btn btn--ghost btn--sm form__demo-btn';
+  btn.textContent = 'Rellenar demo';
+  actions.appendChild(btn);
+  on(btn, 'click', (event) => {
+    event.preventDefault();
+    fillFn();
+    toast?.info?.('Datos de ejemplo cargados.');
+  });
+  form.dataset.demoAttached = 'true';
+}
+
+function enableDemoMode() {
+  const loginForm = qs(SELECTORS.loginForm);
+  if (loginForm) {
+    addDemoButton(loginForm, () => {
+      const email = qs(SELECTORS.loginEmail, loginForm);
+      const password = qs(SELECTORS.loginPassword, loginForm);
+      if (email instanceof HTMLInputElement) email.value = 'demo@ecuplot.test';
+      if (password instanceof HTMLInputElement) {
+        password.value = 'DemoPass.123';
+        password.dispatchEvent(new Event('input', { bubbles: true }));
+      }
+    });
+  }
+
+  const signupForm = qs(SELECTORS.signupForm);
+  if (signupForm) {
+    addDemoButton(signupForm, () => {
+      const nameInput = qs('#signup-name', signupForm);
+      const emailInput = qs('#signup-email', signupForm);
+      const passwordInput = qs(SELECTORS.signupPassword, signupForm);
+      const confirmInput = qs(SELECTORS.signupPasswordConfirm, signupForm);
+      const terms = qs(SELECTORS.signupTerms, signupForm);
+
+      if (nameInput instanceof HTMLInputElement) nameInput.value = 'Ana Ejemplo';
+      if (emailInput instanceof HTMLInputElement) emailInput.value = 'demo.usuario@ecuplot.test';
+      if (passwordInput instanceof HTMLInputElement) {
+        passwordInput.value = 'DemoPass.123';
+        passwordInput.dispatchEvent(new Event('input', { bubbles: true }));
+      }
+      if (confirmInput instanceof HTMLInputElement) confirmInput.value = 'DemoPass.123';
+      if (terms instanceof HTMLInputElement) terms.checked = true;
+    });
+  }
+}
+
+function maybeShowTwoFactorReminder(user) {
+  if (!user || user.two_factor_enabled) return;
+  try {
+    if (sessionStorage.getItem(TWOFA_REMINDER_KEY)) return;
+    sessionStorage.setItem(TWOFA_REMINDER_KEY, '1');
+  } catch (error) {
+    /* ignore */
+  }
+  toast?.info?.('Refuerza tu cuenta: activa la verificación en dos pasos desde tu perfil.', 10000);
+}
+
+const THEME_LABELS = {
+  light: 'Tema claro',
+  dark: 'Tema oscuro',
+  system: 'Tema según el sistema',
+};
+
+initThemeSync();
+const eventStream = createEventStream();
+let appEnvironment = 'production';
+let demoModeEnabled = false;
+const TWOFA_REMINDER_KEY = 'ecuplot.2fa-reminder';
+
+function bindThemeSelector() {
+  const switcher = qs('[data-theme-switcher]');
+  if (!switcher) return;
+
+  const trigger = qs('[data-theme-menu-trigger]', switcher);
+  const menu = qs('[data-theme-menu]', switcher);
+  if (!trigger || !menu) return;
+
+  const options = Array.from(qsa('[data-theme-option]', menu)).filter((node) => node instanceof HTMLElement);
+  if (!options.length) return;
+
+  let isOpen = false;
+
+  const closeMenu = () => {
+    if (!isOpen) return;
+    isOpen = false;
+    menu.hidden = true;
+    trigger.setAttribute('aria-expanded', 'false');
+  };
+
+  const openMenu = () => {
+    if (isOpen) return;
+    isOpen = true;
+    menu.hidden = false;
+    trigger.setAttribute('aria-expanded', 'true');
+    const active = options.find((opt) => opt.getAttribute('aria-checked') === 'true');
+    (active || options[0]).focus({ preventScroll: true });
+  };
+
+  const toggleMenu = () => {
+    if (isOpen) {
+      closeMenu();
+    } else {
+      openMenu();
+    }
+  };
+
+  const describeSelection = (pref) => {
+    const label = THEME_LABELS[pref] || 'Tema';
+    trigger.setAttribute('aria-label', `${label}. Cambiar tema`);
+    trigger.dataset.themeCurrent = pref;
+  };
+
+  const updateActive = () => {
+    const pref = getThemePreference();
+    options.forEach((opt) => {
+      const value = opt.dataset.themeOption || '';
+      const isActive = value === pref;
+      opt.setAttribute('aria-checked', String(isActive));
+      opt.classList.toggle('is-active', isActive);
+    });
+    describeSelection(pref);
+  };
+
+  on(trigger, 'click', (event) => {
+    event.preventDefault();
+    toggleMenu();
+  });
+
+  on(trigger, 'keydown', (event) => {
+    if (event.key === 'ArrowDown' || event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault();
+      openMenu();
+    }
+  });
+
+  options.forEach((option) => {
+    on(option, 'click', (event) => {
+      event.preventDefault();
+      const value = option.dataset.themeOption;
+      if (!value) return;
+      setThemePreference(value);
+      updateActive();
+      closeMenu();
+    });
+    on(option, 'keydown', (event) => {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        closeMenu();
+        trigger.focus();
+      }
+      if (event.key === 'ArrowUp' || event.key === 'ArrowDown') {
+        event.preventDefault();
+        const dir = event.key === 'ArrowDown' ? 1 : -1;
+        const currentIndex = options.indexOf(option);
+        const nextIndex = (currentIndex + dir + options.length) % options.length;
+        options[nextIndex]?.focus();
+      }
+      if (event.key === 'Enter' || event.key === ' ') {
+        event.preventDefault();
+        option.click();
+      }
+    });
+  });
+
+  on(document, 'click', (event) => {
+    if (!isOpen) return;
+    if (event.target instanceof Node && !switcher.contains(event.target)) {
+      closeMenu();
+    }
+  });
+
+  on(document, 'keydown', (event) => {
+    if (isOpen && event.key === 'Escape') {
+      event.preventDefault();
+      closeMenu();
+      trigger.focus();
+    }
+  });
+
+  updateActive();
 }
 
 /** Drawer móvil */
@@ -1140,29 +1401,16 @@ function setCurrentYear() {
 
 // Triggers
 function bindGlobalTriggers() {
-  const themeBtn = qs('[data-theme-toggle]');
-  on(themeBtn, 'click', toggleTheme);
-
   const drawerBtn = qs('[data-drawer-toggle]');
-  on(drawerBtn, 'click', (e) => {
-    e.preventDefault();
-    DrawerController.open();
+  if (drawerBtn) {
+    on(drawerBtn, 'click', (e) => {
+      e.preventDefault();
+      DrawerController.open();
     });
-
+  }
 }
 
 // Utilidades de autenticación
-function getSessionToken() {
-  return localStorage.getItem(KEYS.sessionToken);
-}
-
-function setSessionToken(token) {
-  if (token) localStorage.setItem(KEYS.sessionToken, token);
-}
-
-function clearSessionToken() {
-  localStorage.removeItem(KEYS.sessionToken);
-}
 
 function buildHeaderButtonMarkup(config, options = {}) {
   if (!config) return '';
@@ -1237,12 +1485,14 @@ function restoreSessionAuth() {
   const hasToken = !!getSessionToken();
   setAuthUI(hasToken);
   if (hasToken) {
+    eventStream.ensure();
     const cached = loadStoredUser();
     if (cached) {
       window.dispatchEvent(new CustomEvent('ecuplot:user', { detail: cached }));
     }
     refreshCurrentUser();
   } else {
+    eventStream.disconnect();
     setCurrentUser(null);
   }
 }
@@ -1260,6 +1510,14 @@ function initAuthForms() {
       terms: qs('#error-signup-terms', signupForm),
       role: qs('#error-signup-role', signupForm),
     };
+
+    const signupPasswordInput = qs(SELECTORS.signupPassword, signupForm);
+    const signupPasswordMeter = signupPasswordInput instanceof HTMLInputElement
+      ? createPasswordMeter(signupPasswordInput, 'signup-strength')
+      : null;
+    if (signupPasswordMeter && signupPasswordInput instanceof HTMLInputElement) {
+      on(signupPasswordInput, 'input', () => signupPasswordMeter.update(signupPasswordInput.value));
+    }
 
     on(signupForm, 'submit', async (event) => {
       event.preventDefault();
@@ -1437,6 +1695,7 @@ function initAuthForms() {
         if (res.ok) {
           toast.success(data.message || '¡Bienvenido de nuevo!');
           if (data.session_token) setSessionToken(data.session_token);
+          eventStream.ensure();
           setAuthUI(true);
           await refreshCurrentUser();
           window.dispatchEvent(new CustomEvent('ecuplot:login'));
@@ -1575,7 +1834,11 @@ async function logout() {
   } catch (e) {
     console.warn('Logout request failed:', e);
   } finally {
-    localStorage.removeItem(KEYS.sessionToken);
+    clearSessionToken();
+    eventStream.disconnect();
+    try {
+      sessionStorage.removeItem(TWOFA_REMINDER_KEY);
+    } catch (error) {}
     setCurrentUser(null);
     setAuthUI(false);
     window.dispatchEvent(new CustomEvent('ecuplot:logout'));
@@ -1593,7 +1856,7 @@ function bindLogout() {
 
 // Iniciador
 function init() {
-  initTheme();
+  bindThemeSelector();
   DrawerController.bind();
   LoginModal.bind?.();
   SignupModal.bind?.();
@@ -1616,8 +1879,11 @@ function init() {
   initResetPasswordPage();
   bindLogout();
   checkEmailVerification();
+  loadAppEnvironment().then(() => {
+    if (demoModeEnabled) enableDemoMode();
+  });
 }
 
 init();
 
-export { toggleTheme, authFetch, savePlot, logout, toast, getCurrentUser, refreshCurrentUser };
+export { authFetch, savePlot, logout, toast, getCurrentUser, refreshCurrentUser, eventStream };

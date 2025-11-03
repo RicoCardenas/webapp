@@ -1,14 +1,34 @@
-import { authFetch, toast, getCurrentUser, refreshCurrentUser } from '/static/app.js';
+import { authFetch, toast, getCurrentUser, refreshCurrentUser, eventStream } from '/static/app.js';
 import { qs, qsa } from './lib/dom.js';
 import { on } from './lib/events.js';
-const SESSION_KEY = 'ecuplot_session_token';
+import { ensureHistoryStore } from './lib/history-store-singleton.js';
+import { createNotificationsStore } from './lib/notifications-store.js';
+import { hasSessionToken } from './lib/session.js';
 
 let unauthorizedHandled = false;
 const teacherState = { bound: false };
 const adminState = { bound: false };
-const developmentState = { bound: false, admins: [], adminsTotal: 0, adminsLoading: false };
+const developmentState = { bound: false, admins: [], adminsTotal: 0, adminsLoading: false, opsLoading: false };
 const developmentRemovalState = { target: null, loading: false };
 const adminRequestState = { bound: false, loading: false, status: 'none' };
+const DASHBOARD_WIDGET_META = {
+  stats: { id: 'account-details-box', label: 'Resumen' },
+  history: { id: 'account-history-box', label: 'Historial' },
+  notifications: { id: 'account-notifications-box', label: 'Notificaciones' },
+  tickets: { id: 'account-tickets-box', label: 'Solicitudes' },
+  security: { id: 'account-2fa-box', label: 'Seguridad' },
+  learning: { id: 'account-learning-box', label: 'Aprendizaje' },
+};
+const DEFAULT_DASHBOARD_LAYOUT = {
+  order: Object.keys(DASHBOARD_WIDGET_META),
+  hidden: [],
+  hiddenPanels: [],
+};
+const DASHBOARD_ROLE_WIDGETS = {
+  teacher: { id: 'teacher-panel', label: 'Panel docente', role: 'teacher' },
+  admin: { id: 'admin-panel', label: 'Panel administrador', role: 'admin' },
+  development: { id: 'development-panel', label: 'Panel desarrollo', role: 'development' },
+};
 const historyState = {
   bound: false,
   loading: false,
@@ -22,7 +42,39 @@ const historyState = {
   to: '',
   tags: [],
   order: 'desc',
+  initialized: false,
+  items: [],
+  pendingDeletes: new Set(),
+  listActionsBound: false,
 };
+const historyStore = ensureHistoryStore({
+  authFetch,
+  eventStream,
+  initialFilters: {
+    page: historyState.page,
+    pageSize: historyState.pageSize,
+    order: historyState.order,
+    q: historyState.q,
+  },
+});
+const notificationsState = {
+  bound: false,
+  loading: false,
+  page: 1,
+  totalPages: 0,
+  includeRead: false,
+  category: '',
+  unread: 0,
+  items: [],
+  preferences: {},
+  categories: {},
+  knownIds: new Set(),
+  error: null,
+};
+const notificationsStore = createNotificationsStore({
+  authFetch,
+  eventStream,
+});
 const ticketsState = {
   bound: false,
   loading: false,
@@ -38,6 +90,35 @@ const twoFAState = {
   otpauthUrl: null,
   qrImage: null,
   backupCodes: [],
+};
+const securityState = {
+  loading: false,
+  bound: false,
+  last: null,
+  fetched: false,
+  error: null,
+};
+const dashboardState = {
+  layout: getDefaultDashboardLayout(),
+  draft: null,
+  bound: false,
+  key: null,
+};
+const learningProgressState = {
+  bound: false,
+  items: [],
+};
+const accountState = {
+  user: null,
+  roles: new Set(),
+};
+
+const OPS_EVENT_LABELS = {
+  'auth.login.failed': 'Inicio de sesión fallido',
+  'auth.account.locked': 'Cuenta bloqueada',
+  'auth.login.succeeded': 'Inicio de sesión exitoso',
+  'role.admin.assigned': 'Asignación de rol administrador',
+  'role.admin.removed': 'Revocación de rol administrador',
 };
 
 const numberFormatter = new Intl.NumberFormat('es-CO');
@@ -59,6 +140,41 @@ const ui = {
   historyFrom: qs('#history-from'),
   historyTo: qs('#history-to'),
   historyTags: qs('#history-tags'),
+  historyOrder: qs('#history-order'),
+  dashboardCustomize: qs('#dashboard-customize'),
+  dashboardModal: qs('#dashboard-modal'),
+  dashboardWidgetsList: qs('#dashboard-widgets-list'),
+  dashboardSave: qs('#dashboard-save'),
+  dashboardCancelButtons: Array.from(qsa('[data-dashboard-cancel]')),
+  dashboardLayout: qs('.account-layout'),
+  dashboardPanels: qs('.account-panels'),
+  securityCard: qs('#account-2fa-box'),
+  securitySummary: qs('#security-summary'),
+  securityRefresh: qs('#security-refresh'),
+  securityLastLogin: qs('#security-last-login'),
+  securityFailedAttempts: qs('#security-failed-attempts'),
+  securityLockouts: qs('#security-lockouts'),
+  securityActiveSessions: qs('#security-active-sessions'),
+  securityRecommendations: qs('#security-recommendations'),
+  notificationsCard: qs('#account-notifications-box'),
+  notificationsList: qs('#notifications-list'),
+  notificationsEmpty: qs('#notifications-empty'),
+  notificationsUnread: qs('#notifications-unread'),
+  notificationsCategory: qs('#notifications-category'),
+  notificationsIncludeRead: qs('#notifications-include-read'),
+  notificationsPagination: qs('#notifications-pagination'),
+  notificationsPrev: qs('#notifications-prev'),
+  notificationsNext: qs('#notifications-next'),
+  notificationsPageInfo: qs('#notifications-page-info'),
+  notificationsPrefsToggle: qs('#notifications-prefs-toggle'),
+  notificationsPrefsForm: qs('#notifications-preferences-form'),
+  notificationsPrefsFields: qs('#notifications-preferences-fields'),
+  notificationsRefresh: qs('#notifications-refresh'),
+  notificationsMarkAll: qs('#notifications-mark-all'),
+  learningCard: qs('#account-learning-box'),
+  learningList: qs('#learning-progress-list'),
+  learningEmpty: qs('#learning-progress-empty'),
+  learningOpenGraph: qs('#learning-open-graph'),
   historyError: qs('#history-error'),
   historyPagination: qs('#history-pagination'),
   historyPrev: qs('#history-prev'),
@@ -87,6 +203,10 @@ const ui = {
   developmentBackupBtn: qs('#development-create-backup'),
   developmentRestoreForm: qs('#development-restore-form'),
   developmentBackupName: qs('#development-backup-name'),
+  opsBackupStatus: qs('#development-backup-status'),
+  opsBackupMeta: qs('#development-backup-meta'),
+  opsEventsList: qs('#development-ops-events'),
+  opsEventsEmpty: qs('#development-ops-events-empty'),
   developmentAdminList: qs('#development-admin-list'),
   developmentAdminEmpty: qs('#development-admin-empty'),
   developmentRemoveModal: qs('#development-remove-modal'),
@@ -142,6 +262,9 @@ const ui = {
   twofaCodesList: qs('#twofa-codes-list'),
   twofaFeedback: qs('#twofa-feedback'),
 };
+
+notificationsStore.subscribe(handleNotificationsSnapshot);
+historyStore.subscribe(handleHistorySnapshot);
 
 function initialsFrom(name = '', email = '') {
   const source = name || email;
@@ -250,6 +373,7 @@ function resetAccountUI() {
   historyState.exporting = false;
   resetAdminStats();
   resetTickets();
+  resetSecuritySummary();
   resetTwoFactor();
   if (ui.adminRequestBox) ui.adminRequestBox.hidden = true;
   if (ui.adminRequestStatus) {
@@ -305,6 +429,29 @@ function resetTickets() {
     ui.ticketsFeedback.textContent = '';
     ui.ticketsFeedback.hidden = true;
     ui.ticketsFeedback.removeAttribute('data-variant');
+  }
+}
+
+function resetSecuritySummary() {
+  securityState.loading = false;
+  securityState.last = null;
+  securityState.fetched = false;
+  securityState.error = null;
+  if (ui.securitySummary) ui.securitySummary.setAttribute('aria-busy', 'false');
+  if (ui.securityLastLogin) ui.securityLastLogin.textContent = 'Cargando...';
+  if (ui.securityFailedAttempts) ui.securityFailedAttempts.textContent = '—';
+  if (ui.securityLockouts) ui.securityLockouts.textContent = '—';
+  if (ui.securityActiveSessions) ui.securityActiveSessions.textContent = '—';
+  if (ui.securityRecommendations) {
+    ui.securityRecommendations.replaceChildren();
+    const item = document.createElement('li');
+    item.textContent = 'Sin recomendaciones disponibles.';
+    ui.securityRecommendations.appendChild(item);
+  }
+  if (ui.securityRefresh instanceof HTMLButtonElement) {
+    const label = ui.securityRefresh.dataset.defaultLabel || ui.securityRefresh.textContent || 'Actualizar seguridad';
+    ui.securityRefresh.disabled = false;
+    ui.securityRefresh.textContent = label;
   }
 }
 
@@ -442,11 +589,13 @@ function renderAccountDetails(user) {
 
   renderRolePanels(user, roles);
   renderAdminRequestSection(user, roles);
+  updateDashboardContext(user, roles);
 }
 
 function hideRolePanels() {
   if (ui.teacherPanel) {
     ui.teacherPanel.hidden = true;
+    ui.teacherPanel.dataset.roleAvailable = 'false';
     if (ui.teacherGroupList) ui.teacherGroupList.innerHTML = '';
     if (ui.teacherGroupsEmpty) {
       ui.teacherGroupsEmpty.textContent = 'Aún no has creado grupos.';
@@ -455,11 +604,13 @@ function hideRolePanels() {
   }
   if (ui.adminPanel) {
     ui.adminPanel.hidden = true;
+    ui.adminPanel.dataset.roleAvailable = 'false';
     if (ui.adminUserList) ui.adminUserList.innerHTML = '';
     if (ui.adminGroupList) ui.adminGroupList.innerHTML = '';
   }
   if (ui.developmentPanel) {
     ui.developmentPanel.hidden = true;
+    ui.developmentPanel.dataset.roleAvailable = 'false';
     if (ui.developmentRequestsList) ui.developmentRequestsList.innerHTML = '';
   }
 }
@@ -672,7 +823,14 @@ async function handleAdminRoleRequestClick(event) {
 
 function renderTeacherPanel() {
   if (!ui.teacherPanel) return;
-  ui.teacherPanel.hidden = false;
+  ui.teacherPanel.dataset.roleAvailable = 'true';
+  const hiddenByLayout = isDashboardPanelHidden('teacher');
+  ui.teacherPanel.hidden = hiddenByLayout;
+  if (hiddenByLayout) {
+    ui.teacherPanel.setAttribute('aria-hidden', 'true');
+  } else {
+    ui.teacherPanel.removeAttribute('aria-hidden');
+  }
   if (!teacherState.bound) {
     bindTeacherPanel();
     teacherState.bound = true;
@@ -1091,6 +1249,33 @@ function bindTicketsSection() {
   }
 }
 
+function bindLearningSection() {
+  if (learningProgressState.bound) return;
+  learningProgressState.bound = true;
+  if (ui.learningOpenGraph) {
+    on(ui.learningOpenGraph, 'click', (event) => {
+      event.preventDefault();
+      handleLearningOpenGraph();
+    });
+  }
+}
+
+function handleLearningOpenGraph() {
+  const button = ui.learningOpenGraph;
+  if (button instanceof HTMLButtonElement) {
+    button.disabled = true;
+    button.setAttribute('aria-busy', 'true');
+  }
+  try {
+    window.location.assign('/graph');
+  } finally {
+    if (button instanceof HTMLButtonElement) {
+      button.disabled = false;
+      button.setAttribute('aria-busy', 'false');
+    }
+  }
+}
+
 function setTicketsLoading(isLoading) {
   ticketsState.loading = Boolean(isLoading);
   if (ui.ticketsType instanceof HTMLSelectElement) ui.ticketsType.disabled = ticketsState.loading;
@@ -1263,6 +1448,175 @@ function handleTicketsNext(event) {
   if (ticketsState.totalPages && ticketsState.page >= ticketsState.totalPages) return;
   ticketsState.page += 1;
   loadTickets();
+}
+
+function bindSecuritySection() {
+  if (securityState.bound) return;
+  securityState.bound = true;
+  if (ui.securityRefresh instanceof HTMLButtonElement) {
+    if (!ui.securityRefresh.dataset.defaultLabel) {
+      ui.securityRefresh.dataset.defaultLabel = ui.securityRefresh.textContent || 'Actualizar seguridad';
+    }
+    on(ui.securityRefresh, 'click', async (event) => {
+      event.preventDefault();
+      await loadSecuritySummary({ force: true });
+    });
+  }
+}
+
+function setSecurityLoading(isLoading) {
+  securityState.loading = Boolean(isLoading);
+  if (ui.securitySummary) ui.securitySummary.setAttribute('aria-busy', securityState.loading ? 'true' : 'false');
+  if (ui.securityRefresh instanceof HTMLButtonElement) {
+    ui.securityRefresh.disabled = securityState.loading;
+    if (securityState.loading) {
+      ui.securityRefresh.textContent = 'Actualizando...';
+    } else {
+      const label = ui.securityRefresh.dataset.defaultLabel || 'Actualizar seguridad';
+      ui.securityRefresh.textContent = label;
+    }
+  }
+}
+
+function formatSecurityDate(value) {
+  if (!value) return '';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '';
+  const now = new Date();
+  const diffMs = now.getTime() - date.getTime();
+  if (Number.isFinite(diffMs) && diffMs >= 0) {
+    const diffMinutes = Math.floor(diffMs / 60000);
+    if (diffMinutes < 1) return 'Hace instantes';
+    if (diffMinutes < 60) return `Hace ${diffMinutes} min`;
+    const diffHours = Math.floor(diffMinutes / 60);
+    if (diffHours < 24) return `Hace ${diffHours} h`;
+    const diffDays = Math.floor(diffHours / 24);
+    if (diffDays < 7) return `Hace ${diffDays} día${diffDays === 1 ? '' : 's'}`;
+  }
+  return date.toLocaleString('es-CO', {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+}
+
+function describeSecurityLastLogin(entry) {
+  if (!entry) return 'Sin registros de inicio de sesión reciente.';
+  const formatted = formatSecurityDate(entry.at);
+  const absolute = entry.at
+    ? new Date(entry.at).toLocaleString('es-CO', {
+        year: 'numeric',
+        month: 'short',
+        day: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+      })
+    : '';
+  const relativeLabel = formatted || absolute;
+  const parts = [];
+  if (relativeLabel) parts.push(relativeLabel);
+  if (absolute && formatted && formatted !== absolute) parts.push(`(${absolute})`);
+  if (entry.ip) parts.push(`IP: ${entry.ip}`);
+  return parts.length ? parts.join(' · ') : 'Sin registros de inicio de sesión reciente.';
+}
+
+function describeSecurityAttempts(summary) {
+  const count = Number(summary?.count ?? 0);
+  if (!count) return 'Sin intentos recientes.';
+  const windowHours = Number(summary?.window_hours ?? 24);
+  const countLabel = `${formatNumber(count)} intento${count === 1 ? '' : 's'} fallido${count === 1 ? '' : 's'}`;
+  const windowLabel = windowHours > 0 ? `en las últimas ${windowHours} h` : '';
+  const lastLabel = formatSecurityDate(summary?.last_at);
+  return [countLabel, windowLabel, lastLabel ? `Último: ${lastLabel}` : null]
+    .filter(Boolean)
+    .join(' · ');
+}
+
+function describeSecurityLockouts(summary) {
+  const count = Number(summary?.count ?? 0);
+  if (!count) return 'Sin bloqueos recientes.';
+  const windowDays = Number(summary?.window_days ?? 90);
+  const countLabel = `${formatNumber(count)} bloqueo${count === 1 ? '' : 's'}`;
+  const windowLabel = windowDays > 0 ? `en los últimos ${windowDays} días` : '';
+  const lastLabel = formatSecurityDate(summary?.last_at);
+  return [countLabel, windowLabel, lastLabel ? `Último: ${lastLabel}` : null]
+    .filter(Boolean)
+    .join(' · ');
+}
+
+function describeSecuritySessions(value) {
+  const active = Number(value ?? 0);
+  if (Number.isFinite(active) && active > 0) {
+    return `${formatNumber(active)} sesión${active === 1 ? '' : 'es'} activa${active === 1 ? '' : 's'}`;
+  }
+  return '1 sesión activa (esta sesión)';
+}
+
+function renderSecurityRecommendations(recommendations) {
+  if (!ui.securityRecommendations) return;
+  ui.securityRecommendations.replaceChildren();
+  const items = Array.isArray(recommendations) ? recommendations.filter(Boolean) : [];
+  if (!items.length) {
+    const li = document.createElement('li');
+    li.textContent = 'Sin recomendaciones adicionales.';
+    ui.securityRecommendations.appendChild(li);
+    return;
+  }
+  items.forEach((tip) => {
+    const li = document.createElement('li');
+    li.textContent = tip;
+    ui.securityRecommendations.appendChild(li);
+  });
+}
+
+function renderSecuritySummary(summary) {
+  securityState.last = summary || null;
+  securityState.fetched = Boolean(summary);
+  securityState.error = null;
+  if (!summary) {
+    if (ui.securityLastLogin) ui.securityLastLogin.textContent = 'Sin registros.';
+    if (ui.securityFailedAttempts) ui.securityFailedAttempts.textContent = 'Sin intentos recientes.';
+    if (ui.securityLockouts) ui.securityLockouts.textContent = 'Sin bloqueos recientes.';
+    if (ui.securityActiveSessions) ui.securityActiveSessions.textContent = '1 sesión activa (esta sesión)';
+    renderSecurityRecommendations([]);
+    return;
+  }
+
+  if (ui.securityLastLogin) ui.securityLastLogin.textContent = describeSecurityLastLogin(summary.last_login);
+  if (ui.securityFailedAttempts) ui.securityFailedAttempts.textContent = describeSecurityAttempts(summary.failed_attempts);
+  if (ui.securityLockouts) ui.securityLockouts.textContent = describeSecurityLockouts(summary.lockouts);
+  if (ui.securityActiveSessions) ui.securityActiveSessions.textContent = describeSecuritySessions(summary.active_sessions);
+  renderSecurityRecommendations(summary.recommendations);
+}
+
+async function loadSecuritySummary(options = {}) {
+  const { force = false } = options;
+  if (!ui.securityCard) return;
+  if (securityState.loading) return;
+  if (securityState.fetched && !force) return;
+
+  setSecurityLoading(true);
+  try {
+    const res = await requestWithAuth('/api/account/security/summary');
+    if (!res) return;
+    if (!res.ok) {
+      renderSecuritySummary(null);
+      securityState.error = true;
+      toast?.error?.('No se pudo cargar el resumen de seguridad.');
+      return;
+    }
+    const data = await res.json().catch(() => ({}));
+    renderSecuritySummary(data || null);
+  } catch (error) {
+    console.error('[account] Error al cargar resumen de seguridad', error);
+    renderSecuritySummary(null);
+    securityState.error = true;
+    toast?.error?.('No se pudo cargar el resumen de seguridad.');
+  } finally {
+    setSecurityLoading(false);
+  }
 }
 
 function bindTwoFactorSection() {
@@ -1560,7 +1914,14 @@ async function handleTwoFactorRegenerate(event) {
 
 function renderAdminPanel() {
   if (!ui.adminPanel) return;
-  ui.adminPanel.hidden = false;
+  ui.adminPanel.dataset.roleAvailable = 'true';
+  const hiddenByLayout = isDashboardPanelHidden('admin');
+  ui.adminPanel.hidden = hiddenByLayout;
+  if (hiddenByLayout) {
+    ui.adminPanel.setAttribute('aria-hidden', 'true');
+  } else {
+    ui.adminPanel.removeAttribute('aria-hidden');
+  }
   if (!adminState.bound) {
     bindAdminPanel();
     adminState.bound = true;
@@ -1804,13 +2165,139 @@ function renderAdminGroups(groups) {
 
 function renderDevelopmentPanel() {
   if (!ui.developmentPanel) return;
-  ui.developmentPanel.hidden = false;
+  ui.developmentPanel.dataset.roleAvailable = 'true';
+  const hiddenByLayout = isDashboardPanelHidden('development');
+  ui.developmentPanel.hidden = hiddenByLayout;
+  if (hiddenByLayout) {
+    ui.developmentPanel.setAttribute('aria-hidden', 'true');
+  } else {
+    ui.developmentPanel.removeAttribute('aria-hidden');
+  }
   if (!developmentState.bound) {
     bindDevelopmentPanel();
     developmentState.bound = true;
   }
   loadDevelopmentAdmins();
   loadDevelopmentRequests();
+  loadOperationsSummary();
+}
+
+function setOpsLoading(isLoading) {
+  developmentState.opsLoading = Boolean(isLoading);
+  if (ui.opsEventsList) {
+    ui.opsEventsList.setAttribute('aria-busy', developmentState.opsLoading ? 'true' : 'false');
+  }
+}
+
+function loadOperationsSummary() {
+  if (!ui.opsBackupStatus && !ui.opsEventsList) return;
+  setOpsLoading(true);
+  requestWithAuth('/api/admin/ops/summary')
+    .then(async (res) => {
+      if (!res) return;
+      if (!res.ok) {
+        if (res.status === 403) {
+          if (ui.opsBackupStatus) ui.opsBackupStatus.textContent = 'Sin permisos para consultar.';
+          if (ui.opsEventsList) ui.opsEventsList.innerHTML = '';
+          if (ui.opsEventsEmpty) {
+            ui.opsEventsEmpty.hidden = false;
+            ui.opsEventsEmpty.textContent = 'Sin permisos para consultar eventos.';
+          }
+        }
+        return;
+      }
+      const data = await res.json().catch(() => ({}));
+      renderOpsSummary(data);
+    })
+    .finally(() => setOpsLoading(false));
+}
+
+function renderOpsSummary(summary) {
+  const backup = summary?.backup;
+  if (ui.opsBackupStatus) {
+    if (backup && backup.created_at) {
+      const timestamp = new Date(backup.created_at).toLocaleString();
+      ui.opsBackupStatus.textContent = `Último backup: ${timestamp}`;
+    } else {
+      ui.opsBackupStatus.textContent = 'Último backup: sin registros';
+    }
+  }
+  if (ui.opsBackupMeta) {
+    if (backup) {
+      ui.opsBackupMeta.textContent = backup.filename ? `${backup.filename} · ${backup.engine || 'desconocido'}` : backup.engine || '';
+    } else {
+      ui.opsBackupMeta.textContent = '';
+    }
+  }
+  if (ui.opsEventsEmpty) {
+    ui.opsEventsEmpty.textContent = 'No hay eventos recientes.';
+  }
+  renderOpsEvents(Array.isArray(summary?.events) ? summary.events : []);
+}
+
+function renderOpsEvents(events) {
+  if (!ui.opsEventsList) return;
+  ui.opsEventsList.innerHTML = '';
+  const hasEvents = Array.isArray(events) && events.length > 0;
+  if (ui.opsEventsEmpty) ui.opsEventsEmpty.hidden = hasEvents;
+  if (!hasEvents) return;
+
+  events.forEach((event) => {
+    const item = document.createElement('li');
+    item.className = 'ops-events__item';
+
+    const top = document.createElement('div');
+    top.className = 'ops-events__top';
+
+    const action = document.createElement('span');
+    action.className = 'ops-events__action';
+    action.textContent = OPS_EVENT_LABELS[event.action] || event.action;
+    top.appendChild(action);
+
+    const time = document.createElement('time');
+    time.className = 'ops-events__time';
+    if (event.created_at) {
+      const date = new Date(event.created_at);
+      time.dateTime = date.toISOString();
+      time.textContent = date.toLocaleString();
+    } else {
+      time.textContent = '—';
+    }
+    top.appendChild(time);
+
+    const meta = document.createElement('div');
+    meta.className = 'ops-events__meta';
+    const actor = event.user?.email || event.user?.name || 'Sistema';
+    const ip = event.ip_address ? `IP: ${event.ip_address}` : '';
+    meta.textContent = [actor, ip].filter(Boolean).join(' · ');
+
+    const detail = document.createElement('div');
+    detail.className = 'ops-events__detail';
+    detail.textContent = describeOpsEventDetails(event);
+
+    item.appendChild(top);
+    item.appendChild(meta);
+    if (detail.textContent) item.appendChild(detail);
+    ui.opsEventsList.appendChild(item);
+  });
+}
+
+function describeOpsEventDetails(event) {
+  const details = event?.details || {};
+  switch (event?.action) {
+    case 'auth.login.failed':
+      return `Intentos fallidos acumulados: ${details.failed_attempts ?? 'N/D'}${details.locked ? '. Cuenta bloqueada.' : ''}`;
+    case 'auth.account.locked':
+      return 'La cuenta fue bloqueada por intentos fallidos.';
+    case 'auth.login.succeeded':
+      return details.used_backup_code ? 'Inicio de sesión con código de respaldo.' : 'Inicio de sesión con credenciales.';
+    case 'role.admin.assigned':
+      return details.target_public_id ? `Asignado a ID público ${details.target_public_id}.` : 'Rol admin asignado.';
+    case 'role.admin.removed':
+      return details.remaining_admins != null ? `Administradores restantes: ${details.remaining_admins}.` : 'Rol admin eliminado.';
+    default:
+      return '';
+  }
 }
 
 function bindDevelopmentPanel() {
@@ -2166,7 +2653,16 @@ async function handleDevelopmentCreateBackup() {
   const options = { method: 'POST' };
   if (desiredName) options.body = JSON.stringify({ backup_name: desiredName });
 
+  if (ui.developmentBackupBtn instanceof HTMLButtonElement) {
+    ui.developmentBackupBtn.disabled = true;
+    ui.developmentBackupBtn.textContent = 'Generando…';
+  }
+
   const res = await requestWithAuth('/api/development/backups/run', options);
+  if (ui.developmentBackupBtn instanceof HTMLButtonElement) {
+    ui.developmentBackupBtn.disabled = false;
+    ui.developmentBackupBtn.textContent = 'Crear backup';
+  }
   if (!res) return;
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
@@ -2178,6 +2674,7 @@ async function handleDevelopmentCreateBackup() {
   const data = await res.json().catch(() => ({}));
   const label = data?.backup?.filename ? ` (${data.backup.filename})` : '';
   toast?.success?.(`${data?.message || 'Backup generado.'}${label}`);
+  await loadOperationsSummary();
 }
 
 function onDevelopmentRestore(event) {
@@ -2373,6 +2870,12 @@ async function handleDevelopmentResolveRequest(requestId, action) {
 function handleUnauthorized(showToast = true) {
   resetAccountUI();
   setAuthVisibility(false);
+  accountState.user = null;
+  accountState.roles = new Set();
+  dashboardState.key = null;
+  dashboardState.layout = getDefaultDashboardLayout();
+  updateDashboardButtonState();
+  applyDashboardLayout();
   if (!unauthorizedHandled && showToast) {
     unauthorizedHandled = true;
     toast?.error?.('Debes iniciar sesión para ver esta sección. Usa el botón o vuelve al inicio.');
@@ -2430,6 +2933,9 @@ function bindHistoryPanel() {
     on(ui.historyFiltersForm, 'submit', handleHistoryFiltersSubmit);
     on(ui.historyFiltersForm, 'reset', handleHistoryFiltersReset);
   }
+  if (ui.historyOrder instanceof HTMLSelectElement) {
+    on(ui.historyOrder, 'change', handleHistoryOrderChange);
+  }
   if (ui.historyPrev) {
     on(ui.historyPrev, 'click', handleHistoryPrev);
   }
@@ -2443,6 +2949,11 @@ function bindHistoryPanel() {
       }
     });
   }
+
+  if (ui.historyList && !historyState.listActionsBound) {
+    historyState.listActionsBound = true;
+    on(ui.historyList, 'click', handleHistoryListClick);
+  }
 }
 
 function parseTagsInput(value) {
@@ -2452,6 +2963,26 @@ function parseTagsInput(value) {
     .filter(Boolean);
 }
 
+function syncHistoryFormInputs() {
+  if (ui.historySearch instanceof HTMLInputElement && ui.historySearch.value !== historyState.q) {
+    ui.historySearch.value = historyState.q;
+  }
+  if (ui.historyFrom instanceof HTMLInputElement && ui.historyFrom.value !== historyState.from) {
+    ui.historyFrom.value = historyState.from;
+  }
+  if (ui.historyTo instanceof HTMLInputElement && ui.historyTo.value !== historyState.to) {
+    ui.historyTo.value = historyState.to;
+  }
+  if (ui.historyTags instanceof HTMLInputElement) {
+    const current = historyState.tags.join(', ');
+    if (ui.historyTags.value !== current) ui.historyTags.value = current;
+  }
+  if (ui.historyOrder instanceof HTMLSelectElement) {
+    const desired = historyState.order || 'desc';
+    if (ui.historyOrder.value !== desired) ui.historyOrder.value = desired;
+  }
+}
+
 function formatNumber(value) {
   const num = Number(value ?? 0);
   if (!Number.isFinite(num)) return '0';
@@ -2459,17 +2990,7 @@ function formatNumber(value) {
 }
 
 function buildHistoryParams() {
-  const params = new URLSearchParams();
-  params.set('page', String(historyState.page));
-  params.set('page_size', String(historyState.pageSize));
-  if (historyState.q) params.set('q', historyState.q);
-  if (historyState.from) params.set('from', historyState.from);
-  if (historyState.to) params.set('to', historyState.to);
-  if (historyState.tags.length) params.set('tags', historyState.tags.join(','));
-  if (historyState.order && historyState.order !== 'desc') {
-    params.set('order', historyState.order);
-  }
-  return params;
+  return historyStore.buildQueryParams();
 }
 
 function setHistoryLoading(isLoading) {
@@ -2497,6 +3018,268 @@ function setHistoryLoading(isLoading) {
   }
 }
 
+function handleHistorySnapshot(snapshot) {
+  const filters = snapshot.filters || {};
+  const meta = snapshot.meta || {};
+
+  historyState.page = Number(filters.page ?? historyState.page ?? 1) || 1;
+  historyState.pageSize = Number(filters.pageSize ?? historyState.pageSize ?? 10) || 10;
+  historyState.q = filters.q || '';
+  historyState.from = filters.from || '';
+  historyState.to = filters.to || '';
+  historyState.tags = Array.isArray(filters.tags) ? [...filters.tags] : [];
+  historyState.order = filters.order || 'desc';
+  const totalFromMeta = Number(meta.total ?? meta.count);
+  if (Number.isFinite(totalFromMeta) && totalFromMeta >= 0) {
+    historyState.total = totalFromMeta;
+  } else if (Array.isArray(snapshot.items)) {
+    historyState.total = snapshot.items.length;
+  }
+
+  const totalPagesFromMeta = Number(meta.totalPages ?? meta.total_pages);
+  if (Number.isFinite(totalPagesFromMeta) && totalPagesFromMeta >= 0) {
+    historyState.totalPages = totalPagesFromMeta;
+  }
+
+  setHistoryLoading(snapshot.loading);
+
+  if (snapshot.error) {
+    const message = describeHistoryError(snapshot.error);
+    showHistoryError(message);
+  } else {
+    clearHistoryError();
+  }
+
+  historyState.items = Array.isArray(snapshot.items)
+    ? snapshot.items.map((item) => ({ ...item, tags: Array.isArray(item?.tags) ? [...item.tags] : [] }))
+    : [];
+  if (!snapshot.loading) historyState.initialized = true;
+  const validIds = new Set(historyState.items.map((item) => String(item?.id ?? '')));
+  Array.from(historyState.pendingDeletes).forEach((id) => {
+    if (!validIds.has(id)) {
+      historyState.pendingDeletes.delete(id);
+    }
+  });
+
+  renderHistoryItems(historyState.items);
+  updateHistoryPagination({
+    total: historyState.total,
+    total_pages: historyState.totalPages,
+    page: historyState.page,
+    page_size: historyState.pageSize,
+  });
+
+  if (ui.historyCount) {
+    if (Number.isFinite(historyState.total) && historyState.total > 0) {
+      ui.historyCount.textContent = historyState.total === 1 ? '1 registro' : `${historyState.total} registros`;
+    } else {
+      const count = historyState.items.length;
+      ui.historyCount.textContent = count === 1 ? '1 registro' : `${count} registros`;
+    }
+  }
+
+  syncHistoryFormInputs();
+}
+
+function describeHistoryError(code) {
+  if (!code) return '';
+  if (typeof code === 'string') {
+    if (code.startsWith('history:')) return 'No se pudo cargar el historial.';
+    if (code === 'network') return 'Error de red al cargar el historial.';
+    if (code === 'no-auth-fetch' || code === 'no-auth') return 'Inicia sesión para ver el historial.';
+  }
+  return typeof code === 'string' ? code : 'Error al cargar el historial.';
+}
+
+function handleNotificationsSnapshot(snapshot = {}) {
+  notificationsState.bound = true;
+  const filters = snapshot.filters || {};
+  const meta = snapshot.meta || {};
+
+  const pageFromFilters = Number(filters.page ?? meta.page ?? notificationsState.page ?? 1);
+  notificationsState.page = Number.isFinite(pageFromFilters) && pageFromFilters > 0 ? pageFromFilters : 1;
+  const totalPagesFromMeta = Number(meta.total_pages ?? meta.totalPages ?? notificationsState.totalPages ?? 0);
+  notificationsState.totalPages = Number.isFinite(totalPagesFromMeta) && totalPagesFromMeta >= 0 ? totalPagesFromMeta : 0;
+
+  if (filters.includeRead !== undefined) {
+    notificationsState.includeRead = Boolean(filters.includeRead);
+  } else if (filters.include_read !== undefined) {
+    notificationsState.includeRead = Boolean(filters.include_read);
+  }
+
+  notificationsState.category = typeof filters.category === 'string' ? filters.category : '';
+  notificationsState.loading = Boolean(snapshot.loading);
+  notificationsState.error = snapshot.error || null;
+  notificationsState.unread = Number(meta.unread ?? meta.unread_count ?? meta.total_unread ?? snapshot.unread ?? notificationsState.unread ?? 0) || 0;
+  notificationsState.items = Array.isArray(snapshot.items) ? snapshot.items.slice() : [];
+
+  if (snapshot.preferences && typeof snapshot.preferences === 'object') {
+    notificationsState.preferences = { ...snapshot.preferences };
+  }
+  if (snapshot.categories && typeof snapshot.categories === 'object') {
+    notificationsState.categories = { ...snapshot.categories };
+    renderNotificationCategories(notificationsState.categories);
+  }
+
+  if (ui.notificationsList) {
+    ui.notificationsList.setAttribute('aria-busy', notificationsState.loading ? 'true' : 'false');
+  }
+
+  if (ui.notificationsUnread) {
+    let message;
+    if (notificationsState.loading) {
+      message = 'Cargando notificaciones…';
+    } else if (notificationsState.unread > 0) {
+      message = notificationsState.unread === 1 ? 'Tienes 1 notificación sin leer.' : `Tienes ${notificationsState.unread} notificaciones sin leer.`;
+    } else {
+      message = notificationsState.includeRead ? 'No hay notificaciones para los filtros seleccionados.' : 'Estás al día. No tienes notificaciones sin leer.';
+    }
+    ui.notificationsUnread.textContent = message;
+  }
+
+  syncNotificationsFilters();
+  renderNotificationItems(notificationsState.items);
+  updateNotificationsPagination();
+}
+
+function describeNotificationsEmptyMessage() {
+  if (notificationsState.loading) return 'Cargando notificaciones…';
+  if (notificationsState.includeRead) return 'No hay notificaciones para los filtros seleccionados.';
+  return 'No tienes notificaciones por ahora.';
+}
+
+function renderNotificationItems(items) {
+  if (!ui.notificationsList) return;
+  ui.notificationsList.replaceChildren();
+
+  if (!Array.isArray(items) || !items.length) {
+    if (ui.notificationsEmpty) {
+      ui.notificationsEmpty.hidden = false;
+      ui.notificationsEmpty.textContent = describeNotificationsEmptyMessage();
+    }
+    return;
+  }
+
+  if (ui.notificationsEmpty) ui.notificationsEmpty.hidden = true;
+
+  items.forEach((item) => {
+    const li = document.createElement('li');
+    li.className = 'notifications-item';
+
+    const header = document.createElement('div');
+    header.className = 'notifications-item__header';
+
+    const title = document.createElement('span');
+    title.className = 'notifications-item__title';
+    const heading = item?.title || item?.subject || item?.type || 'Notificación';
+    title.textContent = heading;
+    header.appendChild(title);
+
+    if (!item?.read && !item?.seen) {
+      const badge = document.createElement('span');
+      badge.className = 'notifications-item__badge';
+      badge.textContent = 'Nuevo';
+      header.appendChild(badge);
+    }
+
+    if (item?.created_at) {
+      const timestamp = document.createElement('time');
+      timestamp.className = 'notifications-item__time';
+      timestamp.dateTime = item.created_at;
+      const dt = new Date(item.created_at);
+      timestamp.textContent = Number.isNaN(dt.getTime()) ? item.created_at : dt.toLocaleString('es-CO');
+      header.appendChild(timestamp);
+    }
+
+    li.appendChild(header);
+
+    const body = document.createElement('p');
+    body.className = 'notifications-item__message';
+    const message = item?.message || item?.body || item?.summary || '';
+    body.textContent = message || 'Sin detalles adicionales.';
+    li.appendChild(body);
+
+    const meta = document.createElement('div');
+    meta.className = 'notifications-item__meta';
+    if (item?.category) {
+      const category = document.createElement('span');
+      category.className = 'notifications-item__category';
+      category.textContent = item.category;
+      meta.appendChild(category);
+    }
+    if (item?.actions && Array.isArray(item.actions)) {
+      const actions = document.createElement('div');
+      actions.className = 'notifications-item__actions';
+      item.actions.forEach((action) => {
+        if (!action?.label || !action?.href) return;
+        const link = document.createElement('a');
+        link.className = 'btn btn--ghost btn--sm';
+        link.href = action.href;
+        link.textContent = action.label;
+        link.rel = 'noopener noreferrer';
+        actions.appendChild(link);
+      });
+      if (actions.childElementCount) meta.appendChild(actions);
+    }
+    if (meta.childElementCount) li.appendChild(meta);
+
+    ui.notificationsList.appendChild(li);
+  });
+}
+
+function syncNotificationsFilters() {
+  if (ui.notificationsIncludeRead instanceof HTMLInputElement) {
+    ui.notificationsIncludeRead.checked = Boolean(notificationsState.includeRead);
+  }
+  if (ui.notificationsCategory instanceof HTMLSelectElement) {
+    const desired = notificationsState.category || '';
+    if (ui.notificationsCategory.value !== desired) {
+      ui.notificationsCategory.value = desired;
+    }
+  }
+}
+
+function renderNotificationCategories(categories) {
+  if (!(ui.notificationsCategory instanceof HTMLSelectElement)) return;
+  const current = categories && typeof categories === 'object' ? categories : {};
+  const fragment = document.createDocumentFragment();
+  const defaultOption = document.createElement('option');
+  defaultOption.value = '';
+  defaultOption.textContent = 'Todas';
+  fragment.appendChild(defaultOption);
+
+  Object.entries(current)
+    .sort((a, b) => a[0].localeCompare(b[0]))
+    .forEach(([key, value]) => {
+      const option = document.createElement('option');
+      option.value = key;
+      option.textContent = `${value || key}`;
+      fragment.appendChild(option);
+    });
+
+  ui.notificationsCategory.replaceChildren(fragment);
+}
+
+function updateNotificationsPagination() {
+  const totalPages = notificationsState.totalPages || 0;
+  const currentPage = notificationsState.page || 1;
+  const hidden = totalPages <= 1 && currentPage <= 1;
+  if (ui.notificationsPagination) ui.notificationsPagination.hidden = hidden;
+
+  if (ui.notificationsPageInfo) {
+    const pages = totalPages > 0 ? totalPages : 1;
+    ui.notificationsPageInfo.textContent = `Página ${currentPage} de ${pages}`;
+  }
+
+  if (ui.notificationsPrev instanceof HTMLButtonElement) {
+    ui.notificationsPrev.disabled = notificationsState.loading || currentPage <= 1;
+  }
+  if (ui.notificationsNext instanceof HTMLButtonElement) {
+    const atEnd = totalPages !== 0 && currentPage >= totalPages;
+    ui.notificationsNext.disabled = notificationsState.loading || atEnd;
+  }
+}
+
 function clearHistoryError() {
   if (!ui.historyError) return;
   ui.historyError.textContent = '';
@@ -2507,6 +3290,432 @@ function showHistoryError(message) {
   if (!ui.historyError) return;
   ui.historyError.textContent = message;
   ui.historyError.hidden = false;
+}
+
+function getDashboardStorage() {
+  try {
+    return window.localStorage;
+  } catch (error) {
+    console.warn('[account] No se pudo acceder a localStorage para el panel.', error);
+    return null;
+  }
+}
+
+function computeDashboardStorageKey(user, rolesSet) {
+  const roles = rolesSet instanceof Set ? Array.from(rolesSet) : Array.from(new Set(rolesSet || []));
+  const rolesKey = roles.length ? roles.sort().join('|') : 'default';
+  const baseKey = user?.id != null
+    ? `id:${user.id}`
+    : user?.public_id
+      ? `pub:${user.public_id}`
+      : user?.email
+        ? `mail:${user.email}`
+        : 'guest';
+  return `ecuplot:dashboard:${baseKey}:${rolesKey}`;
+}
+
+function normalizeDashboardLayout(input = {}) {
+  const normalized = {
+    order: [],
+    hidden: [],
+    hiddenPanels: [],
+  };
+
+  const baseKeys = Object.keys(DASHBOARD_WIDGET_META);
+  const orderSource = Array.isArray(input.order) ? input.order : [];
+  orderSource.forEach((key) => {
+    if (!DASHBOARD_WIDGET_META[key]) return;
+    if (!normalized.order.includes(key)) normalized.order.push(key);
+  });
+  baseKeys.forEach((key) => {
+    if (!normalized.order.includes(key)) normalized.order.push(key);
+  });
+
+  const hiddenSet = new Set();
+  if (Array.isArray(input.hidden)) {
+    input.hidden.forEach((key) => {
+      if (DASHBOARD_WIDGET_META[key]) hiddenSet.add(key);
+    });
+  }
+  normalized.hidden = Array.from(hiddenSet);
+
+  const panelSet = new Set();
+  if (Array.isArray(input.hiddenPanels)) {
+    input.hiddenPanels.forEach((key) => {
+      if (DASHBOARD_ROLE_WIDGETS[key]) panelSet.add(key);
+    });
+  }
+  normalized.hiddenPanels = Array.from(panelSet);
+
+  return normalized;
+}
+
+function getDefaultDashboardLayout() {
+  return normalizeDashboardLayout({
+    order: [...DEFAULT_DASHBOARD_LAYOUT.order],
+    hidden: [...DEFAULT_DASHBOARD_LAYOUT.hidden],
+    hiddenPanels: [...DEFAULT_DASHBOARD_LAYOUT.hiddenPanels],
+  });
+}
+
+function cloneDashboardLayout(layout) {
+  if (!layout) return getDefaultDashboardLayout();
+  return normalizeDashboardLayout({
+    order: Array.isArray(layout.order) ? [...layout.order] : [...DEFAULT_DASHBOARD_LAYOUT.order],
+    hidden: Array.isArray(layout.hidden) ? [...layout.hidden] : [...DEFAULT_DASHBOARD_LAYOUT.hidden],
+    hiddenPanels: Array.isArray(layout.hiddenPanels) ? [...layout.hiddenPanels] : [...DEFAULT_DASHBOARD_LAYOUT.hiddenPanels],
+  });
+}
+
+function loadDashboardLayout(key) {
+  if (!key) return getDefaultDashboardLayout();
+  const storage = getDashboardStorage();
+  if (!storage) return getDefaultDashboardLayout();
+  const raw = storage.getItem(key);
+  if (!raw) return getDefaultDashboardLayout();
+  try {
+    const parsed = JSON.parse(raw);
+    return normalizeDashboardLayout(parsed);
+  } catch (error) {
+    console.warn('[account] No se pudo parsear la configuración del panel.', error);
+    return getDefaultDashboardLayout();
+  }
+}
+
+function saveDashboardLayout(layout) {
+  if (!dashboardState.key) return;
+  const storage = getDashboardStorage();
+  if (!storage) return;
+  try {
+    storage.setItem(dashboardState.key, JSON.stringify(layout));
+  } catch (error) {
+    console.warn('[account] No se pudo guardar la configuración del panel.', error);
+  }
+}
+
+function updateDashboardButtonState() {
+  const button = ui.dashboardCustomize;
+  if (!button) return;
+  const canCustomize = Boolean(accountState.user);
+  button.disabled = !canCustomize;
+  button.setAttribute('aria-disabled', canCustomize ? 'false' : 'true');
+  if (!canCustomize) {
+    button.title = 'Inicia sesión para personalizar tu panel.';
+  } else {
+    button.removeAttribute('title');
+  }
+}
+
+function isDashboardPanelHidden(panelKey) {
+  if (!panelKey) return false;
+  const layout = dashboardState.draft || dashboardState.layout;
+  if (!layout) return false;
+  return Array.isArray(layout.hiddenPanels) && layout.hiddenPanels.includes(panelKey);
+}
+
+function applyDashboardLayout() {
+  dashboardState.layout = normalizeDashboardLayout(dashboardState.layout);
+  const container = ui.dashboardLayout;
+  if (container) {
+    const order = dashboardState.layout.order.slice();
+    const hiddenSet = new Set(dashboardState.layout.hidden);
+
+    order.forEach((key) => {
+      const meta = DASHBOARD_WIDGET_META[key];
+      if (!meta) return;
+      const element = document.getElementById(meta.id);
+      if (!element) return;
+      container.appendChild(element);
+      const shouldHide = hiddenSet.has(key);
+      element.hidden = shouldHide;
+      element.setAttribute('aria-hidden', shouldHide ? 'true' : 'false');
+      element.dataset.dashboardHidden = shouldHide ? 'true' : 'false';
+    });
+
+    Object.keys(DASHBOARD_WIDGET_META).forEach((key) => {
+      if (order.includes(key)) return;
+      const meta = DASHBOARD_WIDGET_META[key];
+      const element = document.getElementById(meta.id);
+      if (!element) return;
+      container.appendChild(element);
+      const shouldHide = hiddenSet.has(key);
+      element.hidden = shouldHide;
+      element.setAttribute('aria-hidden', shouldHide ? 'true' : 'false');
+      element.dataset.dashboardHidden = shouldHide ? 'true' : 'false';
+    });
+  }
+
+  const hiddenPanels = new Set(dashboardState.layout.hiddenPanels);
+  Object.entries(DASHBOARD_ROLE_WIDGETS).forEach(([key, meta]) => {
+    const panel = document.getElementById(meta.id);
+    if (!panel) return;
+    const available = panel.dataset.roleAvailable === 'true';
+    const shouldHide = hiddenPanels.has(key) || !available;
+    panel.dataset.dashboardHidden = shouldHide ? 'true' : 'false';
+    panel.setAttribute('aria-hidden', shouldHide ? 'true' : 'false');
+    panel.hidden = shouldHide || panel.hidden === true;
+    if (!shouldHide && available) {
+      panel.hidden = false;
+      panel.removeAttribute('aria-hidden');
+    }
+  });
+}
+
+function updateDashboardContext(user, rolesSet) {
+  accountState.user = user || null;
+  accountState.roles = rolesSet instanceof Set ? new Set(rolesSet) : new Set(rolesSet || []);
+  const key = computeDashboardStorageKey(accountState.user, accountState.roles);
+  if (dashboardState.key !== key) {
+    dashboardState.key = key;
+    dashboardState.layout = loadDashboardLayout(key);
+  } else {
+    dashboardState.layout = normalizeDashboardLayout(dashboardState.layout);
+  }
+  updateDashboardButtonState();
+  applyDashboardLayout();
+}
+
+function getAvailableDashboardWidgets() {
+  const draft = dashboardState.draft || dashboardState.layout || getDefaultDashboardLayout();
+  const base = draft.order
+    .map((key) => ({ key, meta: DASHBOARD_WIDGET_META[key] }))
+    .filter((item) => Boolean(item.meta));
+  const panels = Array.from(accountState.roles)
+    .map((role) => ({ role, meta: DASHBOARD_ROLE_WIDGETS[role] }))
+    .filter((item, index, arr) => Boolean(item.meta) && arr.findIndex((candidate) => candidate.role === item.role) === index);
+  return { base, panels };
+}
+
+function renderDashboardWidgetsList() {
+  if (!ui.dashboardWidgetsList) return;
+  const draft = dashboardState.draft || dashboardState.layout || getDefaultDashboardLayout();
+  const hiddenBase = new Set(draft.hidden || []);
+  const hiddenPanels = new Set(draft.hiddenPanels || []);
+  const { base, panels } = getAvailableDashboardWidgets();
+
+  ui.dashboardWidgetsList.replaceChildren();
+
+  if (!base.length && !panels.length) {
+    const empty = document.createElement('p');
+    empty.className = 'dashboard-widgets__empty';
+    empty.textContent = 'Selecciona un rol o inicia sesión para personalizar tu panel.';
+    ui.dashboardWidgetsList.appendChild(empty);
+    return;
+  }
+
+  if (base.length) {
+    const baseGroup = document.createElement('section');
+    baseGroup.className = 'dashboard-widgets__group';
+
+    const heading = document.createElement('h3');
+    heading.className = 'dashboard-widgets__heading';
+    heading.textContent = 'Secciones principales';
+    baseGroup.appendChild(heading);
+
+    base.forEach(({ key, meta }, index) => {
+      const row = document.createElement('div');
+      row.className = 'dashboard-widget';
+      row.dataset.dashboardKey = key;
+      row.dataset.dashboardGroup = 'base';
+
+      const checkboxId = `dashboard-widget-${key}`;
+      const checkbox = document.createElement('input');
+      checkbox.type = 'checkbox';
+      checkbox.className = 'dashboard-widget__checkbox';
+      checkbox.id = checkboxId;
+      checkbox.dataset.dashboardKey = key;
+      checkbox.dataset.dashboardGroup = 'base';
+      checkbox.checked = !hiddenBase.has(key);
+
+      const label = document.createElement('label');
+      label.className = 'dashboard-widget__label';
+      label.setAttribute('for', checkboxId);
+      label.textContent = meta.label;
+
+      const controls = document.createElement('div');
+      controls.className = 'dashboard-widget__controls';
+
+      const up = document.createElement('button');
+      up.type = 'button';
+      up.className = 'dashboard-widget__move';
+      up.dataset.dashboardMove = 'up';
+      up.dataset.dashboardKey = key;
+      up.textContent = 'Subir';
+      up.disabled = index === 0;
+
+      const down = document.createElement('button');
+      down.type = 'button';
+      down.className = 'dashboard-widget__move';
+      down.dataset.dashboardMove = 'down';
+      down.dataset.dashboardKey = key;
+      down.textContent = 'Bajar';
+      down.disabled = index === base.length - 1;
+
+      controls.append(up, down);
+
+      row.append(checkbox, label, controls);
+      baseGroup.appendChild(row);
+    });
+
+    ui.dashboardWidgetsList.appendChild(baseGroup);
+  }
+
+  if (panels.length) {
+    const panelGroup = document.createElement('section');
+    panelGroup.className = 'dashboard-widgets__group';
+
+    const heading = document.createElement('h3');
+    heading.className = 'dashboard-widgets__heading';
+    heading.textContent = 'Paneles por rol';
+    panelGroup.appendChild(heading);
+
+    panels.forEach(({ role, meta }) => {
+      const row = document.createElement('div');
+      row.className = 'dashboard-widget';
+      row.dataset.dashboardKey = role;
+      row.dataset.dashboardGroup = 'panel';
+
+      const checkboxId = `dashboard-panel-${role}`;
+      const checkbox = document.createElement('input');
+      checkbox.type = 'checkbox';
+      checkbox.className = 'dashboard-widget__checkbox';
+      checkbox.id = checkboxId;
+      checkbox.dataset.dashboardKey = role;
+      checkbox.dataset.dashboardGroup = 'panel';
+      checkbox.checked = !hiddenPanels.has(role);
+
+      const label = document.createElement('label');
+      label.className = 'dashboard-widget__label';
+      label.setAttribute('for', checkboxId);
+      label.textContent = meta.label;
+
+      row.append(checkbox, label);
+      panelGroup.appendChild(row);
+    });
+
+    ui.dashboardWidgetsList.appendChild(panelGroup);
+  }
+}
+
+function openDashboardModal() {
+  if (!ui.dashboardModal) return;
+  if (!accountState.user) {
+    toast?.info?.('Inicia sesión para personalizar tu panel.');
+    return;
+  }
+  dashboardState.draft = cloneDashboardLayout(dashboardState.layout);
+  renderDashboardWidgetsList();
+  openModal(ui.dashboardModal);
+}
+
+function closeDashboardModal() {
+  if (!ui.dashboardModal) return;
+  dashboardState.draft = null;
+  closeModal(ui.dashboardModal);
+}
+
+function handleDashboardWidgetsChange(event) {
+  const target = event.target;
+  if (!(target instanceof HTMLInputElement)) return;
+  if (target.type !== 'checkbox') return;
+  const key = target.dataset.dashboardKey;
+  const group = target.dataset.dashboardGroup || 'base';
+  if (!key || !dashboardState.draft) return;
+
+  if (group === 'panel') {
+    const hiddenPanels = new Set(dashboardState.draft.hiddenPanels || []);
+    if (target.checked) {
+      hiddenPanels.delete(key);
+    } else {
+      hiddenPanels.add(key);
+    }
+    dashboardState.draft.hiddenPanels = Array.from(hiddenPanels);
+  } else {
+    const hidden = new Set(dashboardState.draft.hidden || []);
+    if (target.checked) {
+      hidden.delete(key);
+    } else {
+      hidden.add(key);
+    }
+    dashboardState.draft.hidden = Array.from(hidden);
+  }
+}
+
+function handleDashboardWidgetsClick(event) {
+  const control = event.target instanceof Element ? event.target.closest('[data-dashboard-move]') : null;
+  if (!control || !dashboardState.draft) return;
+  event.preventDefault();
+  const key = control.dataset.dashboardKey;
+  const direction = control.dataset.dashboardMove;
+  if (!key || !direction) return;
+  const order = Array.isArray(dashboardState.draft.order) ? [...dashboardState.draft.order] : [];
+  const index = order.indexOf(key);
+  if (index === -1) return;
+  const targetIndex = direction === 'up' ? index - 1 : index + 1;
+  if (targetIndex < 0 || targetIndex >= order.length) return;
+  order.splice(index, 1);
+  order.splice(targetIndex, 0, key);
+  dashboardState.draft.order = order;
+  renderDashboardWidgetsList();
+}
+
+function handleDashboardSave(event) {
+  event.preventDefault();
+  if (!dashboardState.draft) {
+    closeDashboardModal();
+    return;
+  }
+  dashboardState.layout = normalizeDashboardLayout(dashboardState.draft);
+  saveDashboardLayout(dashboardState.layout);
+  dashboardState.draft = null;
+  applyDashboardLayout();
+  closeDashboardModal();
+  toast?.success?.('Panel actualizado.');
+}
+
+function bindDashboardCustomization() {
+  if (dashboardState.bound) return;
+  dashboardState.bound = true;
+
+  if (ui.dashboardCustomize) {
+    on(ui.dashboardCustomize, 'click', (event) => {
+      event.preventDefault();
+      openDashboardModal();
+    });
+  }
+
+  if (ui.dashboardSave instanceof HTMLButtonElement) {
+    on(ui.dashboardSave, 'click', handleDashboardSave);
+  }
+
+  ui.dashboardCancelButtons?.forEach((button) => {
+    on(button, 'click', (event) => {
+      event.preventDefault();
+      closeDashboardModal();
+    });
+  });
+
+  if (ui.dashboardModal) {
+    const overlay = ui.dashboardModal.querySelector('[data-modal-close]');
+    if (overlay) {
+      on(overlay, 'click', (event) => {
+        event.preventDefault();
+        closeDashboardModal();
+      });
+    }
+    const closeButton = ui.dashboardModal.querySelector('.modal__close');
+    if (closeButton) {
+      on(closeButton, 'click', (event) => {
+        event.preventDefault();
+        closeDashboardModal();
+      });
+    }
+  }
+
+  if (ui.dashboardWidgetsList) {
+    on(ui.dashboardWidgetsList, 'change', handleDashboardWidgetsChange);
+    on(ui.dashboardWidgetsList, 'click', handleDashboardWidgetsClick);
+  }
 }
 
 function updateHistoryPagination(meta) {
@@ -2545,6 +3754,14 @@ function renderHistoryItems(items) {
   ui.historyList.replaceChildren();
 
   if (!Array.isArray(items) || items.length === 0) {
+    if (historyState.loading) {
+      if (ui.historyEmpty) ui.historyEmpty.hidden = true;
+      return;
+    }
+    if (!historyState.initialized) {
+      if (ui.historyEmpty) ui.historyEmpty.hidden = true;
+      return;
+    }
     if (ui.historyEmpty) {
       ui.historyEmpty.hidden = false;
       const message = qs('p', ui.historyEmpty);
@@ -2558,6 +3775,14 @@ function renderHistoryItems(items) {
   items.forEach((item) => {
     const li = document.createElement('li');
     li.className = 'history-item';
+    const id = item?.id != null ? String(item.id) : '';
+    const isPendingDelete = id && historyState.pendingDeletes.has(id);
+    if (id) {
+      li.dataset.historyId = id;
+    }
+    if (isPendingDelete) {
+      li.classList.add('history-item--pending');
+    }
 
     const main = document.createElement('div');
     main.className = 'history-item__main';
@@ -2604,9 +3829,86 @@ function renderHistoryItems(items) {
       metaContainer.appendChild(tagList);
     }
 
+    if (id) {
+      const actions = document.createElement('div');
+      actions.className = 'history-item__actions';
+      const deleteBtn = document.createElement('button');
+      deleteBtn.type = 'button';
+      deleteBtn.className = 'btn btn--ghost btn--sm history-item__delete';
+      deleteBtn.dataset.historyAction = 'delete';
+      deleteBtn.textContent = isPendingDelete ? 'Eliminando...' : item?.deleted ? 'Eliminado' : 'Eliminar';
+      if (isPendingDelete || item?.deleted) {
+        deleteBtn.disabled = true;
+      }
+      actions.appendChild(deleteBtn);
+      metaContainer.appendChild(actions);
+    }
+
     li.appendChild(metaContainer);
     ui.historyList.appendChild(li);
   });
+}
+
+function handleHistoryListClick(event) {
+  const target = event.target instanceof Element ? event.target.closest('[data-history-action]') : null;
+  if (!target) return;
+  const action = target.dataset.historyAction;
+  if (action !== 'delete') return;
+
+  event.preventDefault();
+  const host = target.closest('[data-history-id]');
+  const id = host?.dataset.historyId;
+  if (!id || historyState.pendingDeletes.has(id)) return;
+
+  requestHistoryDelete(id);
+}
+
+function describeHistoryDeleteError(result) {
+  const failure = Array.isArray(result?.failures) && result.failures.length ? result.failures[0] : null;
+  const reason = failure?.reason || result?.reason;
+  switch (reason) {
+    case 'no-auth-fetch':
+    case 'no-auth':
+    case 'no-auth-delete':
+      return 'Inicia sesión para eliminar registros del historial.';
+    case 'network':
+      return 'Error de red al eliminar el registro del historial.';
+    default:
+      return 'No se pudo eliminar el registro del historial.';
+  }
+}
+
+async function requestHistoryDelete(id) {
+  const confirmMessage = '¿Deseas eliminar este registro del historial?';
+  if (typeof window !== 'undefined' && typeof window.confirm === 'function') {
+    const confirmed = window.confirm(confirmMessage);
+    if (!confirmed) return;
+  }
+
+  historyState.pendingDeletes.add(id);
+  renderHistoryItems(historyState.items);
+
+  try {
+    const result = await historyStore.deleteItems(id);
+    if (!result?.ok) {
+      historyState.pendingDeletes.delete(id);
+      renderHistoryItems(historyState.items);
+      const message = describeHistoryDeleteError(result);
+      console.warn('history delete failed', result);
+      toast?.error?.(message);
+      showHistoryError(message);
+      return;
+    }
+    clearHistoryError();
+    toast?.success?.('Registro eliminado del historial.');
+  } catch (error) {
+    historyState.pendingDeletes.delete(id);
+    renderHistoryItems(historyState.items);
+    console.error('history delete error', error);
+    const message = 'No se pudo eliminar el registro del historial.';
+    toast?.error?.(message);
+    showHistoryError(message);
+  }
 }
 
 function formatHistoryDate(value) {
@@ -2624,41 +3926,37 @@ function formatHistoryDate(value) {
 
 function handleHistoryFiltersSubmit(event) {
   event.preventDefault();
-  historyState.page = 1;
-  historyState.q = ui.historySearch instanceof HTMLInputElement ? ui.historySearch.value.trim() : '';
-  historyState.from = ui.historyFrom instanceof HTMLInputElement ? ui.historyFrom.value : '';
-  historyState.to = ui.historyTo instanceof HTMLInputElement ? ui.historyTo.value : '';
-  historyState.tags = ui.historyTags instanceof HTMLInputElement ? parseTagsInput(ui.historyTags.value) : [];
   clearHistoryError();
-  loadPlotHistory();
+  const q = ui.historySearch instanceof HTMLInputElement ? ui.historySearch.value.trim() : '';
+  const from = ui.historyFrom instanceof HTMLInputElement ? ui.historyFrom.value : '';
+  const to = ui.historyTo instanceof HTMLInputElement ? ui.historyTo.value : '';
+  const tags = ui.historyTags instanceof HTMLInputElement ? parseTagsInput(ui.historyTags.value) : [];
+  const order = ui.historyOrder instanceof HTMLSelectElement ? ui.historyOrder.value : historyState.order;
+  historyStore.setFilters({ page: 1, q, from, to, tags, order }, { resetPage: true, fetch: true });
 }
 
 function handleHistoryFiltersReset(event) {
   event.preventDefault();
   if (ui.historyFiltersForm) ui.historyFiltersForm.reset();
-  historyState.page = 1;
-  historyState.q = '';
-  historyState.from = '';
-  historyState.to = '';
-  historyState.tags = [];
   clearHistoryError();
-  loadPlotHistory();
+  if (ui.historyOrder instanceof HTMLSelectElement) {
+    ui.historyOrder.value = 'desc';
+  }
+  historyStore.setFilters({ page: 1, q: '', from: '', to: '', tags: [], order: 'desc' }, { resetPage: true, fetch: true });
 }
 
 function handleHistoryPrev(event) {
   event.preventDefault();
   if (historyState.loading) return;
   if (historyState.page <= 1) return;
-  historyState.page -= 1;
-  loadPlotHistory();
+  historyStore.setFilters({ page: historyState.page - 1 }, { fetch: true });
 }
 
 function handleHistoryNext(event) {
   event.preventDefault();
   if (historyState.loading) return;
   if (historyState.totalPages && historyState.page >= historyState.totalPages) return;
-  historyState.page += 1;
-  loadPlotHistory();
+  historyStore.setFilters({ page: historyState.page + 1 }, { fetch: true });
 }
 
 async function handleHistoryExportClick(event) {
@@ -2667,6 +3965,14 @@ async function handleHistoryExportClick(event) {
   const format = button.dataset.historyExport;
   if (!format || historyState.exporting) return;
   await exportHistory(format, button);
+}
+
+function handleHistoryOrderChange(event) {
+  const select = event?.currentTarget;
+  if (!(select instanceof HTMLSelectElement)) return;
+  const value = select.value === 'asc' ? 'asc' : 'desc';
+  clearHistoryError();
+  historyStore.setFilters({ order: value }, { resetPage: true, fetch: true });
 }
 
 async function exportHistory(format, button) {
@@ -2745,49 +4051,17 @@ async function loadAccountDetails() {
 }
 
 async function loadPlotHistory() {
-  if (historyState.loading) return;
   clearHistoryError();
-  setHistoryLoading(true);
-
-  try {
-    const params = buildHistoryParams();
-    const res = await requestWithAuth(`/api/plot/history?${params.toString()}`);
-    if (!res) return;
-
-    if (!res.ok) {
-      const data = await res.json().catch(() => ({}));
-      const message = data?.error || 'No se pudo cargar el historial de gráficas.';
-      showHistoryError(message);
-      renderHistoryItems([]);
-      updateHistoryPagination({ page: historyState.page, total: 0, total_pages: 0, page_size: historyState.pageSize });
-      if (ui.historyCount) ui.historyCount.textContent = '—';
-      if (ui.historyEmpty) {
-        ui.historyEmpty.hidden = false;
-        const msg = qs('p', ui.historyEmpty);
-        if (msg) msg.textContent = 'Error al cargar el historial.';
-      }
-      return;
-    }
-
-    const payload = await res.json().catch(() => ({}));
-    const items = Array.isArray(payload?.data) ? payload.data : [];
-    const meta = payload?.meta || {};
-
-    updateHistoryPagination(meta);
-    renderHistoryItems(items);
-
-    const total = Number(meta?.total);
-    if (ui.historyCount) {
-      if (!Number.isNaN(total) && total >= 0) {
-        ui.historyCount.textContent = total === 1 ? '1 registro' : `${total} registros`;
-      } else {
-        const count = items.length;
-        ui.historyCount.textContent = count === 1 ? '1 registro' : `${count} registros`;
-      }
-    }
-  } finally {
-    setHistoryLoading(false);
+  if (!historyState.initialized) {
+    await historyStore.setFilters({
+      page: historyState.page,
+      pageSize: historyState.pageSize,
+      order: historyState.order,
+      q: historyState.q,
+    }, { resetPage: true });
   }
+  historyState.initialized = true;
+  await historyStore.load();
 }
 
 async function loadTickets() {
@@ -2823,9 +4097,12 @@ function initAccountPage() {
   bindHistoryToggle();
   bindHistoryPanel();
   bindTicketsSection();
+  bindLearningSection();
+  bindSecuritySection();
   bindTwoFactorSection();
   bindGuestOverlay();
-  const hasToken = Boolean(localStorage.getItem(SESSION_KEY));
+  bindDashboardCustomization();
+  const hasToken = hasSessionToken();
   if (!hasToken) {
     handleUnauthorized(false);
     return;
@@ -2833,6 +4110,7 @@ function initAccountPage() {
   loadAccountDetails();
   loadPlotHistory();
   loadTickets();
+  loadSecuritySummary();
   loadTwoFactorStatus();
 }
 
@@ -2842,6 +4120,7 @@ window.addEventListener('ecuplot:user', (event) => {
   const user = event.detail;
   if (user) {
     renderAccountDetails(user);
+    loadSecuritySummary({ force: true });
   } else {
     handleUnauthorized(false);
   }
@@ -2856,5 +4135,6 @@ window.addEventListener('ecuplot:login', () => {
   loadAccountDetails();
   loadPlotHistory();
   loadTickets();
+  loadSecuritySummary({ force: true });
   loadTwoFactorStatus();
 });

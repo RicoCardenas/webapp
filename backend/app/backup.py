@@ -8,7 +8,7 @@ import subprocess
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Optional
+from typing import Optional, List
 
 from flask import current_app
 from sqlalchemy.engine import make_url
@@ -156,6 +156,36 @@ def run_backup(backup_name: Optional[str] = None) -> BackupMetadata:
     raise BackupError("El motor de base de datos configurado no admite backups automáticos.")
 
 
+def list_backups(limit: int = 5) -> List[BackupMetadata]:
+    """Enumerate recent backups ordered by newest first."""
+    backup_dir = _get_backup_dir()
+    entries: list[BackupMetadata] = []
+    for path in backup_dir.iterdir():
+        if not path.is_file():
+            continue
+        suffix = path.suffix.lower()
+        if suffix not in {'.dump', '.sql', '.sqlite', '.bak'}:
+            continue
+        try:
+            stat = path.stat()
+        except OSError:
+            continue
+        created = datetime.fromtimestamp(stat.st_mtime, timezone.utc).isoformat()
+        engine = 'postgresql' if suffix == '.dump' else 'sqlite'
+        entries.append(
+            BackupMetadata(
+                name=path.stem,
+                filename=path.name,
+                path=str(path),
+                created_at=created,
+                engine=engine,
+            )
+        )
+
+    entries.sort(key=lambda meta: meta.created_at, reverse=True)
+    return entries[:limit]
+
+
 def _resolve_backup_file(backup_dir: Path, backup_name: str) -> Path:
     candidate = Path(backup_name)
     if candidate.is_absolute() and candidate.exists():
@@ -253,4 +283,3 @@ def restore_backup(backup_name: str) -> BackupMetadata:
         return _sqlite_restore(parsed_url, backup_file)
 
     raise RestoreError("El motor de base de datos configurado no admite restauraciones automáticas.")
-

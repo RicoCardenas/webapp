@@ -95,3 +95,37 @@ def test_history_pagination_and_filters(client, session_token_factory, app, _db)
     with_deleted = client.get("/api/plot/history?include_deleted=1&page_size=20", headers=headers).get_json()
     assert with_deleted["meta"]["total"] == 12
     assert any(item["deleted"] for item in with_deleted["data"])
+
+
+def test_history_respects_order_parameter(client, session_token_factory, app, _db):
+    token, user = session_token_factory()
+    headers = {"Authorization": f"Bearer {token}"}
+
+    with app.app_context():
+        now = datetime.now(timezone.utc)
+        entries = []
+        for index in range(5):
+            entry = PlotHistory(
+                user_id=user.id,
+                expression=f"expr-{index}",
+                created_at=now - timedelta(hours=index),
+            )
+            _db.session.add(entry)
+            entries.append(entry)
+        _db.session.commit()
+
+    descending = client.get("/api/plot/history?page=1&page_size=5&order=desc", headers=headers).get_json()
+    assert descending["meta"]["order"] == "desc"
+    desc_ids = [item["id"] for item in descending["data"]]
+    assert desc_ids[0] == str(entries[0].id)
+    assert desc_ids[-1] == str(entries[-1].id)
+
+    ascending = client.get("/api/plot/history?page=1&page_size=5&order=asc", headers=headers).get_json()
+    assert ascending["meta"]["order"] == "asc"
+    asc_ids = [item["id"] for item in ascending["data"]]
+    assert asc_ids[0] == str(entries[-1].id)
+    assert asc_ids[-1] == str(entries[0].id)
+
+    # Ensure chronological order matches expectation for ascending payload.
+    asc_dates = [item["created_at"] for item in ascending["data"]]
+    assert asc_dates == sorted(asc_dates)

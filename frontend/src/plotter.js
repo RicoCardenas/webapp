@@ -1,13 +1,11 @@
-import { authFetch, toast } from './app.js';
+import { authFetch, toast, eventStream } from './app.js';
 import { qs, qsa } from './lib/dom.js';
 import { on } from './lib/events.js';
 import { niceStep, formatTick } from './lib/math.js';
 import { createPlotterCore } from './plotter/plotter-core.js';
 import { createPlotterRenderer } from './plotter/plotter-render.js';
-import {
-  SESSION_KEY,
-  UI_SELECTORS,
-} from './plotter/plotter-config.js';
+import { UI_SELECTORS } from './plotter/plotter-config.js';
+import { hasSessionToken } from './lib/session.js';
 
 injectFullscreenStyles();
 
@@ -16,6 +14,7 @@ const expressionNodes = new Map();
 const container = qs(UI_SELECTORS.container);
 const core = createPlotterCore({
   authFetch,
+  eventStream,
 });
 
 const renderer = container instanceof HTMLElement
@@ -36,6 +35,12 @@ if (renderer) {
 }
 
 bindUI();
+
+core.onHistoryChange(() => {
+  renderHistoryList();
+  syncHistorySelectAll();
+  syncHistoryOrderInputs(core.history.order);
+});
 
 function bindUI() {
   bindForm();
@@ -90,7 +95,6 @@ function bindControls() {
   on(btnClear, 'click', () => {
     clearExpressions();
   });
-
   on(btnGrid, 'click', () => {
     const isOn = core.toggleGrid();
     updateGridButton(btnGrid, isOn);
@@ -127,6 +131,7 @@ function bindHistoryModal() {
   });
 
   setupHistorySearch(modal);
+  setupHistoryOrder(modal);
   setupHistorySelectAll(modal);
   setupHistoryPlotSelected(modal);
 }
@@ -140,11 +145,12 @@ function bindHistoryPanel() {
   if (!tabFunctions || !tabHistory || !sectionFunctions || !sectionHistory) return;
 
   let activeTab = 'functions';
+  if (panelBody instanceof HTMLElement && panelBody.classList.contains('functions-panel__body--history')) {
+    activeTab = 'history';
+  }
 
   const applyTabState = () => {
     const showHistory = activeTab === 'history';
-    sectionHistory.hidden = !showHistory;
-    sectionFunctions.hidden = showHistory;
     tabHistory.classList.toggle('is-active', showHistory);
     tabFunctions.classList.toggle('is-active', !showHistory);
     tabHistory.setAttribute('aria-pressed', String(showHistory));
@@ -174,6 +180,7 @@ function bindHistoryPanel() {
       core.clearHistorySelection();
       renderHistoryList();
       syncHistorySelectAll();
+      syncHistoryOrderInputs(core.history.order);
     }
     await ensureHistoryLoaded();
   });
@@ -184,11 +191,13 @@ function bindHistoryPanel() {
       core.clearHistorySelection();
       renderHistoryList();
       syncHistorySelectAll();
+      syncHistoryOrderInputs(core.history.order);
       await ensureHistoryLoaded();
     });
   }
 
   setupHistorySearch(sectionHistory);
+  setupHistoryOrder(sectionHistory);
   setupHistorySelectAll(sectionHistory);
   setupHistoryPlotSelected(sectionHistory, { closeModal: false });
 }
@@ -210,6 +219,17 @@ function setupHistorySelectAll(root) {
     renderHistoryList();
     syncHistorySelectAll();
   });
+}
+
+function setupHistoryOrder(root) {
+  const select = qs(UI_SELECTORS.historyOrder, root);
+  if (!(select instanceof HTMLSelectElement)) return;
+  on(select, 'change', () => {
+    const value = select.value === 'asc' ? 'asc' : 'desc';
+    syncHistoryOrderInputs(value);
+    core.historyStore.setFilters({ order: value }, { resetPage: true, fetch: true });
+  });
+  syncHistoryOrderInputs(core.history.order);
 }
 
 function setupHistoryPlotSelected(root, options = {}) {
@@ -697,6 +717,15 @@ function syncHistorySearchInputs(value) {
   });
 }
 
+function syncHistoryOrderInputs(order) {
+  const selects = qsa(UI_SELECTORS.historyOrder);
+  const desired = order === 'asc' ? 'asc' : 'desc';
+  selects.forEach((select) => {
+    if (!(select instanceof HTMLSelectElement)) return;
+    if (select.value !== desired) select.value = desired;
+  });
+}
+
 function plotSelectedHistory({ closeModal = true } = {}) {
   const items = core.getSelectedHistoryExpressions();
   if (!items.length) {
@@ -718,7 +747,7 @@ function handleMarkerSelection(marker) {
 }
 
 function persistExpression(label) {
-  if (!localStorage.getItem(SESSION_KEY)) return;
+  if (!hasSessionToken()) return;
   authFetch('/api/plot', {
     method: 'POST',
     body: JSON.stringify({ expression: label }),

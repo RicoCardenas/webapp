@@ -22,18 +22,18 @@ Este repositorio parte desde cero con una separación sencilla entre backend (Fl
 
 A partir de aquí podemos construir las funcionalidades deseadas sobre una base limpia.
 
-## Configuración de base de datos
+## Configuración de entornos y base de datos
 
-El backend espera la variable `DATABASE_URL` apuntando a tu base de datos de producción (por ejemplo, PostgreSQL). Usa el archivo `.env.example` como guía:
+El arranque se guía por `APP_ENV` (`production`, `development` o `test`). Si no la defines, la app intenta inferirla: `pytest` fuerza `test`, `FLASK_DEBUG` activa `development` y, en último caso, se asume `production`. Usa el archivo `.env.example` como guía:
 
 ```bash
 cp .env.example .env
 ```
 
-| Entorno          | Comportamiento                                                            |
-|------------------|---------------------------------------------------------------------------|
-| Producción       | Requiere `DATABASE_URL` válido. Si falta, la app aborta el arranque.      |
-| Desarrollo local | Si `DATABASE_URL` no está definido, se usa automáticamente `instance/dev.db` (SQLite). |
-| Pruebas (`pytest`)| Se utiliza una base SQLite en memoria para aislar los tests.             |
+| Entorno (`APP_ENV`) | Comportamiento                                                                              |
+|---------------------|---------------------------------------------------------------------------------------------|
+| `production`        | Requiere `DATABASE_URL` válido. Si falta, la app aborta con un mensaje explícito.           |
+| `development`       | Sin `DATABASE_URL`, se crea/usa automáticamente `instance/dev.db` (SQLite).                 |
+| `test`              | Sin `DATABASE_URL`, se emplea `sqlite:///:memory:` para aislar la suite de pruebas.         |
 
 La carpeta `instance/` se crea automáticamente (y ya está listada en `.gitignore`) para alojar la base SQLite de desarrollo.

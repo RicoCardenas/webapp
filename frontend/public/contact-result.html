@@ -5,6 +5,29 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>{{ 'Mensaje enviado' if success else 'No se pudo enviar tu mensaje' }} | EcuPlot</title>
     <meta name="theme-color" content="#0f172a" />
+    <script>
+      (function () {
+        var key = 'ecup-theme';
+        var pref = 'system';
+        try {
+          pref = localStorage.getItem(key) || 'system';
+        } catch (err) {}
+        var isDark = false;
+        if (pref === 'dark') {
+          isDark = true;
+        } else if (pref === 'system') {
+          try {
+            var mq = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)');
+            isDark = !!(mq && mq.matches);
+          } catch (err2) {}
+        }
+        var resolved = isDark ? 'dark' : 'light';
+        var root = document.documentElement;
+        root.classList.add('theme-' + resolved);
+        root.dataset.theme = resolved;
+        root.dataset.themePreference = pref;
+      })();
+    </script>
     <link rel="stylesheet" href="/static/base.css" />
     <link rel="stylesheet" href="/static/components.css" />
     <link rel="stylesheet" href="/static/pages.css" />

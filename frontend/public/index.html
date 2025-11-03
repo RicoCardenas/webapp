@@ -14,6 +14,29 @@
     <link rel="manifest" href="/static/manifest.webmanifest" />
     <link rel="mask-icon" href="/static/icons/safari-pinned-tab.svg" color="#0f172a" />
     <meta name="msapplication-TileColor" content="#0f172a" />
+    <script>
+      (function () {
+        var key = 'ecup-theme';
+        var pref = 'system';
+        try {
+          pref = localStorage.getItem(key) || 'system';
+        } catch (err) {}
+        var isDark = false;
+        if (pref === 'dark') {
+          isDark = true;
+        } else if (pref === 'system') {
+          try {
+            var mq = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)');
+            isDark = !!(mq && mq.matches);
+          } catch (err2) {}
+        }
+        var resolved = isDark ? 'dark' : 'light';
+        var root = document.documentElement;
+        root.classList.add('theme-' + resolved);
+        root.dataset.theme = resolved;
+        root.dataset.themePreference = pref;
+      })();
+    </script>
   <link rel="stylesheet" href="/static/base.css" />
   <link rel="stylesheet" href="/static/components.css" />
   <link rel="stylesheet" href="/static/pages.css" />
@@ -80,10 +103,25 @@
               <img class="btn__icon-img btn__icon-img--dark" src="/static/images/logoutoscuro.png" alt="" decoding="async" />
             </span>
           </button>
-          <button class="btn btn--icon header__btn" type="button" aria-pressed="false" aria-label="Cambiar tema claro/oscuro" data-theme-toggle>
-            <img class="icon icon--theme icon--theme-light" src="/static/images/luna.png" alt="" decoding="async" />
-            <img class="icon icon--theme icon--theme-dark" src="/static/images/sol.png" alt="" decoding="async" />
-          </button>
+          <div class="theme-switcher" data-theme-switcher>
+            <button
+              class="btn btn--icon header__btn"
+              type="button"
+              data-theme-menu-trigger
+              aria-haspopup="true"
+              aria-expanded="false"
+              aria-controls="theme-menu-header"
+              aria-label="Cambiar tema"
+            >
+              <img class="icon icon--theme icon--theme-light" src="/static/images/luna.png" alt="" decoding="async" />
+              <img class="icon icon--theme icon--theme-dark" src="/static/images/sol.png" alt="" decoding="async" />
+            </button>
+            <div id="theme-menu-header" class="theme-menu" role="menu" hidden data-theme-menu>
+              <button type="button" class="theme-menu__option" data-theme-option="light" role="menuitemradio" aria-checked="false">Claro</button>
+              <button type="button" class="theme-menu__option" data-theme-option="dark" role="menuitemradio" aria-checked="false">Oscuro</button>
+              <button type="button" class="theme-menu__option" data-theme-option="system" role="menuitemradio" aria-checked="false">Sistema</button>
+            </div>
+          </div>
           <button
             class="btn btn--icon header__btn header__btn--menu"
             type="button"

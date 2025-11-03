@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import re
-from typing import Iterable, Set
+from typing import Iterable, Optional, Set
 
 from sqlalchemy import func, select
 
@@ -11,13 +11,14 @@ from .models import PlotHistory, PlotHistoryTags, Tags
 
 DEFAULT_FALLBACK_TAG = "other"
 
-_TRIG_PATTERN = re.compile(r"\b(sin|cos|tan|cot|sec|csc)\b", re.IGNORECASE)
-_HYPERBOLIC_PATTERN = re.compile(r"\b(sinh|cosh|tanh|coth|sech|csch)\b", re.IGNORECASE)
+_TRIG_PATTERN = re.compile(r"\b(sin|cos|tan|cot|sec|csc|asin|acos|atan|arcsin|arccos|arctan)\b", re.IGNORECASE)
+_HYPERBOLIC_PATTERN = re.compile(r"\b(sinh|cosh|tanh|coth|sech|csch|asinh|acosh|atanh)\b", re.IGNORECASE)
 _LOG_PATTERN = re.compile(r"\b(ln|log)\b", re.IGNORECASE)
-_EXP_PATTERN = re.compile(r"(\bexp\s*\(|\be\s*\^)|(\b(?!x)[a-df-z]\s*\^\s*x)|(\b\d+\s*\^\s*x)", re.IGNORECASE)
+_EXP_PATTERN = re.compile(r"(\bexp\s*\(|\be\s*\^)|(\b[a-zA-Z]\s*\^\s*[a-z])|(\b\d+\s*\^\s*[a-z])", re.IGNORECASE)
 _RADICAL_PATTERN = re.compile(r"(\bsqrt\s*\(|\broot\s*\(|\^\s*\(?1\s*/\s*\d+\)?)", re.IGNORECASE)
 _PIECEWISE_PATTERN = re.compile(r"(\bpiecewise\b|\{|\}|\bif\b.*\belse\b)", re.IGNORECASE | re.DOTALL)
-_PARAMETRIC_PATTERN = re.compile(r"(\bx\s*\(\s*t\s*\)\s*=.*\by\s*\(\s*t\s*\)\s*=)|\bparam", re.IGNORECASE | re.DOTALL)
+_PARAMETRIC_PATTERN = re.compile(r"(\bx\s*\(\s*[a-z]\s*\)\s*=.*\by\s*\(\s*[a-z]\s*\)\s*=)|\bparam", re.IGNORECASE | re.DOTALL)
+_RATIONAL_HINT = re.compile(r"\bfrac\b|\)", re.IGNORECASE)
 
 _ALLOWED_POLY_CHARS = re.compile(r"[0-9xX\+\-\*\^\(\)\s\.]")
 
@@ -67,6 +68,9 @@ def classify_expression(expression: str | None) -> Set[str]:
         numerator, _, denominator = rhs.partition("/")
         if numerator and denominator and _looks_like_polynomial(numerator) and _looks_like_polynomial(denominator):
             categories.add("rational")
+
+    if "frac" in rhs.lower() and _RATIONAL_HINT.search(rhs):
+        categories.add("rational")
 
     if _looks_like_polynomial(rhs) and not categories.intersection({"rational", "radical", "logarithmic", "exponential", "trigonometric", "hyperbolic"}):
         categories.add("polynomial")
@@ -118,18 +122,29 @@ def _ensure_tag_objects(user_id, tag_names: Set[str], session=None) -> list[Tags
     return tags
 
 
-def apply_tags_to_history(history: PlotHistory, tag_names: Iterable[str], session=None) -> Set[str]:
+def apply_tags_to_history(history: PlotHistory, tag_names: Iterable[str], session=None, *, replace: bool = False) -> Set[str]:
     session = session or db.session
     normalized = {name for name in (_normalize_tag_name(name) for name in tag_names) if name}
     if not normalized:
         normalized = {DEFAULT_FALLBACK_TAG}
 
     attached: Set[str] = set()
-    existing = {
-        _normalize_tag_name(assoc.tag.name)
-        for assoc in (history.tags_association or [])
-        if assoc.tag and assoc.tag.name
-    }
+
+    if replace:
+        keep: Set[str] = set()
+        for assoc in list(history.tags_association or []):
+            assoc_name = _normalize_tag_name(getattr(getattr(assoc, "tag", None), "name", None))
+            if assoc_name in normalized:
+                keep.add(assoc_name)
+            else:
+                history.tags_association.remove(assoc)
+        existing = keep
+    else:
+        existing = {
+            _normalize_tag_name(assoc.tag.name)
+            for assoc in (history.tags_association or [])
+            if assoc.tag and assoc.tag.name
+        }
 
     tags = _ensure_tag_objects(history.user_id, normalized, session=session)
     for tag in tags:
@@ -140,3 +155,12 @@ def apply_tags_to_history(history: PlotHistory, tag_names: Iterable[str], sessio
         existing.add(tag_name)
         attached.add(tag_name)
     return attached
+
+
+def auto_tag_history(history: PlotHistory, expression: Optional[str] = None, *, session=None, replace: bool = True) -> Set[str]:
+    """
+    Clasifica y aplica las etiquetas correspondientes a un registro de historial.
+    """
+    resolved_expression = expression if expression is not None else history.expression
+    categories = classify_expression(resolved_expression)
+    return apply_tags_to_history(history, categories, session=session, replace=replace)

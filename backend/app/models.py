@@ -112,6 +112,7 @@ class Users(db.Model):
     created_at = db.Column(db.DateTime(timezone=True), nullable=False, server_default=func.now())
     updated_at = db.Column(db.DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())
     deleted_at = db.Column(db.DateTime(timezone=True))
+    dashboard_layout = db.Column(JSONColumn())
 
     # Relaciones (el "motor" de las consultas JOIN)
     role = db.relationship('Roles', back_populates='primary_users', foreign_keys=[role_id])
@@ -122,6 +123,9 @@ class Users(db.Model):
     presets = db.relationship('PlotPresets', back_populates='user', cascade="all, delete-orphan")
     tags = db.relationship('Tags', back_populates='user', cascade="all, delete-orphan")
     audit_logs = db.relationship('AuditLog', back_populates='user')
+    notifications = db.relationship('UserNotification', back_populates='user', cascade="all, delete-orphan", lazy='selectin')
+    notification_preferences = db.relationship('NotificationPreference', back_populates='user', cascade="all, delete-orphan", lazy='selectin')
+    learning_progress = db.relationship('LearningProgress', back_populates='user', cascade="all, delete-orphan")
     teacher_groups = db.relationship('StudentGroup', back_populates='teacher', cascade="all, delete-orphan", foreign_keys='StudentGroup.teacher_id', lazy='selectin')
     group_memberships = db.relationship('GroupMember', back_populates='student', cascade="all, delete-orphan", foreign_keys='GroupMember.student_user_id', lazy='selectin')
     role_requests_submitted = db.relationship('RoleRequest', back_populates='user', foreign_keys='RoleRequest.user_id', cascade="all, delete-orphan")
@@ -318,6 +322,21 @@ class PlotHistoryTags(db.Model):
     plot_history = db.relationship('PlotHistory', back_populates='tags_association')
     tag = db.relationship('Tags', back_populates='history_association')
 
+
+class LearningProgress(db.Model):
+    __tablename__ = 'learning_progress'
+
+    id = db.Column(GUID(), primary_key=True, server_default=func.gen_random_uuid())
+    user_id = db.Column(GUID(), db.ForeignKey('users.id', ondelete='CASCADE'), nullable=False, index=True)
+    exercise_id = db.Column(db.String(64), nullable=False)
+    completed_at = db.Column(db.DateTime(timezone=True), nullable=False, server_default=func.now())
+
+    user = db.relationship('Users', back_populates='learning_progress')
+
+    __table_args__ = (
+        db.UniqueConstraint('user_id', 'exercise_id', name='uq_learning_user_exercise'),
+    )
+
 # Modelo de Auditoría
 class AuditLog(db.Model):
     __tablename__ = 'audit_log'
@@ -334,6 +353,41 @@ class AuditLog(db.Model):
     created_at = db.Column(db.DateTime(timezone=True), nullable=False, server_default=func.now())
 
     user = db.relationship('Users', back_populates='audit_logs')
+
+
+class UserNotification(db.Model):
+    __tablename__ = 'user_notifications'
+
+    id = db.Column(GUID(), primary_key=True, server_default=func.gen_random_uuid())
+    user_id = db.Column(GUID(), db.ForeignKey('users.id', ondelete='CASCADE'), nullable=False, index=True)
+    category = db.Column(db.String(64), nullable=False, index=True)
+    title = db.Column(db.Text, nullable=False)
+    body = db.Column(db.Text)
+    payload = db.Column(JSONColumn())
+    read_at = db.Column(db.DateTime(timezone=True))
+    created_at = db.Column(db.DateTime(timezone=True), nullable=False, server_default=func.now(), index=True)
+
+    user = db.relationship('Users', back_populates='notifications')
+
+    __table_args__ = (
+        db.Index('ix_user_notifications_user_unread', 'user_id', 'read_at'),
+    )
+
+
+class NotificationPreference(db.Model):
+    __tablename__ = 'notification_preferences'
+
+    id = db.Column(GUID(), primary_key=True, server_default=func.gen_random_uuid())
+    user_id = db.Column(GUID(), db.ForeignKey('users.id', ondelete='CASCADE'), nullable=False, index=True)
+    category = db.Column(db.String(64), nullable=False)
+    enabled = db.Column(db.Boolean, nullable=False, default=True)
+    updated_at = db.Column(db.DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())
+
+    user = db.relationship('Users', back_populates='notification_preferences')
+
+    __table_args__ = (
+        db.UniqueConstraint('user_id', 'category', name='uq_notification_pref_user_category'),
+    )
 
 
 @event.listens_for(Users, 'before_insert')

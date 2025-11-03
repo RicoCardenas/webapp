@@ -4,7 +4,7 @@ from sqlalchemy.orm import selectinload
 
 from .app.models import Roles, PlotHistory, PlotHistoryTags
 from .app.extensions import db
-from .app.plot_tags import apply_tags_to_history, classify_expression
+from .app.plot_tags import auto_tag_history
 
 app = create_app()
 
@@ -59,8 +59,7 @@ def backfill_plot_history_tags(dry_run: bool = False):
     for history in entries:
         if history.tags_association:
             continue
-        categories = classify_expression(history.expression)
-        applied = apply_tags_to_history(history, categories, session=db.session)
+        applied = auto_tag_history(history, session=db.session, replace=True)
         if applied:
             updated += 1
 

@@ -1,14 +1,14 @@
 """Application factory for the backend service."""
 from pathlib import Path
 from flask import Flask
-from backend.config import Config
+from backend.config import Config, init_app_config
 
 # Importamos las instancias de las extensiones
 from .extensions import db, migrate, bcrypt, mail, cors
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
-PUBLIC_DIR = PROJECT_ROOT / "frontend" / "public" 
-STATIC_DIR = PROJECT_ROOT / "frontend" / "src" 
+PUBLIC_DIR = PROJECT_ROOT / "frontend" / "public"
+STATIC_DIR = PROJECT_ROOT / "frontend" / "src"
 
 
 def create_app(config_object=Config) -> Flask:
@@ -24,7 +24,8 @@ def create_app(config_object=Config) -> Flask:
     )
 
     app.config.from_object(config_object)
-    
+    init_app_config(app)
+
     # Inicializar Extensiones
     # Vinculamos las instancias de 'extensions.py' con nuestra 'app'
     db.init_app(app)
@@ -38,11 +39,11 @@ def create_app(config_object=Config) -> Flask:
     )
 
     with app.app_context():
-        from . import models 
+        from . import models
 
     from .routes import api as api_blueprint
     from .routes import frontend as frontend_blueprint
-    
+
     app.register_blueprint(frontend_blueprint)
     app.register_blueprint(api_blueprint, url_prefix="/api")
 

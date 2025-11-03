@@ -1,11 +1,34 @@
 <!DOCTYPE html>
-<html lang="es" class="light">
+<html lang="es">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Mi Cuenta - EcuPlot</title>
     <meta name="description" content="Panel de usuario para gestionar tu cuenta y ver tu historial en EcuPlot." />
     <link rel="icon" href="/static/images/logo.jpg" type="image/jpeg" />
+    <script>
+      (function () {
+        var key = 'ecup-theme';
+        var pref = 'system';
+        try {
+          pref = localStorage.getItem(key) || 'system';
+        } catch (err) {}
+        var isDark = false;
+        if (pref === 'dark') {
+          isDark = true;
+        } else if (pref === 'system') {
+          try {
+            var mq = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)');
+            isDark = !!(mq && mq.matches);
+          } catch (err2) {}
+        }
+        var resolved = isDark ? 'dark' : 'light';
+        var root = document.documentElement;
+        root.classList.add('theme-' + resolved);
+        root.dataset.theme = resolved;
+        root.dataset.themePreference = pref;
+      })();
+    </script>
     <link rel="stylesheet" href="/static/base.css" />
     <link rel="stylesheet" href="/static/components.css" />
     <link rel="stylesheet" href="/static/pages.css" />
@@ -66,10 +89,25 @@
               <img class="btn__icon-img btn__icon-img--dark" src="/static/images/logoutoscuro.png" alt="" decoding="async" />
             </span>
           </button>
-          <button class="btn btn--icon header__btn" type="button" aria-pressed="false" aria-label="Cambiar tema claro/oscuro" data-theme-toggle>
-            <img class="icon icon--theme icon--theme-light" src="/static/images/luna.png" alt="" decoding="async" />
-            <img class="icon icon--theme icon--theme-dark" src="/static/images/sol.png" alt="" decoding="async" />
-          </button>
+          <div class="theme-switcher" data-theme-switcher>
+            <button
+              class="btn btn--icon header__btn"
+              type="button"
+              data-theme-menu-trigger
+              aria-haspopup="true"
+              aria-expanded="false"
+              aria-controls="theme-menu-account"
+              aria-label="Cambiar tema"
+            >
+              <img class="icon icon--theme icon--theme-light" src="/static/images/luna.png" alt="" decoding="async" />
+              <img class="icon icon--theme icon--theme-dark" src="/static/images/sol.png" alt="" decoding="async" />
+            </button>
+            <div id="theme-menu-account" class="theme-menu" role="menu" hidden data-theme-menu>
+              <button type="button" class="theme-menu__option" data-theme-option="light" role="menuitemradio" aria-checked="false">Claro</button>
+              <button type="button" class="theme-menu__option" data-theme-option="dark" role="menuitemradio" aria-checked="false">Oscuro</button>
+              <button type="button" class="theme-menu__option" data-theme-option="system" role="menuitemradio" aria-checked="false">Sistema</button>
+            </div>
+          </div>
           <button
             class="btn btn--icon header__btn header__btn--menu"
             type="button"
@@ -129,6 +167,7 @@
             <div class="account-hero__actions">
               <a href="/" class="btn btn--ghost btn--sm">Ir al inicio</a>
               <a href="/graph" class="btn btn--primary btn--sm">Abrir graficadora</a>
+              <button type="button" class="btn btn--ghost btn--sm" id="dashboard-customize">Personalizar panel</button>
             </div>
           </div>
         </header>
@@ -227,6 +266,13 @@
                         <label for="history-tags">Etiquetas</label>
                         <input type="text" id="history-tags" name="tags" placeholder="ej. algebra, trigonometria" autocomplete="off" />
                       </div>
+                      <div class="history-filters__field">
+                        <label for="history-order">Orden</label>
+                        <select id="history-order" name="order" class="form__input form__input--select">
+                          <option value="desc" selected>Recientes primero</option>
+                          <option value="asc">Antiguos primero</option>
+                        </select>
+                      </div>
                     </div>
                     <div class="history-filters__actions">
                       <div class="history-filters__buttons">
@@ -256,6 +302,70 @@
                   <button type="button" class="btn btn--ghost btn--sm" id="history-next">Siguiente</button>
                 </nav>
               </div>
+            </div>
+            </section>
+            <section class="account-card account-card--notifications" id="account-notifications-box">
+            <div class="account-card__header">
+              <div>
+                <p class="account-card__eyebrow">Notificaciones</p>
+                <h2 class="account-card__title">Centro de notificaciones</h2>
+                <p class="account-card__subtitle">Recibe cambios en solicitudes, seguridad y recordatorios en tiempo real.</p>
+              </div>
+              <div class="account-card__actions">
+                <button id="notifications-refresh" class="btn btn--ghost btn--sm" type="button">Actualizar</button>
+                <button id="notifications-mark-all" class="btn btn--ghost btn--sm" type="button">Marcar todo leído</button>
+              </div>
+            </div>
+            <div class="account-card__body account-notifications__body">
+              <p id="notifications-unread" class="account-card__hint" aria-live="polite">Cargando notificaciones…</p>
+              <div class="account-notifications__controls">
+                <div class="account-notifications__select">
+                  <label class="form__label" for="notifications-category">Categoría</label>
+                  <select id="notifications-category" class="form__input form__input--select">
+                    <option value="">Todas</option>
+                  </select>
+                </div>
+                <label class="form__checkbox" for="notifications-include-read">
+                  <input type="checkbox" id="notifications-include-read" />
+                  <span>Incluir leídas</span>
+                </label>
+              </div>
+              <ul id="notifications-list" class="notifications-list" role="list" aria-live="polite"></ul>
+              <p id="notifications-empty" class="account-card__empty" hidden>No tienes notificaciones por ahora.</p>
+              <div class="notifications-preferences">
+                <button id="notifications-prefs-toggle" class="btn btn--ghost btn--sm" type="button" aria-expanded="false" aria-controls="notifications-preferences-form">Preferencias</button>
+                <form id="notifications-preferences-form" class="notifications-preferences__form" hidden novalidate>
+                  <fieldset>
+                    <legend>Elige qué recibir</legend>
+                    <div id="notifications-preferences-fields" class="notifications-preferences__grid"></div>
+                    <div class="notifications-preferences__actions">
+                      <button type="submit" class="btn btn--primary btn--sm">Guardar</button>
+                      <button type="button" class="btn btn--ghost btn--sm" data-notifications-cancel>Cancelar</button>
+                    </div>
+                  </fieldset>
+                </form>
+              </div>
+              <nav id="notifications-pagination" class="notifications-pagination" aria-label="Paginación de notificaciones" hidden>
+                <button type="button" class="btn btn--ghost btn--sm" id="notifications-prev">Anterior</button>
+                <span id="notifications-page-info" aria-live="polite">Página 1 de 1</span>
+                <button type="button" class="btn btn--ghost btn--sm" id="notifications-next">Siguiente</button>
+              </nav>
+            </div>
+            </section>
+            <section class="account-card account-card--learning" id="account-learning-box">
+            <div class="account-card__header">
+              <div>
+                <p class="account-card__eyebrow">Aprendizaje</p>
+                <h2 class="account-card__title">Progreso en ejercicios</h2>
+                <p class="account-card__subtitle">Sigue los ejercicios sugeridos y completa tu lista interactiva.</p>
+              </div>
+              <div class="account-card__actions">
+                <button id="learning-open-graph" class="btn btn--ghost btn--sm" type="button">Abrir graficadora</button>
+              </div>
+            </div>
+            <div class="account-card__body account-learning__body">
+              <ul id="learning-progress-list" class="learning-progress" role="list" aria-live="polite"></ul>
+              <p id="learning-progress-empty" class="account-card__empty" hidden>No has completado ejercicios todavía.</p>
             </div>
             </section>
             <section class="account-card account-card--tickets" id="account-tickets-box">
@@ -313,6 +423,32 @@
               </div>
             </div>
             <div class="account-card__body account-2fa__body">
+              <div class="account-security__summary" id="security-summary">
+                <h3 class="account-card__subtitle">Resumen de seguridad</h3>
+                <dl class="security-summary">
+                  <div>
+                    <dt>Último inicio de sesión</dt>
+                    <dd id="security-last-login">Cargando...</dd>
+                  </div>
+                  <div>
+                    <dt>Intentos fallidos (24h)</dt>
+                    <dd id="security-failed-attempts">—</dd>
+                  </div>
+                  <div>
+                    <dt>Bloqueos recientes</dt>
+                    <dd id="security-lockouts">—</dd>
+                  </div>
+                  <div>
+                    <dt>Sesiones activas</dt>
+                    <dd id="security-active-sessions">—</dd>
+                  </div>
+                </dl>
+                <div class="security-summary__recommendations">
+                  <h4 class="account-card__subtitle account-card__subtitle--small">Recomendaciones</h4>
+                  <ul id="security-recommendations" class="security-recommendations" aria-live="polite"></ul>
+                </div>
+                <button id="security-refresh" class="btn btn--ghost btn--sm" type="button">Actualizar seguridad</button>
+              </div>
               <p id="twofa-status" class="account-2fa__status">Autenticación en dos pasos desactivada</p>
               <button id="twofa-setup" class="btn btn--primary btn--sm" type="button">Activar 2FA</button>
 
@@ -479,10 +615,12 @@
                 <ul id="development-admin-list" class="role-panel__list role-panel__list--compact" role="list"></ul>
               </div>
 
-              <div class="role-panel__actions">
+                <div class="role-panel__actions">
                 <div class="role-panel__cluster">
                   <h3 class="role-panel__subtitle">Crear respaldo</h3>
                   <p class="role-panel__hint">Genera un nuevo backup de manera inmediata para resguardar los datos actuales.</p>
+                  <p class="role-panel__meta" id="development-backup-status">Último backup: sin registros</p>
+                  <p class="role-panel__meta role-panel__meta--muted" id="development-backup-meta"></p>
                   <button id="development-create-backup" class="btn btn--primary btn--sm" type="button">Crear backup</button>
                 </div>
                 <div class="role-panel__cluster">
@@ -504,6 +642,13 @@
                 <h3 class="account-card__subtitle">Solicitudes de roles</h3>
                 <div id="development-role-requests" class="role-panel__list"></div>
               </div>
+
+              <div class="role-panel__section">
+                <h3 class="account-card__subtitle">Eventos críticos recientes</h3>
+                <p class="role-panel__hint">Seguimiento de inicios de sesión, bloqueos y cambios de roles sensibles.</p>
+                <ul id="development-ops-events" class="ops-events" role="list" aria-live="polite" aria-busy="false"></ul>
+                <p id="development-ops-events-empty" class="role-panel__empty" hidden>No hay eventos recientes.</p>
+              </div>
             </div>
             </section>
           </div>
@@ -521,6 +666,26 @@
         </div>
       </section>
     </main>
+
+    <div id="dashboard-modal" class="modal" role="dialog" aria-modal="true" aria-labelledby="dashboard-modal-title" hidden>
+      <div class="modal__overlay" data-modal-close aria-hidden="true"></div>
+      <div class="modal__dialog" role="document">
+        <div class="modal__header">
+          <h2 id="dashboard-modal-title" class="modal__title">Personalizar panel</h2>
+          <button class="modal__close" type="button" data-modal-close aria-label="Cerrar">
+            <span aria-hidden="true">&times;</span>
+          </button>
+        </div>
+        <div class="modal__body">
+          <p class="modal__description">Activa o desactiva los widgets que quieres ver y ajusta el orden con los controles disponibles.</p>
+          <div id="dashboard-widgets-list" class="dashboard-widgets" role="listbox" aria-label="Widgets disponibles"></div>
+        </div>
+        <div class="modal__footer">
+          <button class="btn btn--ghost" type="button" data-dashboard-cancel>Cancelar</button>
+          <button class="btn btn--primary" type="button" id="dashboard-save">Guardar</button>
+        </div>
+      </div>
+    </div>
 
     <div id="development-remove-modal" class="modal" role="dialog" aria-modal="true" aria-labelledby="development-remove-title" hidden>
       <div class="modal__overlay" data-modal-close aria-hidden="true"></div>

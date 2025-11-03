@@ -4,6 +4,8 @@ import hmac
 import hashlib
 import io
 import math
+import os
+import queue
 import re
 import secrets
 import string
@@ -23,6 +25,7 @@ from flask import (
     send_from_directory,
     url_for,
     g,
+    stream_with_context,
 )
 from .extensions import db, bcrypt, mail
 from .models import (
@@ -39,9 +42,23 @@ from .models import (
     TwoFactorBackupCode,
     Tags,
     AuditLog,
+    LearningProgress,
+    UserNotification,
     user_roles_table,
 )
-from .plot_tags import apply_tags_to_history, classify_expression
+from .plot_tags import auto_tag_history, apply_tags_to_history
+from .event_stream import events as event_bus
+from .notifications import (
+    NOTIFICATION_CATEGORIES,
+    create_notification,
+    serialize_notification,
+    mark_notifications_read,
+    mark_all_read,
+    update_preferences,
+    get_preferences,
+    count_unread,
+    count_unread_by_category,
+)
 from flask_mail import Message
 from sqlalchemy import and_, asc, desc, func, cast, String, or_, delete
 from sqlalchemy.orm import selectinload
@@ -49,7 +66,7 @@ from urllib.parse import quote
 
 import qrcode
 
-from .backup import BackupError, RestoreError, run_backup, restore_backup
+from .backup import BackupError, RestoreError, run_backup, restore_backup, list_backups
 
 from .auth import require_session
 
@@ -154,6 +171,105 @@ TOTP_ISSUER = 'EcuPlot'
 BACKUP_CODE_COUNT = 8
 TOTP_PERIOD = 30
 TOTP_DIGITS = 6
+NOTIFICATION_DEFAULT_PAGE_SIZE = 15
+NOTIFICATION_MIN_PAGE_SIZE = 5
+NOTIFICATION_MAX_PAGE_SIZE = 50
+
+CRITICAL_AUDIT_ACTIONS = {
+    "role.admin.assigned",
+    "role.admin.removed",
+    "auth.login.failed",
+    "auth.login.succeeded",
+    "auth.account.locked",
+}
+SECURITY_AUDIT_ACTIONS = {
+    "auth.login.failed",
+    "auth.login.succeeded",
+    "auth.account.locked",
+}
+SECURITY_FAILED_WINDOW = timedelta(hours=24)
+SECURITY_LOCKOUT_WINDOW = timedelta(days=90)
+
+LEARNING_EXERCISES = [
+    {
+        "id": "sine-wave",
+        "title": "Onda seno",
+        "expression": "y = sin(x)",
+        "description": "Explora la oscilación de la función seno entre -1 y 1.",
+    },
+    {
+        "id": "parabola-basic",
+        "title": "Parábola desplazada",
+        "expression": "y = (x - 1)^2 - 3",
+        "description": "Analiza cómo se traslada una parábola respecto al origen.",
+    },
+    {
+        "id": "exponential-growth",
+        "title": "Crecimiento exponencial",
+        "expression": "y = e^(0.3 * x)",
+        "description": "Visualiza una función exponencial de crecimiento suave.",
+    },
+]
+
+DASHBOARD_WIDGETS = {
+    "stats": "account-details-box",
+    "history": "account-history-box",
+    "notifications": "account-notifications-box",
+    "tickets": "account-tickets-box",
+    "security": "account-2fa-box",
+    "learning": "account-learning-box",
+}
+
+
+def _default_dashboard_layout():
+    return {
+        "order": list(DASHBOARD_WIDGETS.keys()),
+        "hidden": [],
+    }
+
+
+def _normalize_dashboard_layout(layout):
+    default = _default_dashboard_layout()
+    if not isinstance(layout, dict):
+        return default
+
+    order = layout.get("order")
+    hidden = layout.get("hidden")
+
+    normalized_order = []
+    if isinstance(order, (list, tuple)):
+        for key in order:
+            key_norm = str(key).strip().lower()
+            if key_norm in DASHBOARD_WIDGETS and key_norm not in normalized_order:
+                normalized_order.append(key_norm)
+    for key in default["order"]:
+        if key not in normalized_order:
+            normalized_order.append(key)
+
+    normalized_hidden = []
+    if isinstance(hidden, (list, tuple)):
+        for key in hidden:
+            key_norm = str(key).strip().lower()
+            if key_norm in DASHBOARD_WIDGETS and key_norm not in normalized_hidden:
+                normalized_hidden.append(key_norm)
+
+    normalized_hidden = [key for key in normalized_hidden if key in normalized_order]
+
+    return {
+        "order": normalized_order,
+        "hidden": normalized_hidden,
+    }
+
+
+def _resolve_dashboard_layout(user):
+    stored = getattr(user, "dashboard_layout", None) or {}
+    return _normalize_dashboard_layout(stored)
+
+
+def _store_dashboard_layout(user, layout):
+    cleaned = _normalize_dashboard_layout(layout)
+    user.dashboard_layout = cleaned
+    return cleaned
 
 
 def _parse_iso_datetime(value: str | None, *, end: bool = False):
@@ -298,6 +414,43 @@ def _notify_ticket_status_change(ticket, previous_status=None):
         )
     except Exception:
         pass
+
+    try:
+        if not ticket or not getattr(ticket, 'user_id', None):
+            return
+
+        status = (getattr(ticket, 'status', '') or '').strip().lower()
+        previous = (previous_status or '').strip().lower()
+        payload = {
+            "ticket_id": str(getattr(ticket, 'id', '')),
+            "status": status,
+            "title": getattr(ticket, 'title', ''),
+        }
+
+        if not previous:
+            title = "Solicitud recibida"
+            body = f"Hemos registrado tu solicitud \"{ticket.title}\". Te avisaremos cuando cambie de estado."
+        elif previous == status:
+            return
+        elif status == 'atendida':
+            title = "Tu solicitud fue atendida"
+            body = f"La solicitud \"{ticket.title}\" fue marcada como atendida."
+        elif status == 'rechazada':
+            title = "Tu solicitud fue rechazada"
+            body = f"La solicitud \"{ticket.title}\" fue rechazada. Revisa los detalles con el equipo de soporte."
+        else:
+            title = "Actualizamos tu solicitud"
+            body = f"La solicitud \"{ticket.title}\" ahora está en estado \"{status or 'desconocido'}\"."
+
+        create_notification(
+            ticket.user_id,
+            category="ticket",
+            title=title,
+            body=body,
+            payload=payload,
+        )
+    except Exception as exc:
+        current_app.logger.warning("No se pudo generar notificación de ticket %s: %s", getattr(ticket, 'id', None), exc)
 
 
 def _ticket_query_params():
@@ -707,13 +860,90 @@ def contact_feedback():
 
 @api.get("/health")
 def health_check():
-    """Endpoint básico de salud (para frontend)."""
+    """Endpoint básico de salud con métricas."""
+    db_latency_ms = None
+    db_status = "connected"
+    start = time.perf_counter()
     try:
         db.session.execute(db.select(1))
-        return jsonify(status="ok", db_status="connected")
-    except Exception as e:
-        current_app.logger.error(f"Error de conexión a DB: {e}")
-        return jsonify(status="ok", db_status="error"), 500
+        db_latency_ms = (time.perf_counter() - start) * 1000
+    except Exception as exc:
+        current_app.logger.error("Error de conexión a DB: %s", exc)
+        db_status = "error"
+        db_latency_ms = None
+
+    queue_depth = 0
+    mail_ext = getattr(mail, "state", None)
+    if mail_ext is not None:
+        queue_depth = int(getattr(mail_ext, "outbox_size", 0) or 0)
+
+    load_ratio = None
+    load_value = None
+    cpu_count = os.cpu_count() or 1
+    try:
+        load_value = os.getloadavg()[0]
+        load_ratio = load_value / max(cpu_count, 1)
+    except (AttributeError, OSError):
+        load_ratio = None
+
+    latency_value = round(db_latency_ms, 2) if db_latency_ms is not None else None
+
+    def classify_db():
+        if db_status != "connected":
+            return "critical"
+        if latency_value is None:
+            return "unknown"
+        if latency_value <= 250:
+            return "ok"
+        if latency_value <= 600:
+            return "warning"
+        return "critical"
+
+    def classify_mail():
+        if queue_depth is None:
+            return "unknown"
+        if queue_depth == 0:
+            return "ok"
+        if queue_depth <= 5:
+            return "warning"
+        return "critical"
+
+    def classify_system():
+        if load_ratio is None:
+            return "unknown"
+        if load_ratio <= 0.6:
+            return "ok"
+        if load_ratio <= 1.5:
+            return "warning"
+        return "critical"
+
+    indicators = {
+        "database": classify_db(),
+        "mail": classify_mail(),
+        "system": classify_system(),
+    }
+
+    overall = "ok" if db_status == "connected" else "error"
+    if db_status == "connected" and "critical" in indicators.values():
+        overall = "degraded"
+
+    payload = {
+        "status": overall,
+        "db_status": db_status,
+        "metrics": {
+            "db_latency_ms": latency_value,
+            "mail_queue": int(queue_depth),
+            "system_load": {
+                "ratio": round(load_ratio, 2) if load_ratio is not None else None,
+                "cores": cpu_count,
+                "raw": round(load_value, 2) if load_value is not None else None,
+            },
+        },
+        "indicators": indicators,
+    }
+
+    status_code = 200 if db_status == "connected" else 500
+    return jsonify(payload), status_code
 
 
 @api.post("/contact")
@@ -958,12 +1188,24 @@ def login_user():
         user.failed_login_attempts = (user.failed_login_attempts or 0) + 1
         locked = False
         unlock_token = None
+        failed_attempts = user.failed_login_attempts
 
         if user.failed_login_attempts >= MAX_FAILED_LOGIN_ATTEMPTS:
             user.locked_until = datetime.now(timezone.utc)
             user.failed_login_attempts = 0
             locked = True
             unlock_token = _issue_user_token(user, 'account_unlock', ACCOUNT_UNLOCK_TOKEN_TTL)
+
+        _record_audit(
+            "auth.login.failed",
+            target_entity_type="user",
+            target_entity_id=user.id,
+            details={
+                "email": email,
+                "failed_attempts": int(failed_attempts),
+                "locked": locked,
+            },
+        )
 
         try:
             db.session.commit()
@@ -973,8 +1215,30 @@ def login_user():
             return jsonify(error="Error interno al procesar la solicitud."), 500
 
         if locked and unlock_token:
+            _record_audit(
+                "auth.account.locked",
+                target_entity_type="user",
+                target_entity_id=user.id,
+                details={"email": email},
+            )
             unlock_link = url_for('api.unlock_account', token=unlock_token.token, _external=True)
             _send_lockout_notification(user, unlock_link)
+            try:
+                create_notification(
+                    user.id,
+                    category="security",
+                    title="Cuenta bloqueada por seguridad",
+                    body="Detectamos múltiples intentos fallidos. Revisa tu correo para desbloquear la cuenta.",
+                    payload={
+                        "email": email,
+                        "unlock_token": unlock_token.token,
+                        "created_at": datetime.now(timezone.utc).isoformat(),
+                    },
+                )
+                db.session.commit()
+            except Exception as exc:
+                db.session.rollback()
+                current_app.logger.warning("No se pudo registrar notificación de bloqueo: %s", exc)
             return jsonify(error="Tu cuenta fue bloqueada por intentos fallidos. Revisa tu correo para desbloquearla."), 423
 
         return jsonify(error="Contraseña incorrecta."), 401 
@@ -1002,9 +1266,32 @@ def login_user():
         ip_address=request.remote_addr,
         user_agent=request.user_agent.string
     )
-    
+
     try:
         db.session.add(new_session)
+        db.session.flush([new_session])
+        session_identifier = getattr(new_session, "session_token", None)
+        _record_audit(
+            "auth.login.succeeded",
+            target_entity_type="user",
+            target_entity_id=user.id,
+            details={
+                "session_id": session_identifier,
+                "used_backup_code": bool(backup_entry),
+            },
+        )
+        create_notification(
+            user.id,
+            category="security",
+            title="Nuevo inicio de sesión",
+            body=f"Se inició sesión desde {request.remote_addr or 'origen desconocido'}.",
+            payload={
+                "session_token": session_identifier,
+                "ip": request.remote_addr,
+                "user_agent": request.user_agent.string if request.user_agent else None,
+                "created_at": datetime.now(timezone.utc).isoformat(),
+            },
+        )
         db.session.commit()
 
     except Exception as e:
@@ -1194,6 +1481,16 @@ def get_current_user_details():
   
     user = g.current_user 
 
+    backup_count = (
+        db.session.query(func.count(TwoFactorBackupCode.id))
+        .filter(
+            TwoFactorBackupCode.user_id == user.id,
+            TwoFactorBackupCode.used_at.is_(None),
+        )
+        .scalar()
+        or 0
+    )
+
     return jsonify({
         "id": str(user.id),
         "name": user.name,
@@ -1202,8 +1499,48 @@ def get_current_user_details():
         "roles": [r.name for r in user.roles],
         "public_id": user.public_id,
         "is_verified": user.is_verified,
-        "created_at": user.created_at.isoformat()
+        "created_at": user.created_at.isoformat(),
+        "two_factor_enabled": bool(getattr(user, "is_2fa_enabled", False)),
+        "two_factor_backup_codes": int(backup_count),
     }), 200
+
+
+@api.get("/stream")
+@require_session
+def user_event_stream():
+    """Canal SSE para eventos del usuario autenticado."""
+    user_id = g.current_user.id
+    subscription = event_bus.subscribe(user_id)
+
+    def _iterator():
+        try:
+            yield "event: ready\ndata: {}\n\n"
+            while True:
+                try:
+                    payload = subscription.get(timeout=25)
+                except queue.Empty:
+                    yield "event: keepalive\ndata: {}\n\n"
+                    continue
+                yield event_bus.format_sse(payload)
+        finally:
+            event_bus.unsubscribe(user_id, subscription)
+
+    response = current_app.response_class(
+        stream_with_context(_iterator()),
+        mimetype="text/event-stream",
+    )
+    response.headers["Cache-Control"] = "no-cache"
+    response.headers["X-Accel-Buffering"] = "no"
+    return response
+
+
+@api.get("/meta/env")
+def meta_env():
+    env = (current_app.config.get("APP_ENV") or current_app.config.get("ENV") or "production").lower()
+    return jsonify({
+        "env": env,
+        "demo_mode": env in {"development", "test"},
+    })
 
 # Plot: guardar (1 o varias) 
 @api.post("/plot")
@@ -1231,15 +1568,6 @@ def create_plot():
 
     plot_parameters = data.get('plot_parameters')
     plot_metadata = data.get('plot_metadata')
-    raw_tags = data.get('tags')
-
-    provided_tags: list[str] = []
-    if isinstance(raw_tags, (list, tuple, set)):
-        provided_tags = [str(tag) for tag in raw_tags if str(tag).strip()]
-    elif isinstance(raw_tags, str):
-        tag = raw_tags.strip()
-        if tag:
-            provided_tags = [tag]
 
     items = []
     try:
@@ -1255,10 +1583,7 @@ def create_plot():
             )
             db.session.add(item)
             items.append(item)
-            tag_candidates = set(classify_expression(expr))
-            if provided_tags:
-                tag_candidates.update(provided_tags)
-            apply_tags_to_history(item, tag_candidates, session=db.session)
+            auto_tag_history(item, expr, session=db.session, replace=True)
         db.session.flush()
         for item in items:
             db.session.refresh(item)
@@ -1277,6 +1602,12 @@ def create_plot():
                 "tags": tag_names,
             })
         db.session.commit()
+        event_bus.publish(
+            g.current_user.id,
+            channel="history",
+            event_type="history:new",
+            data={"items": response_items},
+        )
         return jsonify(
             message="Expresiones guardadas en historial.",
             saved=len(items),
@@ -1307,8 +1638,9 @@ def plot_history_list():
     rows = []
     if total and params["offset"] < total:
         order_clause = asc(PlotHistory.created_at) if params["order"] == "asc" else desc(PlotHistory.created_at)
+        secondary_order = asc(PlotHistory.id) if params["order"] == "asc" else desc(PlotHistory.id)
         rows = (
-            query.order_by(order_clause, desc(PlotHistory.id))
+            query.order_by(order_clause, secondary_order)
             .offset(params["offset"])
             .limit(params["page_size"])
             .all()
@@ -1341,10 +1673,11 @@ def export_plot_history():
     query = _build_history_query(params)
     total = query.count()
     order_clause = asc(PlotHistory.created_at) if params["order"] == "asc" else desc(PlotHistory.created_at)
+    secondary_order = asc(PlotHistory.id) if params["order"] == "asc" else desc(PlotHistory.id)
 
     limit = HISTORY_EXPORT_LIMIT
     rows = (
-        query.order_by(order_clause, desc(PlotHistory.id))
+    query.order_by(order_clause, secondary_order)
         .limit(limit)
         .all()
     )
@@ -1390,6 +1723,121 @@ def export_plot_history():
     return response
 
 
+def _load_user_history_entry(history_id):
+    history = (
+        db.session.query(PlotHistory)
+        .options(selectinload(PlotHistory.tags_association).selectinload(PlotHistoryTags.tag))
+        .filter(
+            PlotHistory.id == history_id,
+            PlotHistory.user_id == g.current_user.id,
+        )
+        .first()
+    )
+    return history
+
+
+def _normalize_tags_payload(tags_value):
+    if tags_value is None:
+        return []
+    if isinstance(tags_value, (list, tuple)):
+        tags = []
+        for raw in tags_value:
+            if raw is None:
+                continue
+            name = str(raw).strip()
+            if name:
+                tags.append(name)
+        return tags
+    raise ValueError("tags debe ser una lista de cadenas")
+
+
+@api.patch("/plot/history/<uuid:history_id>")
+@require_session
+def update_plot_history(history_id):
+    payload = request.get_json(silent=True) or {}
+    history = _load_user_history_entry(history_id)
+    if not history:
+        return jsonify(error="Historial no encontrado."), 404
+    if history.deleted_at:
+        return jsonify(error="No se puede editar un registro eliminado."), 400
+
+    sentinel = object()
+    expression_raw = payload.get("expression", sentinel)
+    tags_raw = payload.get("tags", sentinel)
+    auto_tag_flag = bool(payload.get("auto_tag"))
+
+    changed = False
+
+    if expression_raw is not sentinel:
+        expression = (expression_raw or "") if isinstance(expression_raw, str) else str(expression_raw or "")
+        expression = expression.strip()
+        if not expression:
+            return jsonify(error="La expresión no puede estar vacía."), 400
+        history.expression = expression
+        changed = True
+
+    if tags_raw is not sentinel:
+        try:
+            normalized_tags = _normalize_tags_payload(tags_raw)
+        except ValueError as exc:
+            return jsonify(error=str(exc)), 400
+        apply_tags_to_history(history, normalized_tags, session=db.session, replace=True)
+        changed = True
+    elif expression_raw is not sentinel or auto_tag_flag:
+        # Recalcular etiquetas automáticas si cambió la expresión o el cliente lo solicitó.
+        auto_tag_history(history, history.expression, session=db.session, replace=True)
+        changed = True
+
+    if not changed:
+        return jsonify(error="No se recibieron cambios."), 400
+
+    try:
+        db.session.flush()
+        item = _serialize_history_item(history)
+        db.session.commit()
+    except Exception as exc:
+        db.session.rollback()
+        current_app.logger.error("No se pudo actualizar el historial %s: %s", history_id, exc)
+        return jsonify(error="No se pudo actualizar el historial."), 500
+
+    event_bus.publish(
+        g.current_user.id,
+        channel="history",
+        event_type="history:update",
+        data={"items": [item]},
+    )
+
+    return jsonify(item=item)
+
+
+@api.delete("/plot/history/<uuid:history_id>")
+@require_session
+def delete_plot_history(history_id):
+    history = _load_user_history_entry(history_id)
+    if not history:
+        return jsonify(error="Historial no encontrado."), 404
+
+    if not history.deleted_at:
+        history.deleted_at = datetime.now(timezone.utc)
+
+    try:
+        db.session.flush()
+        item = _serialize_history_item(history)
+        db.session.commit()
+    except Exception as exc:
+        db.session.rollback()
+        current_app.logger.error("No se pudo eliminar el historial %s: %s", history_id, exc)
+        return jsonify(error="No se pudo eliminar el historial."), 500
+
+    event_bus.publish(
+        g.current_user.id,
+        channel="history",
+        event_type="history:delete",
+        data={"items": [item]},
+    )
+
+    return jsonify(item=item)
+
 @api.post("/account/requests")
 @require_session
 def create_request_ticket():
@@ -1418,13 +1866,14 @@ def create_request_ticket():
     )
     db.session.add(ticket)
     try:
+        db.session.flush([ticket])
+        _notify_ticket_status_change(ticket)
         db.session.commit()
     except Exception as exc:
         db.session.rollback()
         current_app.logger.error('No se pudo crear el ticket: %s', exc)
         return jsonify(error='No se pudo registrar tu solicitud.'), 500
 
-    _notify_ticket_status_change(ticket)
     return jsonify(message='Solicitud registrada.', ticket=_serialize_ticket(ticket)), 201
 
 
@@ -1513,6 +1962,16 @@ def two_factor_enable():
     g.current_user.is_2fa_enabled = True
 
     try:
+        create_notification(
+            g.current_user.id,
+            category="security",
+            title="Autenticación en dos pasos activada",
+            body="La verificación en dos pasos quedó habilitada para tu cuenta.",
+            payload={
+                "backup_codes": backup_codes,
+                "created_at": datetime.now(timezone.utc).isoformat(),
+            },
+        )
         db.session.commit()
     except Exception as exc:
         db.session.rollback()
@@ -1547,6 +2006,15 @@ def two_factor_disable():
     _store_backup_codes(g.current_user, [])
 
     try:
+        create_notification(
+            g.current_user.id,
+            category="security",
+            title="Autenticación en dos pasos desactivada",
+            body="La verificación en dos pasos se deshabilitó. Te recomendamos reactivarla cuanto antes.",
+            payload={
+                "created_at": datetime.now(timezone.utc).isoformat(),
+            },
+        )
         db.session.commit()
     except Exception as exc:
         db.session.rollback()
@@ -1570,6 +2038,16 @@ def regenerate_backup_codes():
     _store_backup_codes(g.current_user, new_codes)
 
     try:
+        create_notification(
+            g.current_user.id,
+            category="security",
+            title="Códigos de respaldo regenerados",
+            body="Generaste un nuevo set de códigos de respaldo para 2FA.",
+            payload={
+                "created_at": datetime.now(timezone.utc).isoformat(),
+                "codes": new_codes,
+            },
+        )
         db.session.commit()
     except Exception as exc:
         db.session.rollback()
@@ -1577,6 +2055,291 @@ def regenerate_backup_codes():
         return jsonify(error='No se pudieron regenerar los códigos de respaldo.'), 500
 
     return jsonify(message='Códigos de respaldo regenerados.', backup_codes=new_codes)
+
+
+def _security_summary_payload(user):
+    now = datetime.now(timezone.utc)
+
+    last_session = (
+        db.session.query(UserSessions)
+        .filter(UserSessions.user_id == user.id)
+        .order_by(desc(UserSessions.last_seen_at), desc(UserSessions.created_at))
+        .first()
+    )
+    last_login_at = None
+    last_login_ip = None
+    if last_session:
+        last_login_at = (
+            last_session.last_seen_at
+            or last_session.created_at
+        )
+        if last_login_at and last_login_at.tzinfo is None:
+            last_login_at = last_login_at.replace(tzinfo=timezone.utc)
+        if last_login_at and last_login_at > now:
+            last_login_at = now
+        last_login_ip = last_session.ip_address
+
+    failed_threshold = now - SECURITY_FAILED_WINDOW
+    failed_query = (
+        db.session.query(AuditLog)
+        .filter(
+            AuditLog.user_id == user.id,
+            AuditLog.action == "auth.login.failed",
+            AuditLog.created_at >= failed_threshold,
+        )
+        .order_by(desc(AuditLog.created_at))
+    )
+    failed_count = failed_query.count()
+    last_failed = failed_query.first()
+
+    lock_threshold = now - SECURITY_LOCKOUT_WINDOW
+    lock_query = (
+        db.session.query(AuditLog)
+        .filter(
+            AuditLog.user_id == user.id,
+            AuditLog.action == "auth.account.locked",
+            AuditLog.created_at >= lock_threshold,
+        )
+        .order_by(desc(AuditLog.created_at))
+    )
+    lock_events = lock_query.count()
+    last_lock = lock_query.first()
+
+    backup_remaining = (
+        db.session.query(func.count(TwoFactorBackupCode.id))
+        .filter(
+            TwoFactorBackupCode.user_id == user.id,
+            TwoFactorBackupCode.used_at.is_(None),
+        )
+        .scalar()
+        or 0
+    )
+
+    active_sessions = (
+        db.session.query(func.count(UserSessions.session_token))
+        .filter(
+            UserSessions.user_id == user.id,
+            UserSessions.expires_at > now,
+        )
+        .scalar()
+        or 0
+    )
+
+    recommendations = []
+    if not user.is_2fa_enabled:
+        recommendations.append("Activa la autenticación en dos pasos para fortalecer tu cuenta.")
+    if user.is_2fa_enabled and backup_remaining < 2:
+        recommendations.append("Genera nuevos códigos de respaldo para tu 2FA.")
+    if failed_count:
+        recommendations.append("Verifica los intentos de inicio de sesión fallidos recientes.")
+    recommendations.append(f"Refuerza tu contraseña siguiendo la política: {PASSWORD_POLICY_MESSAGE}")
+
+    def _iso_or_none(value):
+        if not value:
+            return None
+        if value.tzinfo is None:
+            value = value.replace(tzinfo=timezone.utc)
+        return value.astimezone(timezone.utc).isoformat()
+
+    return {
+        "two_factor_enabled": bool(user.is_2fa_enabled),
+        "backup_codes": int(backup_remaining),
+        "last_login": {
+            "at": _iso_or_none(last_login_at),
+            "ip": last_login_ip,
+        } if last_session else None,
+        "failed_attempts": {
+            "count": int(failed_count),
+            "last_at": _iso_or_none(getattr(last_failed, "created_at", None)),
+            "window_hours": int(SECURITY_FAILED_WINDOW.total_seconds() // 3600),
+        },
+        "lockouts": {
+            "count": int(lock_events),
+            "last_at": _iso_or_none(getattr(last_lock, "created_at", None)),
+            "window_days": int(SECURITY_LOCKOUT_WINDOW.days),
+        },
+        "active_sessions": int(active_sessions),
+        "recommendations": recommendations,
+        "notifications_unread": count_unread_by_category(user.id, "security"),
+    }
+
+
+@api.get("/account/security/summary")
+@require_session
+def account_security_summary():
+    payload = _security_summary_payload(g.current_user)
+    return jsonify(payload)
+
+
+def _notification_query_params():
+    args = request.args
+
+    def _read_int(name, default):
+        try:
+            return int(args.get(name, default))
+        except (TypeError, ValueError):
+            return default
+
+    page = max(1, _read_int('page', 1))
+    page_size = _read_int('page_size', NOTIFICATION_DEFAULT_PAGE_SIZE)
+    page_size = max(NOTIFICATION_MIN_PAGE_SIZE, min(page_size, NOTIFICATION_MAX_PAGE_SIZE))
+    include_read = str(args.get('include_read', '')).strip().lower() in {'1', 'true', 'yes'}
+    category = (args.get('category') or '').strip().lower()
+    if category and category not in NOTIFICATION_CATEGORIES:
+        category = ''
+
+    return {
+        'page': page,
+        'page_size': page_size,
+        'offset': (page - 1) * page_size,
+        'include_read': include_read,
+        'category': category,
+    }
+
+
+@api.get("/account/notifications")
+@require_session
+def account_notifications():
+    params = _notification_query_params()
+    query = db.session.query(UserNotification).filter(UserNotification.user_id == g.current_user.id)
+    if params['category']:
+        query = query.filter(UserNotification.category == params['category'])
+    if not params['include_read']:
+        query = query.filter(UserNotification.read_at.is_(None))
+
+    total = query.count()
+    rows = (
+        query.order_by(desc(UserNotification.created_at))
+        .offset(params['offset'])
+        .limit(params['page_size'])
+        .all()
+    )
+
+    payload = [serialize_notification(row) for row in rows]
+    total_pages = math.ceil(total / params['page_size']) if total else 0
+    categories = {key: meta.get("label", key.title()) for key, meta in NOTIFICATION_CATEGORIES.items()}
+
+    return jsonify(
+        data=payload,
+        meta={
+            "page": params['page'],
+            "page_size": params['page_size'],
+            "total": total,
+            "total_pages": total_pages,
+            "include_read": params['include_read'],
+            "category": params['category'] or None,
+            "unread": count_unread(g.current_user.id),
+        },
+        categories=categories,
+        preferences=get_preferences(g.current_user.id),
+    )
+
+
+@api.post("/account/notifications/<uuid:notification_id>/read")
+@require_session
+def account_notification_read(notification_id):
+    notification = db.session.get(UserNotification, notification_id)
+    if not notification or notification.user_id != g.current_user.id:
+        return jsonify(error="Notificación no encontrada."), 404
+
+    if notification.read_at is None:
+        mark_notifications_read(g.current_user.id, [notification_id])
+
+    try:
+        db.session.commit()
+        db.session.refresh(notification)
+    except Exception as exc:
+        db.session.rollback()
+        current_app.logger.error("No se pudo marcar notificación %s: %s", notification_id, exc)
+        return jsonify(error="No se pudo actualizar la notificación."), 500
+
+    return jsonify(
+        message="Notificación marcada como leída.",
+        notification=serialize_notification(notification),
+        unread=count_unread(g.current_user.id),
+    )
+
+
+@api.post("/account/notifications/read-all")
+@require_session
+def account_notifications_read_all():
+    data = request.get_json(silent=True) or {}
+    category = (data.get('category') or '').strip().lower()
+    if category and category not in NOTIFICATION_CATEGORIES:
+        return jsonify(error="Categoría inválida."), 400
+
+    mark_all_read(g.current_user.id, category=category or None)
+    try:
+        db.session.commit()
+    except Exception as exc:
+        db.session.rollback()
+        current_app.logger.error("No se pudieron marcar notificaciones: %s", exc)
+        return jsonify(error="No se pudieron marcar las notificaciones."), 500
+
+    return jsonify(
+        message="Notificaciones marcadas como leídas.",
+        unread=count_unread(g.current_user.id),
+    )
+
+
+@api.get("/account/notifications/preferences")
+@require_session
+def account_notification_preferences():
+    categories = {key: meta.get("label", key.title()) for key, meta in NOTIFICATION_CATEGORIES.items()}
+    return jsonify(
+        preferences=get_preferences(g.current_user.id),
+        categories=categories,
+    )
+
+
+@api.put("/account/notifications/preferences")
+@require_session
+def account_notification_preferences_update():
+    data = request.get_json(silent=True)
+    if data is None or not isinstance(data, dict):
+        return jsonify(error="Datos inválidos. Envía un objeto con las preferencias."), 400
+
+    prefs = update_preferences(g.current_user.id, data)
+    try:
+        db.session.commit()
+    except Exception as exc:
+        db.session.rollback()
+        current_app.logger.error("No se pudieron actualizar las preferencias de notificaciones: %s", exc)
+        return jsonify(error="No se pudieron actualizar las preferencias."), 500
+
+    return jsonify(
+        message="Preferencias actualizadas.",
+        preferences=prefs,
+    )
+
+
+@api.get("/account/dashboard/preferences")
+@require_session
+def account_dashboard_preferences():
+    layout = _resolve_dashboard_layout(g.current_user)
+    return jsonify(
+        layout=layout,
+        widgets=DASHBOARD_WIDGETS,
+    )
+
+
+@api.put("/account/dashboard/preferences")
+@require_session
+def account_dashboard_preferences_update():
+    data = request.get_json(silent=True)
+    if data is None:
+        return jsonify(error="Datos inválidos. Envía el layout a guardar."), 400
+
+    layout_source = data.get("layout") if isinstance(data, dict) else data
+    cleaned = _store_dashboard_layout(g.current_user, layout_source)
+    try:
+        db.session.commit()
+    except Exception as exc:
+        db.session.rollback()
+        current_app.logger.error("No se pudo actualizar el layout del panel: %s", exc)
+        return jsonify(error="No se pudo guardar la personalización."), 500
+
+    return jsonify(message="Panel personal guardado.", layout=cleaned)
 
 
 @api.get("/admin/stats/users")
@@ -2398,7 +3161,6 @@ def development_resolve_request(request_id):
     data = request.get_json() or {}
     action = (data.get("action") or "").strip().lower()
     notes = (data.get("notes") or "").strip() or None
-
     if req.status != 'pending':
         return jsonify(error="La solicitud ya fue procesada."), 409
 
@@ -2412,6 +3174,28 @@ def development_resolve_request(request_id):
         req.notes = notes
         req.resolver_id = g.current_user.id
         req.resolved_at = datetime.now(timezone.utc)
+        db.session.flush([req])
+
+        payload = {
+            "request_id": str(req.id),
+            "status": req.status,
+            "requested_role": req.requested_role,
+        }
+        if req.user_id:
+            if req.status == 'approved':
+                title = "Tu solicitud fue aprobada"
+                body = f"Recibiste el rol \"{req.requested_role}\". Ya puedes usar las nuevas funciones."
+            else:
+                title = "Tu solicitud fue rechazada"
+                body = "Tu solicitud de rol fue rechazada. Revisa los detalles en tu panel."
+            create_notification(
+                req.user_id,
+                category="role_request",
+                title=title,
+                body=body,
+                payload=payload,
+            )
+
         db.session.commit()
     except ValueError as exc:
         db.session.rollback()
@@ -2475,3 +3259,123 @@ def development_restore():
         g.current_user.email,
     )
     return jsonify(message="Restauración completada.", backup=asdict(metadata))
+
+
+@api.get("/admin/ops/summary")
+@require_session
+def admin_ops_summary():
+    guard = _require_roles({'admin', 'development'})
+    if guard:
+        return guard
+
+    backups = list_backups(limit=1)
+    latest_backup = asdict(backups[0]) if backups else None
+
+    events = (
+        db.session.execute(
+            db.select(AuditLog)
+            .options(selectinload(AuditLog.user))
+            .where(AuditLog.action.in_(CRITICAL_AUDIT_ACTIONS))
+            .order_by(desc(AuditLog.created_at))
+            .limit(20)
+        )
+        .scalars()
+        .all()
+    )
+
+    event_payload = []
+    for entry in events:
+        event_payload.append({
+            "id": str(entry.id),
+            "action": entry.action,
+            "created_at": entry.created_at.isoformat() if entry.created_at else None,
+            "ip_address": entry.ip_address,
+            "details": entry.details or {},
+            "user": {
+                "id": str(entry.user.id),
+                "email": entry.user.email,
+                "name": entry.user.name,
+            } if entry.user else None,
+            "target": {
+                "type": entry.target_entity_type,
+                "id": str(entry.target_entity_id) if entry.target_entity_id else None,
+            },
+        })
+
+    return jsonify(
+        backup=latest_backup,
+        events=event_payload,
+    )
+
+
+@api.get("/learning/exercises")
+@require_session
+def learning_exercise_catalog():
+    progress_rows = db.session.execute(
+        db.select(
+            LearningProgress.exercise_id,
+            LearningProgress.completed_at,
+        ).where(LearningProgress.user_id == g.current_user.id)
+    ).all()
+    progress_map = {
+        row.exercise_id: row.completed_at for row in progress_rows
+    }
+    payload = []
+    for exercise in LEARNING_EXERCISES:
+        item = dict(exercise)
+        completed_at = progress_map.get(exercise["id"])
+        item["completed"] = completed_at is not None
+        item["completed_at"] = (
+            completed_at.isoformat() if completed_at else None
+        )
+        payload.append(item)
+    return jsonify(exercises=payload)
+
+
+@api.post("/learning/exercises/<exercise_id>/complete")
+@require_session
+def learning_exercise_complete(exercise_id):
+    exercise = next((item for item in LEARNING_EXERCISES if item["id"] == exercise_id), None)
+    if not exercise:
+        return jsonify(error="Ejercicio no encontrado."), 404
+
+    existing = db.session.execute(
+        db.select(LearningProgress).where(
+            LearningProgress.user_id == g.current_user.id,
+            LearningProgress.exercise_id == exercise_id,
+        )
+    ).scalar_one_or_none()
+
+    if existing:
+        return jsonify(
+            message="Ejercicio ya registrado.",
+            completed=True,
+            completed_at=existing.completed_at.isoformat() if existing.completed_at else None,
+        )
+
+    entry = LearningProgress(user_id=g.current_user.id, exercise_id=exercise_id)
+    db.session.add(entry)
+    try:
+        db.session.commit()
+    except Exception as exc:
+        db.session.rollback()
+        current_app.logger.error("No se pudo registrar ejercicio (%s): %s", exercise_id, exc)
+        return jsonify(error="No se pudo registrar el progreso."), 500
+
+    event_bus.publish(
+        g.current_user.id,
+        channel="learning",
+        event_type="learning:completed",
+        data={
+            "exercise_id": exercise_id,
+            "completed": True,
+            "completed_at": entry.completed_at.isoformat() if entry.completed_at else datetime.now(timezone.utc).isoformat(),
+        },
+    )
+
+    completed_at = entry.completed_at or datetime.now(timezone.utc)
+    return jsonify(
+        message="Ejercicio completado.",
+        completed=True,
+        completed_at=completed_at.isoformat(),
+    )

@@ -190,6 +190,49 @@ body.theme-dark .icon--menu-dark,
 html[data-theme="dark"] .icon--theme-dark,
 html[data-theme="dark"] .icon--menu-dark { display: inline-block; }
 
+.theme-switcher {
+  position: relative;
+  display: inline-flex;
+}
+
+.theme-menu {
+  position: absolute;
+  inset-inline-end: 0;
+  margin-top: 0.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  min-width: 11rem;
+  padding: 0.5rem;
+  background: var(--color-panel, #ffffff);
+  border: 1px solid color-mix(in srgb, var(--color-border, #d0d7de) 90%, transparent);
+  border-radius: var(--radius-md, 0.6rem);
+  box-shadow: 0 16px 32px rgba(15, 23, 42, 0.12);
+  z-index: 40;
+}
+
+.theme-menu__option {
+  appearance: none;
+  width: 100%;
+  text-align: left;
+  border: 0;
+  background: transparent;
+  color: var(--color-text, #0f172a);
+  font: inherit;
+  font-size: var(--fs-sm, 0.95rem);
+  padding: 0.4rem 0.75rem;
+  border-radius: var(--radius-sm, 0.35rem);
+  cursor: pointer;
+}
+
+.theme-menu__option:hover,
+.theme-menu__option:focus-visible,
+.theme-menu__option.is-active {
+  background: color-mix(in srgb, var(--color-primary, #2563eb) 12%, transparent);
+  color: inherit;
+  outline: none;
+}
+
 /* Header & navigation */
 .header {
   position: sticky;
@@ -581,6 +624,47 @@ select.form__input:focus-visible {
   font-size: var(--fs-sm);
 }
 .form__errors.is-visible { display: block; }
+.form__demo-btn { margin-inline-start: auto; }
+
+.password-meter {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-top: 0.35rem;
+  font-size: var(--fs-xs, 0.85rem);
+  color: color-mix(in srgb, var(--color-text-muted) 80%, transparent);
+}
+
+.password-meter__bar {
+  position: relative;
+  flex: 0 0 120px;
+  height: 6px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--color-border) 80%, transparent);
+  overflow: hidden;
+}
+
+.password-meter__fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  border-radius: inherit;
+  background: var(--color-primary);
+  transform-origin: left;
+  transform: scaleX(0);
+  transition: transform 0.25s ease, background 0.25s ease;
+}
+
+.password-meter__label { display: inline-flex; gap: 0.25rem; align-items: center; }
+.password-meter__value { color: var(--color-text, #0f172a); }
+
+.password-meter[data-strength="0"] .password-meter__fill { transform: scaleX(0); }
+.password-meter[data-strength="1"] .password-meter__fill { transform: scaleX(0.25); background: #ef4444; }
+.password-meter[data-strength="2"] .password-meter__fill { transform: scaleX(0.5); background: #f97316; }
+.password-meter[data-strength="3"] .password-meter__fill { transform: scaleX(0.75); background: #0ea5e9; }
+.password-meter[data-strength="4"] .password-meter__fill { transform: scaleX(1); background: #22c55e; }
+
+html[data-theme="dark"] .password-meter__value { color: color-mix(in srgb, var(--color-text) 90%, transparent); }
+html[data-theme="dark"] .password-meter__bar { background: color-mix(in srgb, var(--color-border) 40%, transparent); }
 .form__link,
 button.form__link {
   color: var(--color-primary);

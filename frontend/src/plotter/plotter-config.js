@@ -22,6 +22,7 @@ export const UI_SELECTORS = {
   btnHistory: '#btn-history',
   modalHistory: '#modal-history',
   historySearch: '.js-history-search',
+  historyOrder: '.js-history-order',
   historyList: '.js-history-list',
   historySelectAll: '.js-history-select-all',
   historyPlotSelected: '.js-history-plot-selected',
@@ -38,7 +39,7 @@ export const UI_SELECTORS = {
 /**
  * Key used to retrieve the session token.
  */
-export const SESSION_KEY = 'ecuplot_session_token';
+export { SESSION_KEY } from '../lib/session.js';
 
 /**
  * Colors used when new expressions are added.
