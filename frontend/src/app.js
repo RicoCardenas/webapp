@@ -171,6 +171,7 @@ function initResetPasswordPage() {
   const resetMeter = passwordInput ? createPasswordMeter(passwordInput, 'reset-strength') : null;
   if (resetMeter && passwordInput) {
     on(passwordInput, 'input', () => resetMeter.update(passwordInput.value));
+    on(form, 'reset', () => resetMeter.update(passwordInput.value || ''));
   }
 
   const params = new URLSearchParams(window.location.search);
@@ -515,11 +516,13 @@ function createPasswordMeter(input, idSuffix) {
   wrapper.id = meterId;
   wrapper.setAttribute('role', 'status');
   wrapper.setAttribute('aria-live', 'polite');
+  wrapper.setAttribute('aria-atomic', 'true');
 
   const bar = document.createElement('div');
   bar.className = 'password-meter__bar';
   const fill = document.createElement('div');
   fill.className = 'password-meter__fill';
+  fill.setAttribute('aria-hidden', 'true');
   bar.appendChild(fill);
 
   const label = document.createElement('span');
@@ -530,10 +533,19 @@ function createPasswordMeter(input, idSuffix) {
   value.className = 'password-meter__value';
   label.appendChild(value);
 
+  const hint = document.createElement('span');
+  hint.className = 'password-meter__hint';
+
   wrapper.appendChild(bar);
   wrapper.appendChild(label);
+  wrapper.appendChild(hint);
 
-  input.insertAdjacentElement('afterend', wrapper);
+  const container = input.closest('.password-input');
+  if (container instanceof HTMLElement) {
+    container.insertAdjacentElement('afterend', wrapper);
+  } else {
+    input.insertAdjacentElement('afterend', wrapper);
+  }
 
   const describedBy = input.getAttribute('aria-describedby');
   if (describedBy) {
@@ -546,15 +558,18 @@ function createPasswordMeter(input, idSuffix) {
 
   const update = (password) => {
     const strength = evaluatePasswordStrength(password);
-    wrapper.dataset.strength = String(strength.level);
-    fill.style.transform = `scaleX(${strength.level / 4})`;
+    const clamped = Math.max(0, Math.min(4, strength.level));
+    wrapper.dataset.strength = String(clamped);
+    fill.style.transform = `scaleX(${clamped / 4})`;
     value.textContent = strength.label;
-    wrapper.setAttribute('aria-label', `Fortaleza de contraseña: ${strength.label}`);
+    hint.textContent = strength.hint;
+    wrapper.setAttribute('aria-label', `Fortaleza de contraseña: ${strength.label}. ${strength.hint}`);
+    return strength;
   };
 
   update(input.value || '');
 
-  return { update };
+  return { update, element: wrapper };
 }
 
 async function loadAppEnvironment() {
@@ -1517,6 +1532,7 @@ function initAuthForms() {
       : null;
     if (signupPasswordMeter && signupPasswordInput instanceof HTMLInputElement) {
       on(signupPasswordInput, 'input', () => signupPasswordMeter.update(signupPasswordInput.value));
+      on(signupForm, 'reset', () => signupPasswordMeter.update(signupPasswordInput.value || ''));
     }
 
     on(signupForm, 'submit', async (event) => {
@@ -1587,6 +1603,9 @@ function initAuthForms() {
         if (res.ok) {
           toast.success(data.message || '¡Registro exitoso! Revisa tu correo.');
           signupForm.reset();
+          if (signupPasswordMeter && signupPasswordInput instanceof HTMLInputElement) {
+            signupPasswordMeter.update('');
+          }
         } else {
           toast.error(data.error || `Error (${res.status}): No se pudo registrar.`);
         }
@@ -1606,6 +1625,15 @@ function initAuthForms() {
       password: qs('#error-login-password', loginForm),
       otp: qs('#error-login-otp', loginForm),
     };
+
+    const loginPasswordInput = qs(SELECTORS.loginPassword, loginForm);
+    const loginPasswordMeter = loginPasswordInput instanceof HTMLInputElement
+      ? createPasswordMeter(loginPasswordInput, 'login-strength')
+      : null;
+    if (loginPasswordMeter && loginPasswordInput instanceof HTMLInputElement) {
+      on(loginPasswordInput, 'input', () => loginPasswordMeter.update(loginPasswordInput.value));
+      on(loginForm, 'reset', () => loginPasswordMeter.update(loginPasswordInput.value || ''));
+    }
 
     const otpField = loginForm.querySelector('[data-otp-field]');
     const otpInput = /** @type {HTMLInputElement|null} */ (qs('#login-otp', loginForm));
@@ -1700,6 +1728,9 @@ function initAuthForms() {
           await refreshCurrentUser();
           window.dispatchEvent(new CustomEvent('ecuplot:login'));
           loginForm.reset();
+          if (loginPasswordMeter) {
+            loginPasswordMeter.update('');
+          }
           setOtpVisible(false);
           if (window.location.pathname === '/login') {
             setTimeout(() => {

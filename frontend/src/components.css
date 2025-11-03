@@ -628,8 +628,9 @@ select.form__input:focus-visible {
 
 .password-meter {
   display: flex;
-  align-items: center;
-  gap: 0.75rem;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.4rem;
   margin-top: 0.35rem;
   font-size: var(--fs-xs, 0.85rem);
   color: color-mix(in srgb, var(--color-text-muted) 80%, transparent);
@@ -637,7 +638,8 @@ select.form__input:focus-visible {
 
 .password-meter__bar {
   position: relative;
-  flex: 0 0 120px;
+  width: 100%;
+  min-width: 120px;
   height: 6px;
   border-radius: 999px;
   background: color-mix(in srgb, var(--color-border) 80%, transparent);
@@ -656,6 +658,10 @@ select.form__input:focus-visible {
 
 .password-meter__label { display: inline-flex; gap: 0.25rem; align-items: center; }
 .password-meter__value { color: var(--color-text, #0f172a); }
+.password-meter__hint {
+  display: block;
+  color: color-mix(in srgb, var(--color-text-muted) 70%, transparent);
+}
 
 .password-meter[data-strength="0"] .password-meter__fill { transform: scaleX(0); }
 .password-meter[data-strength="1"] .password-meter__fill { transform: scaleX(0.25); background: #ef4444; }
@@ -665,6 +671,7 @@ select.form__input:focus-visible {
 
 html[data-theme="dark"] .password-meter__value { color: color-mix(in srgb, var(--color-text) 90%, transparent); }
 html[data-theme="dark"] .password-meter__bar { background: color-mix(in srgb, var(--color-border) 40%, transparent); }
+html[data-theme="dark"] .password-meter__hint { color: color-mix(in srgb, var(--color-text-muted) 65%, transparent); }
 .form__link,
 button.form__link {
   color: var(--color-primary);

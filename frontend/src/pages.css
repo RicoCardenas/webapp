@@ -1703,6 +1703,31 @@
   color: color-mix(in srgb, var(--color-text-muted) 75%, transparent);
 }
 
+.ops-events__item--placeholder {
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  color: color-mix(in srgb, var(--color-text-muted) 70%, transparent);
+  background: color-mix(in srgb, var(--color-panel) 90%, transparent);
+  border-style: dashed;
+}
+
+.ops-events__pagination {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-top: 0.75rem;
+}
+
+.ops-events__pagination .btn {
+  min-width: 7rem;
+}
+
+.ops-events__page-info {
+  font-size: var(--fs-xs);
+  color: color-mix(in srgb, var(--color-text-muted) 80%, transparent);
+}
+
 @media (min-width: 56em) {
   .role-panel__actions {
     grid-template-columns: repeat(2, minmax(0, 1fr));

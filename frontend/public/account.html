@@ -621,7 +621,7 @@
                   <p class="role-panel__hint">Genera un nuevo backup de manera inmediata para resguardar los datos actuales.</p>
                   <p class="role-panel__meta" id="development-backup-status">Último backup: sin registros</p>
                   <p class="role-panel__meta role-panel__meta--muted" id="development-backup-meta"></p>
-                  <button id="development-create-backup" class="btn btn--primary btn--sm" type="button">Crear backup</button>
+                  <button id="development-create-backup" class="btn btn--primary btn--sm" type="button">Ejecutar backup</button>
                 </div>
                 <div class="role-panel__cluster">
                   <h3 class="role-panel__subtitle">Restaurar respaldo</h3>
@@ -648,6 +648,11 @@
                 <p class="role-panel__hint">Seguimiento de inicios de sesión, bloqueos y cambios de roles sensibles.</p>
                 <ul id="development-ops-events" class="ops-events" role="list" aria-live="polite" aria-busy="false"></ul>
                 <p id="development-ops-events-empty" class="role-panel__empty" hidden>No hay eventos recientes.</p>
+                <div id="development-ops-pagination" class="ops-events__pagination" hidden>
+                  <button id="development-ops-prev" class="btn btn--ghost btn--sm" type="button">Anterior</button>
+                  <span id="development-ops-page-info" class="ops-events__page-info">Página 1 de 1</span>
+                  <button id="development-ops-next" class="btn btn--ghost btn--sm" type="button">Siguiente</button>
+                </div>
               </div>
             </div>
             </section>

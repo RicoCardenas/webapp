@@ -174,18 +174,29 @@ TOTP_DIGITS = 6
 NOTIFICATION_DEFAULT_PAGE_SIZE = 15
 NOTIFICATION_MIN_PAGE_SIZE = 5
 NOTIFICATION_MAX_PAGE_SIZE = 50
+OPS_DEFAULT_PAGE_SIZE = 20
+OPS_MIN_PAGE_SIZE = 5
+OPS_MAX_PAGE_SIZE = 50
 
-CRITICAL_AUDIT_ACTIONS = {
+OPS_AUDIT_ACTIONS = {
     "role.admin.assigned",
     "role.admin.removed",
     "auth.login.failed",
     "auth.login.succeeded",
     "auth.account.locked",
+    "security.2fa.enabled",
+    "security.2fa.disabled",
+    "security.2fa.backup_regenerated",
+    "ops.backup.created",
 }
+CRITICAL_AUDIT_ACTIONS = set(OPS_AUDIT_ACTIONS)
 SECURITY_AUDIT_ACTIONS = {
     "auth.login.failed",
     "auth.login.succeeded",
     "auth.account.locked",
+    "security.2fa.enabled",
+    "security.2fa.disabled",
+    "security.2fa.backup_regenerated",
 }
 SECURITY_FAILED_WINDOW = timedelta(hours=24)
 SECURITY_LOCKOUT_WINDOW = timedelta(days=90)
@@ -1174,6 +1185,22 @@ def login_user():
                 db.session.commit()
             except Exception as exc:
                 db.session.rollback()
+        audit_entry = _record_audit(
+            "ops.backup.created",
+            target_entity_type="backup",
+            target_entity_id=metadata.filename,
+            details={
+                "filename": metadata.filename,
+                "path": metadata.path,
+                "engine": metadata.engine,
+            },
+        )
+        if audit_entry:
+            try:
+                db.session.commit()
+            except Exception as exc:
+                db.session.rollback()
+                current_app.logger.warning("No se pudo guardar auditoría de backup: %s", exc)
                 current_app.logger.error("No se pudo refrescar token de desbloqueo: %s", exc)
             else:
                 unlock_link = url_for('api.unlock_account', token=unlock_token.token, _external=True)
@@ -1961,6 +1988,16 @@ def two_factor_enable():
     _store_backup_codes(g.current_user, backup_codes)
     g.current_user.is_2fa_enabled = True
 
+    _record_audit(
+        "security.2fa.enabled",
+        target_entity_type="user",
+        target_entity_id=g.current_user.id,
+        details={
+            "backup_codes_issued": len(backup_codes),
+            "method": "totp",
+        },
+    )
+
     try:
         create_notification(
             g.current_user.id,
@@ -2005,6 +2042,15 @@ def two_factor_disable():
     g.current_user.totp_secret = None
     _store_backup_codes(g.current_user, [])
 
+    _record_audit(
+        "security.2fa.disabled",
+        target_entity_type="user",
+        target_entity_id=g.current_user.id,
+        details={
+            "method": "totp",
+        },
+    )
+
     try:
         create_notification(
             g.current_user.id,
@@ -2036,6 +2082,15 @@ def regenerate_backup_codes():
 
     new_codes = _generate_backup_codes()
     _store_backup_codes(g.current_user, new_codes)
+
+    _record_audit(
+        "security.2fa.backup_regenerated",
+        target_entity_type="user",
+        target_entity_id=g.current_user.id,
+        details={
+            "count": len(new_codes),
+        },
+    )
 
     try:
         create_notification(
@@ -2921,6 +2976,109 @@ def _remove_role_from_user(user, role_name, *, fallback_role="user"):
     return True
 
 
+def _serialize_audit_entry(entry):
+    if not entry:
+        return {}
+
+    user_payload = None
+    if getattr(entry, "user", None) is not None:
+        user_payload = {
+            "id": str(entry.user.id),
+            "email": entry.user.email,
+            "name": entry.user.name,
+        }
+    elif entry.user_id:
+        actor = db.session.get(Users, entry.user_id)
+        if actor:
+            user_payload = {
+                "id": str(actor.id),
+                "email": actor.email,
+                "name": actor.name,
+            }
+
+    target_payload = None
+    if entry.target_entity_type or entry.target_entity_id:
+        target_payload = {
+            "type": entry.target_entity_type,
+            "id": str(entry.target_entity_id) if entry.target_entity_id else None,
+        }
+
+    return {
+        "id": str(entry.id) if entry.id is not None else None,
+        "action": entry.action,
+        "created_at": entry.created_at.isoformat() if entry.created_at else None,
+        "ip_address": entry.ip_address,
+        "details": entry.details or {},
+        "user": user_payload,
+        "target": target_payload,
+    }
+
+
+def _queue_ops_event(payload):
+    if not payload:
+        return
+    events = getattr(g, "_ops_audit_events", None)
+    if events is None:
+        events = []
+        g._ops_audit_events = events
+    events.append(payload)
+
+
+def _get_ops_audience():
+    cached = getattr(g, "_ops_audience", None)
+    if cached is not None:
+        return cached
+
+    stmt = (
+        db.select(user_roles_table.c.user_id)
+        .select_from(user_roles_table.join(Roles, user_roles_table.c.role_id == Roles.id))
+        .where(Roles.name.in_({"admin", "development"}))
+    )
+    user_ids = {
+        str(user_id)
+        for user_id in db.session.execute(stmt).scalars()
+        if user_id is not None
+    }
+    g._ops_audience = user_ids
+    return user_ids
+
+
+def _broadcast_ops_events(events):
+    if not events:
+        return
+    audience = _get_ops_audience()
+    if not audience:
+        return
+    for payload in events:
+        try:
+            event_bus.broadcast(
+                audience,
+                channel="ops",
+                event_type="ops:audit",
+                data={"event": payload},
+            )
+        except Exception as exc:  # pragma: no cover - defensive logging
+            current_app.logger.warning("No se pudo emitir evento de auditoría: %s", exc)
+
+
+def _flush_ops_events(response):
+    events = getattr(g, "_ops_audit_events", None)
+    status_code = getattr(response, "status_code", 200)
+    if events and status_code < 400:
+        _broadcast_ops_events(events)
+    for attr in ("_ops_audit_events", "_ops_audience"):
+        try:
+            g.pop(attr, None)
+        except AttributeError:
+            if hasattr(g, attr):
+                delattr(g, attr)
+    return response
+
+
+api.after_app_request(_flush_ops_events)
+frontend.after_app_request(_flush_ops_events)
+
+
 def _record_audit(action, *, target_entity_type=None, target_entity_id=None, details=None):
     try:
         actor = getattr(getattr(g, "current_user", None), "id", None)
@@ -2934,8 +3092,19 @@ def _record_audit(action, *, target_entity_type=None, target_entity_id=None, det
             ip_address=request.headers.get('X-Forwarded-For') or request.remote_addr,
         )
         db.session.add(entry)
+        db.session.flush([entry])
+        try:
+            db.session.refresh(entry)
+        except Exception:
+            pass
+        if action in OPS_AUDIT_ACTIONS:
+            serialized = _serialize_audit_entry(entry)
+            if serialized:
+                _queue_ops_event(serialized)
+        return entry
     except Exception as exc:
         current_app.logger.warning("No se pudo registrar auditoría (%s): %s", action, exc)
+        return None
 
 
 def _find_user_by_identifier(identifier):
@@ -3268,43 +3437,54 @@ def admin_ops_summary():
     if guard:
         return guard
 
+    page = request.args.get("page", default=1, type=int) or 1
+    page = max(1, page)
+    requested_page_size = request.args.get("page_size", type=int)
+    page_size = requested_page_size or OPS_DEFAULT_PAGE_SIZE
+    page_size = max(OPS_MIN_PAGE_SIZE, min(OPS_MAX_PAGE_SIZE, page_size))
+
     backups = list_backups(limit=1)
     latest_backup = asdict(backups[0]) if backups else None
 
-    events = (
-        db.session.execute(
-            db.select(AuditLog)
-            .options(selectinload(AuditLog.user))
-            .where(AuditLog.action.in_(CRITICAL_AUDIT_ACTIONS))
-            .order_by(desc(AuditLog.created_at))
-            .limit(20)
-        )
-        .scalars()
-        .all()
+    condition = AuditLog.action.in_(CRITICAL_AUDIT_ACTIONS)
+
+    total = db.session.scalar(
+        db.select(func.count()).select_from(AuditLog).where(condition)
+    ) or 0
+
+    total_pages = math.ceil(total / page_size) if page_size else 1
+    if total_pages < 1:
+        total_pages = 1
+    if total == 0:
+        page = 1
+    elif page > total_pages:
+        page = total_pages
+
+    offset = (page - 1) * page_size
+
+    events_stmt = (
+        db.select(AuditLog)
+        .options(selectinload(AuditLog.user))
+        .where(condition)
+        .order_by(desc(AuditLog.created_at))
+        .offset(offset)
+        .limit(page_size)
     )
 
-    event_payload = []
-    for entry in events:
-        event_payload.append({
-            "id": str(entry.id),
-            "action": entry.action,
-            "created_at": entry.created_at.isoformat() if entry.created_at else None,
-            "ip_address": entry.ip_address,
-            "details": entry.details or {},
-            "user": {
-                "id": str(entry.user.id),
-                "email": entry.user.email,
-                "name": entry.user.name,
-            } if entry.user else None,
-            "target": {
-                "type": entry.target_entity_type,
-                "id": str(entry.target_entity_id) if entry.target_entity_id else None,
-            },
-        })
+    events = db.session.execute(events_stmt).scalars().all()
+    event_payload = [_serialize_audit_entry(entry) for entry in events]
+
+    meta = {
+        "total": int(total),
+        "page": int(page),
+        "page_size": int(page_size),
+        "total_pages": int(total_pages),
+    }
 
     return jsonify(
         backup=latest_backup,
         events=event_payload,
+        meta=meta,
     )
 
 

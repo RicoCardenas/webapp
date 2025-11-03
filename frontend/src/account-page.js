@@ -8,7 +8,22 @@ import { hasSessionToken } from './lib/session.js';
 let unauthorizedHandled = false;
 const teacherState = { bound: false };
 const adminState = { bound: false };
-const developmentState = { bound: false, admins: [], adminsTotal: 0, adminsLoading: false, opsLoading: false };
+const developmentState = {
+  bound: false,
+  admins: [],
+  adminsTotal: 0,
+  adminsLoading: false,
+  opsLoading: false,
+  opsEvents: [],
+  opsTotal: 0,
+  opsPage: 1,
+  opsPageSize: 20,
+  opsHasNext: false,
+  opsHasPrev: false,
+  opsPaginationBound: false,
+  opsNeedsRefresh: false,
+  opsUnsubscribe: null,
+};
 const developmentRemovalState = { target: null, loading: false };
 const adminRequestState = { bound: false, loading: false, status: 'none' };
 const DASHBOARD_WIDGET_META = {
@@ -119,9 +134,17 @@ const OPS_EVENT_LABELS = {
   'auth.login.succeeded': 'Inicio de sesión exitoso',
   'role.admin.assigned': 'Asignación de rol administrador',
   'role.admin.removed': 'Revocación de rol administrador',
+  'security.2fa.enabled': '2FA activada',
+  'security.2fa.disabled': '2FA desactivada',
+  'security.2fa.backup_regenerated': 'Códigos 2FA regenerados',
+  'ops.backup.created': 'Backup ejecutado',
 };
 
 const numberFormatter = new Intl.NumberFormat('es-CO');
+const dateTimeFormatter = new Intl.DateTimeFormat('es-CO', {
+  dateStyle: 'short',
+  timeStyle: 'medium',
+});
 
 const ui = {
   authShell: qs('#account-authenticated'),
@@ -207,6 +230,10 @@ const ui = {
   opsBackupMeta: qs('#development-backup-meta'),
   opsEventsList: qs('#development-ops-events'),
   opsEventsEmpty: qs('#development-ops-events-empty'),
+  opsEventsPagination: qs('#development-ops-pagination'),
+  opsEventsPrev: qs('#development-ops-prev'),
+  opsEventsNext: qs('#development-ops-next'),
+  opsEventsPageInfo: qs('#development-ops-page-info'),
   developmentAdminList: qs('#development-admin-list'),
   developmentAdminEmpty: qs('#development-admin-empty'),
   developmentRemoveModal: qs('#development-remove-modal'),
@@ -375,6 +402,20 @@ function resetAccountUI() {
   resetTickets();
   resetSecuritySummary();
   resetTwoFactor();
+  developmentState.opsEvents = [];
+  developmentState.opsTotal = 0;
+  developmentState.opsPage = 1;
+  developmentState.opsHasNext = false;
+  developmentState.opsHasPrev = false;
+  developmentState.opsNeedsRefresh = false;
+  if (ui.opsEventsList) ui.opsEventsList.innerHTML = '';
+  if (ui.opsEventsEmpty) {
+    ui.opsEventsEmpty.hidden = false;
+    ui.opsEventsEmpty.textContent = 'No hay eventos recientes.';
+  }
+  if (ui.opsEventsPagination) ui.opsEventsPagination.hidden = true;
+  if (ui.opsBackupStatus) ui.opsBackupStatus.textContent = 'Último backup: sin registros';
+  if (ui.opsBackupMeta) ui.opsBackupMeta.textContent = '';
   if (ui.adminRequestBox) ui.adminRequestBox.hidden = true;
   if (ui.adminRequestStatus) {
     ui.adminRequestStatus.textContent = '';
@@ -2177,9 +2218,12 @@ function renderDevelopmentPanel() {
     bindDevelopmentPanel();
     developmentState.bound = true;
   }
+  ensureOpsPaginationBindings();
+  ensureOpsSubscription();
+  developmentState.opsPage = 1;
   loadDevelopmentAdmins();
   loadDevelopmentRequests();
-  loadOperationsSummary();
+  loadOperationsSummary({ page: 1 });
 }
 
 function setOpsLoading(isLoading) {
@@ -2187,82 +2231,157 @@ function setOpsLoading(isLoading) {
   if (ui.opsEventsList) {
     ui.opsEventsList.setAttribute('aria-busy', developmentState.opsLoading ? 'true' : 'false');
   }
+  if (developmentState.opsLoading && ui.opsEventsPagination) {
+    ui.opsEventsPagination.hidden = true;
+  }
 }
 
-function loadOperationsSummary() {
-  if (!ui.opsBackupStatus && !ui.opsEventsList) return;
-  setOpsLoading(true);
-  requestWithAuth('/api/admin/ops/summary')
-    .then(async (res) => {
-      if (!res) return;
-      if (!res.ok) {
-        if (res.status === 403) {
-          if (ui.opsBackupStatus) ui.opsBackupStatus.textContent = 'Sin permisos para consultar.';
-          if (ui.opsEventsList) ui.opsEventsList.innerHTML = '';
-          if (ui.opsEventsEmpty) {
-            ui.opsEventsEmpty.hidden = false;
-            ui.opsEventsEmpty.textContent = 'Sin permisos para consultar eventos.';
-          }
-        }
-        return;
-      }
-      const data = await res.json().catch(() => ({}));
-      renderOpsSummary(data);
-    })
-    .finally(() => setOpsLoading(false));
+function showOpsPlaceholder(message) {
+  if (!ui.opsEventsList) return;
+  ui.opsEventsList.innerHTML = '';
+  const placeholder = document.createElement('li');
+  placeholder.className = 'ops-events__item ops-events__item--placeholder';
+  placeholder.textContent = message || 'Cargando...';
+  ui.opsEventsList.appendChild(placeholder);
+  if (ui.opsEventsEmpty) ui.opsEventsEmpty.hidden = true;
 }
 
-function renderOpsSummary(summary) {
-  const backup = summary?.backup;
+function formatOpsTimestamp(value) {
+  if (!value) return { label: '—', iso: '' };
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return { label: '—', iso: '' };
+  }
+  return { label: dateTimeFormatter.format(date), iso: date.toISOString() };
+}
+
+function normalizeOpsEvent(event) {
+  if (!event) return null;
+  const id = event.id || event.uuid;
+  if (!id) return null;
+  const normalized = {
+    id: String(id),
+    action: event.action || '',
+    created_at: event.created_at || event.at || null,
+    ip_address: event.ip_address || '',
+    details: typeof event.details === 'object' && event.details !== null ? { ...event.details } : {},
+    user: null,
+    target: null,
+  };
+  if (event.user) {
+    normalized.user = {
+      id: event.user.id ? String(event.user.id) : undefined,
+      email: event.user.email || '',
+      name: event.user.name || '',
+    };
+  }
+  if (event.target) {
+    normalized.target = {
+      type: event.target.type || '',
+      id: event.target.id ? String(event.target.id) : null,
+    };
+  }
+  return normalized;
+}
+
+function ensureOpsPaginationBindings() {
+  if (developmentState.opsPaginationBound) return;
+  if (ui.opsEventsPrev instanceof HTMLButtonElement) {
+    on(ui.opsEventsPrev, 'click', (event) => {
+      event.preventDefault();
+      if (!developmentState.opsHasPrev || developmentState.opsLoading) return;
+      const nextPage = Math.max(1, (developmentState.opsPage || 1) - 1);
+      loadOperationsSummary({ page: nextPage });
+    });
+  }
+  if (ui.opsEventsNext instanceof HTMLButtonElement) {
+    on(ui.opsEventsNext, 'click', (event) => {
+      event.preventDefault();
+      if (!developmentState.opsHasNext || developmentState.opsLoading) return;
+      const nextPage = (developmentState.opsPage || 1) + 1;
+      loadOperationsSummary({ page: nextPage });
+    });
+  }
+  developmentState.opsPaginationBound = true;
+}
+
+function updateOpsPagination(meta = {}) {
+  if (!ui.opsEventsPagination) return;
+  const total = Number.isFinite(meta.total) ? Number(meta.total) : Number(developmentState.opsTotal || 0);
+  const pageSize = Number.isFinite(meta.page_size) ? Number(meta.page_size) : Number(developmentState.opsPageSize || 20);
+  const page = Number.isFinite(meta.page) ? Number(meta.page) : Number(developmentState.opsPage || 1);
+  const totalPages = pageSize > 0 ? Math.max(1, Math.ceil(total / pageSize)) : 1;
+
+  developmentState.opsHasPrev = page > 1;
+  developmentState.opsHasNext = totalPages > 1 && page < totalPages;
+
+  if (ui.opsEventsPrev instanceof HTMLButtonElement) {
+    ui.opsEventsPrev.disabled = developmentState.opsLoading || !developmentState.opsHasPrev;
+  }
+  if (ui.opsEventsNext instanceof HTMLButtonElement) {
+    ui.opsEventsNext.disabled = developmentState.opsLoading || !developmentState.opsHasNext;
+  }
+  if (ui.opsEventsPageInfo) {
+    ui.opsEventsPageInfo.textContent = total > 0 ? `Página ${page} de ${totalPages}` : 'Sin registros';
+  }
+
+  ui.opsEventsPagination.hidden = total <= pageSize || totalPages <= 1;
+}
+
+function renderOpsBackup(backup) {
   if (ui.opsBackupStatus) {
     if (backup && backup.created_at) {
-      const timestamp = new Date(backup.created_at).toLocaleString();
-      ui.opsBackupStatus.textContent = `Último backup: ${timestamp}`;
+      const { label } = formatOpsTimestamp(backup.created_at);
+      ui.opsBackupStatus.textContent = `Último backup: ${label}`;
     } else {
       ui.opsBackupStatus.textContent = 'Último backup: sin registros';
     }
   }
   if (ui.opsBackupMeta) {
-    if (backup) {
-      ui.opsBackupMeta.textContent = backup.filename ? `${backup.filename} · ${backup.engine || 'desconocido'}` : backup.engine || '';
+    if (backup && (backup.filename || backup.engine)) {
+      const parts = [];
+      if (backup.filename) parts.push(backup.filename);
+      if (backup.engine) parts.push(backup.engine);
+      ui.opsBackupMeta.textContent = parts.join(' · ');
     } else {
       ui.opsBackupMeta.textContent = '';
     }
   }
-  if (ui.opsEventsEmpty) {
-    ui.opsEventsEmpty.textContent = 'No hay eventos recientes.';
-  }
-  renderOpsEvents(Array.isArray(summary?.events) ? summary.events : []);
 }
 
 function renderOpsEvents(events) {
   if (!ui.opsEventsList) return;
   ui.opsEventsList.innerHTML = '';
-  const hasEvents = Array.isArray(events) && events.length > 0;
-  if (ui.opsEventsEmpty) ui.opsEventsEmpty.hidden = hasEvents;
+  const source = Array.isArray(events) ? events : [];
+  const hasEvents = source.length > 0;
+  if (ui.opsEventsEmpty) {
+    ui.opsEventsEmpty.hidden = hasEvents;
+    if (!hasEvents) {
+      ui.opsEventsEmpty.textContent = developmentState.opsLoading ? 'Cargando eventos...' : 'No hay eventos recientes.';
+    }
+  }
   if (!hasEvents) return;
 
-  events.forEach((event) => {
+  source.forEach((raw) => {
+    const event = normalizeOpsEvent(raw);
+    if (!event) return;
     const item = document.createElement('li');
     item.className = 'ops-events__item';
+    item.dataset.action = event.action;
 
     const top = document.createElement('div');
     top.className = 'ops-events__top';
 
     const action = document.createElement('span');
     action.className = 'ops-events__action';
-    action.textContent = OPS_EVENT_LABELS[event.action] || event.action;
+    action.textContent = OPS_EVENT_LABELS[event.action] || event.action || 'Evento';
     top.appendChild(action);
 
     const time = document.createElement('time');
     time.className = 'ops-events__time';
-    if (event.created_at) {
-      const date = new Date(event.created_at);
-      time.dateTime = date.toISOString();
-      time.textContent = date.toLocaleString();
-    } else {
-      time.textContent = '—';
-    }
+    const { label, iso } = formatOpsTimestamp(event.created_at);
+    time.textContent = label;
+    if (iso) time.dateTime = iso;
     top.appendChild(time);
 
     const meta = document.createElement('div');
@@ -2271,15 +2390,129 @@ function renderOpsEvents(events) {
     const ip = event.ip_address ? `IP: ${event.ip_address}` : '';
     meta.textContent = [actor, ip].filter(Boolean).join(' · ');
 
-    const detail = document.createElement('div');
-    detail.className = 'ops-events__detail';
-    detail.textContent = describeOpsEventDetails(event);
-
     item.appendChild(top);
     item.appendChild(meta);
-    if (detail.textContent) item.appendChild(detail);
+
+    const detailText = describeOpsEventDetails(event);
+    if (detailText) {
+      const detail = document.createElement('div');
+      detail.className = 'ops-events__detail';
+      detail.textContent = detailText;
+      item.appendChild(detail);
+    }
+
     ui.opsEventsList.appendChild(item);
   });
+}
+
+function renderOpsSummary(summary) {
+  renderOpsBackup(summary?.backup);
+  const events = Array.isArray(summary?.events) ? summary.events : [];
+  developmentState.opsEvents = events.map((event) => normalizeOpsEvent(event)).filter(Boolean);
+  const meta = summary?.meta || {};
+  developmentState.opsTotal = Number.isFinite(meta.total) ? Number(meta.total) : developmentState.opsEvents.length;
+  developmentState.opsPage = Number.isFinite(meta.page) ? Number(meta.page) : developmentState.opsPage || 1;
+  developmentState.opsPageSize = Number.isFinite(meta.page_size) ? Number(meta.page_size) : developmentState.opsPageSize || 20;
+  updateOpsPagination({
+    total: developmentState.opsTotal,
+    page: developmentState.opsPage,
+    page_size: developmentState.opsPageSize,
+  });
+  renderOpsEvents(developmentState.opsEvents);
+  developmentState.opsNeedsRefresh = false;
+}
+
+function loadOperationsSummary(options = {}) {
+  if (!ui.opsBackupStatus && !ui.opsEventsList) return;
+  const page = options.page != null ? Math.max(1, Number(options.page) || 1) : developmentState.opsPage || 1;
+  const pageSize = Math.max(5, Number(developmentState.opsPageSize || 20));
+
+  developmentState.opsPage = page;
+  developmentState.opsPageSize = pageSize;
+
+  setOpsLoading(true);
+  showOpsPlaceholder('Cargando eventos...');
+  const params = new URLSearchParams();
+  params.set('page', String(page));
+  params.set('page_size', String(pageSize));
+
+  return requestWithAuth(`/api/admin/ops/summary?${params.toString()}`)
+    .then(async (res) => {
+      if (!res) {
+        showOpsPlaceholder('No se pudo obtener el resumen.');
+        return;
+      }
+      if (res.status === 403) {
+        if (ui.opsBackupStatus) ui.opsBackupStatus.textContent = 'Sin permisos para consultar.';
+        developmentState.opsEvents = [];
+        developmentState.opsTotal = 0;
+        updateOpsPagination({ total: 0, page: 1, page_size: pageSize });
+        if (ui.opsEventsList) ui.opsEventsList.innerHTML = '';
+        if (ui.opsEventsEmpty) {
+          ui.opsEventsEmpty.hidden = false;
+          ui.opsEventsEmpty.textContent = 'Sin permisos para consultar eventos.';
+        }
+        return;
+      }
+      if (!res.ok) {
+        const errorMessage = 'No se pudo cargar la actividad operativa.';
+        showOpsPlaceholder(errorMessage);
+        if (ui.opsEventsEmpty) {
+          ui.opsEventsEmpty.hidden = false;
+          ui.opsEventsEmpty.textContent = errorMessage;
+        }
+        return;
+      }
+      const data = await res.json().catch(() => ({}));
+      renderOpsSummary(data);
+    })
+    .catch(() => {
+      showOpsPlaceholder('No se pudo obtener el resumen.');
+    })
+    .finally(() => setOpsLoading(false));
+}
+
+function ensureOpsSubscription() {
+  if (!eventStream || developmentState.opsUnsubscribe) return;
+  developmentState.opsUnsubscribe = eventStream.subscribeChannel('ops', (payload) => {
+    const event = payload?.data?.event;
+    if (!event) return;
+    handleOpsNewEvent(event);
+  });
+  eventStream.ensure?.();
+}
+
+function handleOpsNewEvent(rawEvent) {
+  const event = normalizeOpsEvent(rawEvent);
+  if (!event) return;
+  const exists = developmentState.opsEvents.some((item) => item.id === event.id);
+  if (exists) return;
+
+  developmentState.opsTotal = (developmentState.opsTotal || 0) + 1;
+
+  if (developmentState.opsPage === 1) {
+    developmentState.opsEvents = [event, ...developmentState.opsEvents];
+    if (developmentState.opsEvents.length > developmentState.opsPageSize) {
+      developmentState.opsEvents = developmentState.opsEvents.slice(0, developmentState.opsPageSize);
+    }
+    renderOpsEvents(developmentState.opsEvents);
+  } else if (!developmentState.opsNeedsRefresh) {
+    developmentState.opsNeedsRefresh = true;
+    toast?.info?.('Hay nuevos eventos operativos. Regresa a la primera página para verlos.');
+  }
+
+  updateOpsPagination({
+    total: developmentState.opsTotal,
+    page: developmentState.opsPage,
+    page_size: developmentState.opsPageSize,
+  });
+}
+
+function clearOpsSubscription() {
+  if (typeof developmentState.opsUnsubscribe === 'function') {
+    developmentState.opsUnsubscribe();
+  }
+  developmentState.opsUnsubscribe = null;
 }
 
 function describeOpsEventDetails(event) {
@@ -2295,6 +2528,21 @@ function describeOpsEventDetails(event) {
       return details.target_public_id ? `Asignado a ID público ${details.target_public_id}.` : 'Rol admin asignado.';
     case 'role.admin.removed':
       return details.remaining_admins != null ? `Administradores restantes: ${details.remaining_admins}.` : 'Rol admin eliminado.';
+    case 'security.2fa.enabled': {
+      const issued = Number.isFinite(details.backup_codes_issued) ? Number(details.backup_codes_issued) : null;
+      return issued != null ? `Códigos de respaldo emitidos: ${issued}.` : '2FA activada.';
+    }
+    case 'security.2fa.disabled':
+      return '2FA desactivada por el usuario.';
+    case 'security.2fa.backup_regenerated': {
+      const count = Number.isFinite(details.count) ? Number(details.count) : null;
+      return count != null ? `Se generaron ${count} códigos nuevos.` : 'Códigos de respaldo regenerados.';
+    }
+    case 'ops.backup.created': {
+      const filename = details.filename ? `Archivo: ${details.filename}` : '';
+      const engine = details.engine ? `Motor: ${details.engine}` : '';
+      return [filename, engine].filter(Boolean).join(' · ') || 'Backup ejecutado.';
+    }
     default:
       return '';
   }
@@ -2655,13 +2903,13 @@ async function handleDevelopmentCreateBackup() {
 
   if (ui.developmentBackupBtn instanceof HTMLButtonElement) {
     ui.developmentBackupBtn.disabled = true;
-    ui.developmentBackupBtn.textContent = 'Generando…';
+    ui.developmentBackupBtn.textContent = 'Ejecutando…';
   }
 
   const res = await requestWithAuth('/api/development/backups/run', options);
   if (ui.developmentBackupBtn instanceof HTMLButtonElement) {
     ui.developmentBackupBtn.disabled = false;
-    ui.developmentBackupBtn.textContent = 'Crear backup';
+    ui.developmentBackupBtn.textContent = 'Ejecutar backup';
   }
   if (!res) return;
   if (!res.ok) {
@@ -2674,7 +2922,9 @@ async function handleDevelopmentCreateBackup() {
   const data = await res.json().catch(() => ({}));
   const label = data?.backup?.filename ? ` (${data.backup.filename})` : '';
   toast?.success?.(`${data?.message || 'Backup generado.'}${label}`);
-  await loadOperationsSummary();
+  if (ui.developmentBackupName instanceof HTMLInputElement) ui.developmentBackupName.value = '';
+  developmentState.opsPage = 1;
+  await loadOperationsSummary({ page: 1 });
 }
 
 function onDevelopmentRestore(event) {
@@ -2869,6 +3119,7 @@ async function handleDevelopmentResolveRequest(requestId, action) {
 
 function handleUnauthorized(showToast = true) {
   resetAccountUI();
+  clearOpsSubscription();
   setAuthVisibility(false);
   accountState.user = null;
   accountState.roles = new Set();
