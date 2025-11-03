@@ -41,6 +41,7 @@ from .models import (
     AuditLog,
     user_roles_table,
 )
+from .plot_tags import apply_tags_to_history, classify_expression
 from flask_mail import Message
 from sqlalchemy import and_, asc, desc, func, cast, String, or_, delete
 from sqlalchemy.orm import selectinload
@@ -1230,23 +1231,56 @@ def create_plot():
 
     plot_parameters = data.get('plot_parameters')
     plot_metadata = data.get('plot_metadata')
+    raw_tags = data.get('tags')
+
+    provided_tags: list[str] = []
+    if isinstance(raw_tags, (list, tuple, set)):
+        provided_tags = [str(tag) for tag in raw_tags if str(tag).strip()]
+    elif isinstance(raw_tags, str):
+        tag = raw_tags.strip()
+        if tag:
+            provided_tags = [tag]
 
     items = []
     try:
         for expr in expressions:
+            created_at = datetime.now(timezone.utc)
             item = PlotHistory(
                 user_id=g.current_user.id,
                 expression=expr,
                 plot_parameters=plot_parameters,
-                plot_metadata=plot_metadata
+                plot_metadata=plot_metadata,
+                created_at=created_at,
+                updated_at=created_at,
             )
             db.session.add(item)
             items.append(item)
+            tag_candidates = set(classify_expression(expr))
+            if provided_tags:
+                tag_candidates.update(provided_tags)
+            apply_tags_to_history(item, tag_candidates, session=db.session)
+        db.session.flush()
+        for item in items:
+            db.session.refresh(item)
+
+        response_items = []
+        for record in items:
+            tag_names = sorted({
+                (assoc.tag.name or '').strip().lower()
+                for assoc in (record.tags_association or [])
+                if assoc.tag and assoc.tag.name
+            })
+            response_items.append({
+                "id": str(record.id),
+                "expression": record.expression,
+                "created_at": record.created_at.isoformat() if record.created_at else None,
+                "tags": tag_names,
+            })
         db.session.commit()
         return jsonify(
             message="Expresiones guardadas en historial.",
             saved=len(items),
-            items=[{"id": str(x.id), "expression": x.expression, "created_at": x.created_at.isoformat()} for x in items]
+            items=response_items
         ), 201
     except Exception as e:
         db.session.rollback()

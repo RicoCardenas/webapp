@@ -1,7 +1,10 @@
 from .app import create_app
 import click
-from .app.models import Roles
+from sqlalchemy.orm import selectinload
+
+from .app.models import Roles, PlotHistory, PlotHistoryTags
 from .app.extensions import db
+from .app.plot_tags import apply_tags_to_history, classify_expression
 
 app = create_app()
 
@@ -40,6 +43,34 @@ def seed_roles():
         print(f"¡{roles_creados} roles nuevos añadidos a la base de datos!")
     else:
         print("No se crearon roles nuevos.")
+
+
+@app.cli.command("backfill-plot-history-tags")
+@click.option("--dry-run", is_flag=True, help="Procesa sin guardar cambios.")
+def backfill_plot_history_tags(dry_run: bool = False):
+    """Auto-etiqueta registros antiguos de historial que aún no tienen tags."""
+    updated = 0
+    entries = db.session.scalars(
+        db.select(PlotHistory).options(
+            selectinload(PlotHistory.tags_association).selectinload(PlotHistoryTags.tag)
+        )
+    )
+
+    for history in entries:
+        if history.tags_association:
+            continue
+        categories = classify_expression(history.expression)
+        applied = apply_tags_to_history(history, categories, session=db.session)
+        if applied:
+            updated += 1
+
+    if dry_run:
+        db.session.rollback()
+    else:
+        db.session.commit()
+
+    suffix = " (dry-run)" if dry_run else ""
+    click.echo(f"Auto-etiquetados {updated} registros{suffix}.")
 
 @app.shell_context_processor
 def make_shell_context():
