@@ -97,6 +97,11 @@
   outline-offset: 6px;
 }
 
+.hero__status {
+  margin-top: 1.25rem;
+  max-width: min(480px, 100%);
+}
+
 @media (min-width: 48em) {
   .hero__inner {
     justify-items: start;
@@ -1452,6 +1457,33 @@
   list-style: none;
 }
 
+.notifications-preferences__form {
+  margin-top: 0.75rem;
+  padding: 0.75rem;
+  border: 1px solid color-mix(in srgb, var(--border, var(--color-border)) 70%, transparent);
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--card, var(--color-panel)) 96%, transparent);
+  display: grid;
+  gap: 0.75rem;
+}
+
+.notifications-preferences__form.is-pending {
+  opacity: 0.6;
+  pointer-events: none;
+}
+
+.notifications-preferences__grid {
+  display: grid;
+  gap: 0.5rem;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+}
+
+.notifications-preferences__empty {
+  margin: 0;
+  font-size: var(--fs-sm);
+  color: var(--color-text-muted);
+}
+
 .notifications-item {
   border-radius: var(--radius-md);
   border: 1px solid color-mix(in srgb, var(--border, var(--color-border)) 70%, transparent);
@@ -1460,6 +1492,25 @@
   display: grid;
   gap: 0.6rem;
   box-shadow: var(--shadow-sm);
+}
+
+.notifications-item--read {
+  opacity: 0.72;
+}
+
+.notifications-item--unread {
+  border-color: color-mix(in srgb, var(--primary, var(--color-primary)) 28%, var(--border, var(--color-border)) 72%);
+  background: color-mix(in srgb, var(--primary, var(--color-primary)) 8%, var(--card, var(--color-panel)) 92%);
+}
+
+.notifications-item--pending {
+  opacity: 0.55;
+  pointer-events: none;
+}
+
+.notifications-list.is-loading {
+  opacity: 0.6;
+  pointer-events: none;
 }
 
 .notifications-item__header {

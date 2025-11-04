@@ -1,17 +1,28 @@
-# Flask y dependencias del core
-flask>=3.0
-python-dotenv>=1.0
+# Pinned backend dependencies validadas con Python 3.14.
+# Regenera este archivo ejecutando:
+#   pip-compile backend/requirements.in --output-file backend/requirements.txt
+# usando la misma versión de Python.
 
-# Base de datos y ORM
-psycopg2-binary  
-Flask-SQLAlchemy
-Flask-Migrate    
-
-# Seguridad y Utilidades
-Flask-Bcrypt     
-Flask-Mail       
-Flask-CORS      
-
-qrcode
-
-pytest>=7.0  # Para testing
+alembic==1.13.2
+bcrypt==4.1.2
+blinker==1.8.2
+click==8.1.7
+Flask==3.0.3
+Flask-Bcrypt==1.0.1
+Flask-Cors==4.0.0
+Flask-Mail==0.9.1
+Flask-Migrate==4.0.5
+Flask-SQLAlchemy==3.1.1
+iniconfig==2.0.0
+itsdangerous==2.1.2
+Jinja2==3.1.4
+Mako==1.3.5
+MarkupSafe==3.0.2
+packaging==24.1
+pluggy==1.5.0
+psycopg[binary]==3.2.12
+python-dotenv==1.0.1
+pytest==8.3.3
+qrcode==7.4.2
+SQLAlchemy==2.0.35
+Werkzeug==3.0.2

@@ -1,4 +1,4 @@
-import { getSessionToken } from './session.js';
+import { hasSessionToken } from './session.js';
 
 const DEFAULT_URL = '/api/stream';
 const DEFAULT_RETRY = 4000;
@@ -14,6 +14,7 @@ export function createEventStream(options = {}) {
   let source = null;
   let reconnectTimer = null;
   let destroyed = false;
+  let connectingPromise = null;
 
   function dispatch(event) {
     let payload = {};
@@ -71,36 +72,68 @@ export function createEventStream(options = {}) {
     }
   }
 
+  async function requestStreamToken() {
+    const response = await fetch('/api/stream/token', {
+      method: 'POST',
+      credentials: 'same-origin',
+    });
+
+    if (response.status === 401 || response.status === 403) {
+      if (typeof options.onUnauthorized === 'function') {
+        options.onUnauthorized();
+      }
+      throw new Error('No autorizado para solicitar token de stream');
+    }
+
+    if (!response.ok) {
+      throw new Error(`Error al solicitar token de stream (${response.status})`);
+    }
+
+    // La respuesta solo confirma la validez y establece una cookie HttpOnly.
+    await response.json().catch(() => ({}));
+    return true;
+  }
+
+  async function openEventSource() {
+    await requestStreamToken();
+
+    if (destroyed || source) return;
+
+    const streamUrl = new URL(url, window.location.origin);
+    const nextSource = new EventSource(streamUrl.toString(), { withCredentials: true });
+
+    nextSource.addEventListener('ready', () => {
+      if (options.onReady) options.onReady();
+    });
+    nextSource.addEventListener('keepalive', () => {
+      /* noop */
+    });
+    nextSource.onerror = () => {
+      scheduleReconnect();
+    };
+
+    boundEvents.forEach((handler, eventName) => {
+      nextSource.addEventListener(eventName, handler);
+    });
+
+    source = nextSource;
+  }
+
   function ensureConnection() {
     if (destroyed) return;
     if (source) return;
-    const token = options.token || getSessionToken();
-    if (!token) return;
+    if (connectingPromise) return;
 
-    const connector = () => {
-      if (destroyed) return;
-      const streamUrl = new URL(url, window.location.origin);
-      streamUrl.searchParams.set('token', token);
-      const nextSource = new EventSource(streamUrl.toString());
+    if (!(options.token || hasSessionToken())) return;
 
-      nextSource.addEventListener('ready', () => {
-        if (options.onReady) options.onReady();
-      });
-      nextSource.addEventListener('keepalive', () => {
-        /* noop */
-      });
-      nextSource.onerror = () => {
+    connectingPromise = openEventSource()
+      .catch((error) => {
+        console.error('No se pudo abrir el canal SSE', error);
         scheduleReconnect();
-      };
-
-      boundEvents.forEach((handler, eventName) => {
-        nextSource.addEventListener(eventName, handler);
+      })
+      .finally(() => {
+        connectingPromise = null;
       });
-
-      source = nextSource;
-    };
-
-    connector();
   }
 
   function scheduleReconnect() {
@@ -108,6 +141,9 @@ export function createEventStream(options = {}) {
     if (source) {
       source.close();
       source = null;
+    }
+    if (connectingPromise) {
+      connectingPromise = null;
     }
     if (reconnectTimer) return;
     reconnectTimer = window.setTimeout(() => {

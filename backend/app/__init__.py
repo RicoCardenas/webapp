@@ -5,6 +5,7 @@ from backend.config import Config, init_app_config
 
 # Importamos las instancias de las extensiones
 from .extensions import db, migrate, bcrypt, mail, cors
+from .event_stream import events as event_bus
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 PUBLIC_DIR = PROJECT_ROOT / "frontend" / "public"
@@ -32,11 +33,27 @@ def create_app(config_object=Config) -> Flask:
     migrate.init_app(app, db)
     bcrypt.init_app(app)
     mail.init_app(app)
+    runtime_env = app.config.get("APP_ENV", "production")
+    cors_origins = app.config.get("CORS_ORIGINS") or []
+
+    if runtime_env == "production":
+        if not cors_origins:
+            raise RuntimeError(
+                "FATAL: CORS_ORIGINS no está configurado para producción. "
+                "Define una lista de dominios permitidos antes de iniciar la aplicación."
+            )
+    if not cors_origins:
+        cors_origins = "*"
+
+    supports_credentials = bool(app.config.get("CORS_SUPPORTS_CREDENTIALS", False))
+
     cors.init_app(
         app,
-        resources={r"/api/*": {"origins": app.config.get("CORS_ORIGINS", "*")}},
-        supports_credentials=True,
+        resources={r"/api/*": {"origins": cors_origins}},
+        supports_credentials=supports_credentials,
     )
+
+    event_bus.set_max_subscribers(app.config.get("SSE_MAX_CONNECTIONS_PER_USER", 3))
 
     with app.app_context():
         from . import models

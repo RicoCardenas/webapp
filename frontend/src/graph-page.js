@@ -1,7 +1,7 @@
 import { toast } from '/static/app.js';
 import { qs, toggleClass } from './lib/dom.js';
 import { on } from './lib/events.js';
-import { getSessionToken } from './lib/session.js';
+import { hasSessionToken, clearSessionToken } from './lib/session.js';
 import {
   DEFAULT_EXERCISES,
   mergeLearningCatalog,
@@ -97,12 +97,10 @@ async function refreshLearningFromServer(options = {}) {
 }
 
 async function requestLearning(url, options = {}) {
-  const token = getSessionToken();
   const headers = new Headers(options.headers || {});
-  if (token) headers.set('Authorization', `Bearer ${token}`);
   if (options.body && !headers.has('Content-Type')) headers.set('Content-Type', 'application/json');
   try {
-    return await fetch(url, { ...options, headers });
+    return await fetch(url, { ...options, headers, credentials: options.credentials ?? 'same-origin' });
   } catch (error) {
     console.warn('No se pudo contactar el servicio de ejercicios', error);
     return null;
@@ -110,13 +108,12 @@ async function requestLearning(url, options = {}) {
 }
 
 async function fetchLearningExercises() {
-  const token = getSessionToken();
-  if (!token) {
-    return { ok: false, status: 401, exercises: [] };
-  }
   const res = await requestLearning('/api/learning/exercises');
   if (!res) {
     return { ok: false, status: 0, exercises: [] };
+  }
+  if (res.status === 401) {
+    clearSessionToken();
   }
   const payload = await res.json().catch(() => ({}));
   const exercises = Array.isArray(payload?.exercises) ? payload.exercises : [];
@@ -124,10 +121,11 @@ async function fetchLearningExercises() {
 }
 
 async function completeExercise(exerciseId) {
-  const token = getSessionToken();
-  if (!token) return { ok: false, status: 401 };
   const res = await requestLearning(`/api/learning/exercises/${exerciseId}/complete`, { method: 'POST' });
   if (!res) return { ok: false, status: 0 };
+  if (res.status === 401) {
+    clearSessionToken();
+  }
   const data = await res.json().catch(() => ({}));
   return { ok: res.ok, status: res.status, data };
 }
@@ -239,7 +237,7 @@ function getLearningStats() {
 function applyLearningVisibility(stats) {
   const panel = learningState.panel || qs(selectors.learningPanel);
   const toggle = learningState.toggle || qs(selectors.toggleLearning);
-  const isLogged = Boolean(getSessionToken());
+  const isLogged = hasSessionToken();
   const shouldDismiss = isLogged && stats.total > 0 && stats.completed >= stats.total;
 
   if (learningState.dismissed === shouldDismiss) {
@@ -432,17 +430,25 @@ function initFullHeightCanvasSync() {
   const host = qs(selectors.graphContainer);
   if (!host) return;
 
-  const ro = new ResizeObserver((entries) => {
-    for (const entry of entries) {
-      const { width, height } = entry.contentRect;
-      host.style.setProperty('--ggb-width', `${width}px`);
-      host.style.setProperty('--ggb-height', `${height}px`);
-    }
+  const updateHostSize = () => {
+    const rect = host.getBoundingClientRect();
+    host.style.setProperty('--ggb-width', `${rect.width}px`);
+    host.style.setProperty('--ggb-height', `${rect.height}px`);
     window.requestAnimationFrame(() => {
       window.dispatchEvent(new Event('resize'));
     });
-  });
-  ro.observe(host);
+  };
+
+  updateHostSize();
+
+  if (typeof window !== 'undefined' && typeof window.ResizeObserver === 'function') {
+    const ro = new ResizeObserver(() => {
+      updateHostSize();
+    });
+    ro.observe(host);
+  } else {
+    window.addEventListener('resize', updateHostSize);
+  }
 }
 
 function initQueryExprBoot() {

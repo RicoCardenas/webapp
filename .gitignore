@@ -30,7 +30,7 @@ instance/
 # ----------------------------------------------------------------------
 # 4. Bases de Datos y Backups
 # ----------------------------------------------------------------------
-
+BackupsDB/
 # Archivos de SQLite (por si acaso, aunque ya no lo usamos)
 
 # Carpeta con backups locales de la DB (el archivo Backup23102025)

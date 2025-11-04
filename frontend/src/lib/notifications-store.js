@@ -105,6 +105,7 @@ export function createNotificationsStore({ authFetch, eventStream, initialFilter
     if (!notification || typeof notification !== 'object') return null;
     const id = String(notification.id || '').trim();
     if (!id) return null;
+    const readAt = notification.read_at || null;
     return {
       id,
       category: normalizeCategory(notification.category),
@@ -112,7 +113,8 @@ export function createNotificationsStore({ authFetch, eventStream, initialFilter
       body: notification.body == null ? '' : String(notification.body),
       payload: notification.payload || {},
       created_at: notification.created_at || null,
-      read_at: notification.read_at || null,
+      read_at: readAt,
+      read: Boolean(readAt),
     };
   }
 
@@ -217,7 +219,7 @@ export function createNotificationsStore({ authFetch, eventStream, initialFilter
         const normalized = normalizeNotification(payload.notification);
         const idx = state.items.findIndex((item) => item.id === normalized?.id);
         if (idx >= 0 && normalized) {
-          state.items[idx] = normalized;
+          state.items[idx] = { ...state.items[idx], ...normalized };
         }
       }
       if (typeof payload?.unread === 'number') {
@@ -245,7 +247,15 @@ export function createNotificationsStore({ authFetch, eventStream, initialFilter
       }
       const payload = await res.json().catch(() => ({}));
       if (!body.category || body.category === state.filters.category || !state.filters.category) {
-        state.items = state.items.map((item) => ({ ...item, read_at: item.read_at || new Date().toISOString() }));
+        const nowIso = new Date().toISOString();
+        state.items = state.items.map((item) => {
+          if (item.read_at) return { ...item, read: true };
+          return {
+            ...item,
+            read_at: item.read_at || nowIso,
+            read: true,
+          };
+        });
       }
       if (typeof payload?.unread === 'number') {
         state.meta.unread = payload.unread;

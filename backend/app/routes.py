@@ -11,6 +11,7 @@ import secrets
 import string
 import struct
 import time
+from functools import lru_cache
 from dataclasses import asdict
 from datetime import datetime, timedelta, timezone
 from flask import (
@@ -63,6 +64,7 @@ from flask_mail import Message
 from sqlalchemy import and_, asc, desc, func, cast, String, or_, delete
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import selectinload
+from urllib import request as urllib_request, error as urllib_error
 from urllib.parse import quote
 
 import qrcode
@@ -78,10 +80,69 @@ frontend = Blueprint("frontend", __name__)
 MAX_FAILED_LOGIN_ATTEMPTS = 3
 ACCOUNT_UNLOCK_TOKEN_TTL = timedelta(hours=24)
 PASSWORD_RESET_TOKEN_TTL = timedelta(hours=1)
+SSE_STREAM_TOKEN_TTL = timedelta(minutes=5)
 PASSWORD_POLICY_MESSAGE = (
     "La contraseña debe tener al menos 8 caracteres, con una letra mayúscula, "
     "una letra minúscula, un número y un carácter especial."
 )
+HIBP_API_RANGE_URL = "https://api.pwnedpasswords.com/range/"
+HIBP_USER_AGENT = "EcuPlotPasswordChecker/1.0"
+MAIL_SENDER_MISSING_ERROR = "Servicio de correo no disponible. Intenta más tarde."
+
+
+def _log_warning(message: str, *args) -> None:
+    try:
+        current_app.logger.warning(message, *args)
+    except Exception:
+        pass
+
+
+@lru_cache(maxsize=512)
+def _hibp_fetch_range(prefix: str) -> dict[str, int]:
+    """Recupera el mapa de sufijos SHA1 -> número de apariciones desde HIBP."""
+    prefix = (prefix or "").strip().upper()
+    if len(prefix) != 5 or not prefix.isalnum():
+        return {}
+
+    url = f"{HIBP_API_RANGE_URL}{prefix}"
+    request = urllib_request.Request(url, headers={"User-Agent": HIBP_USER_AGENT})
+
+    try:
+        with urllib_request.urlopen(request, timeout=3.0) as response:
+            if getattr(response, "status", 200) >= 400:
+                _log_warning("HIBP devolvió estado inesperado (%s)", getattr(response, "status", "unknown"))
+                return {}
+            payload = response.read().decode("utf-8", errors="ignore")
+    except (urllib_error.URLError, urllib_error.HTTPError) as exc:
+        _log_warning("No se pudo consultar HIBP: %s", exc)
+        return {}
+    except Exception as exc:  # pragma: no cover - ruta defensiva
+        _log_warning("Fallo inesperado consultando HIBP: %s", exc)
+        return {}
+
+    results: dict[str, int] = {}
+    for line in payload.splitlines():
+        if not line or ":" not in line:
+            continue
+        suffix, count = line.split(":", 1)
+        suffix = suffix.strip().upper()
+        if len(suffix) != 35:
+            continue
+        try:
+            results[suffix] = int(count.strip())
+        except ValueError:
+            continue
+    return results
+
+
+def _password_is_compromised(password: str, minimum_count: int) -> bool:
+    if not password:
+        return False
+    digest = hashlib.sha1(password.encode("utf-8")).hexdigest().upper()
+    prefix, suffix = digest[:5], digest[5:]
+    matches = _hibp_fetch_range(prefix)
+    count = matches.get(suffix, 0)
+    return count >= max(1, minimum_count)
 
 
 def _password_strength_error(password: str | None) -> str | None:
@@ -97,11 +158,45 @@ def _password_strength_error(password: str | None) -> str | None:
         return PASSWORD_POLICY_MESSAGE
     if not re.search(r"[^\w\s]", password):
         return PASSWORD_POLICY_MESSAGE
+    if current_app.config.get("HIBP_PASSWORD_CHECK_ENABLED"):
+        threshold = current_app.config.get("HIBP_PASSWORD_MIN_COUNT", 1)
+        try:
+            threshold_value = int(threshold)
+        except (TypeError, ValueError):
+            threshold_value = 1
+        if _password_is_compromised(password, threshold_value):
+            return "Esta contraseña aparece en bases de datos filtradas. Usa una contraseña distinta."
     return None
 
 
 def _normalize_email(value):
     return (value or "").strip().lower()
+
+
+def _resolve_mail_sender():
+    """Devuelve el remitente configurado si existe y tiene un valor utilizable."""
+    sender = current_app.config.get('MAIL_DEFAULT_SENDER')
+
+    if isinstance(sender, str):
+        stripped = sender.strip()
+        if stripped:
+            return stripped
+    elif isinstance(sender, (list, tuple)):
+        cleaned = []
+        for part in sender:
+            if isinstance(part, str):
+                part = part.strip()
+            if part:
+                cleaned.append(part)
+        if cleaned:
+            return tuple(cleaned)
+
+    fallback = current_app.config.get('MAIL_USERNAME')
+    if isinstance(fallback, str):
+        fallback = fallback.strip()
+        if fallback:
+            return fallback
+    return None
 
 
 def _issue_user_token(user, token_type, expires_delta):
@@ -140,11 +235,14 @@ def _validate_contact_submission(name, email, message):
 
 def _send_contact_notification(name, email, message):
     recipient = current_app.config.get('CONTACT_RECIPIENT')
-    sender = current_app.config.get('MAIL_DEFAULT_SENDER') or current_app.config.get('MAIL_USERNAME')
-
-    if not recipient or not sender:
+    if not recipient:
         current_app.logger.info('Contacto recibido sin destinatario configurado: %s <%s>', name, email)
         return None
+
+    sender = _resolve_mail_sender()
+    if not sender:
+        current_app.logger.error('No se pudo reenviar contacto: remitente de correo no configurado.')
+        return MAIL_SENDER_MISSING_ERROR
 
     try:
         msg = Message(
@@ -644,7 +742,7 @@ def _get_role_by_name(name):
 
 def _send_lockout_notification(user, unlock_link):
     """Notifica al usuario que su cuenta quedó bloqueada y cómo desbloquearla."""
-    sender = current_app.config.get('MAIL_DEFAULT_SENDER') or current_app.config.get('MAIL_USERNAME')
+    sender = _resolve_mail_sender()
     if not sender:
         current_app.logger.warning(
             "No se puede enviar notificación de bloqueo: remitente no configurado (%s).",
@@ -677,7 +775,7 @@ def _send_lockout_notification(user, unlock_link):
 
 
 def _send_password_reset_email(user, reset_link):
-    sender = current_app.config.get('MAIL_DEFAULT_SENDER') or current_app.config.get('MAIL_USERNAME')
+    sender = _resolve_mail_sender()
     if not sender:
         current_app.logger.warning(
             "No se puede enviar correo de restablecimiento: remitente no configurado (%s).",
@@ -724,7 +822,7 @@ def _notify_role_request_created(user, role_request):
         )
         return
 
-    sender = current_app.config.get('MAIL_DEFAULT_SENDER') or current_app.config.get('MAIL_USERNAME')
+    sender = _resolve_mail_sender()
     if not sender:
         current_app.logger.warning(
             "No se pudo notificar solicitud de rol: remitente no configurado (usuario: %s).",
@@ -884,10 +982,13 @@ def health_check():
         db_status = "error"
         db_latency_ms = None
 
-    queue_depth = 0
+    queue_depth = None
     mail_ext = getattr(mail, "state", None)
     if mail_ext is not None:
-        queue_depth = int(getattr(mail_ext, "outbox_size", 0) or 0)
+        try:
+            queue_depth = int(getattr(mail_ext, "outbox_size", 0) or 0)
+        except (TypeError, ValueError):
+            queue_depth = None
 
     load_ratio = None
     load_value = None
@@ -935,16 +1036,20 @@ def health_check():
         "system": classify_system(),
     }
 
-    overall = "ok" if db_status == "connected" else "error"
-    if db_status == "connected" and "critical" in indicators.values():
+    indicator_values = list(indicators.values())
+    if db_status != "connected":
+        overall = "error"
+    elif any(value in {"warning", "critical"} for value in indicator_values):
         overall = "degraded"
+    else:
+        overall = "ok"
 
     payload = {
         "status": overall,
         "db_status": db_status,
         "metrics": {
             "db_latency_ms": latency_value,
-            "mail_queue": int(queue_depth),
+            "mail_queue": int(queue_depth) if queue_depth is not None else None,
             "system_load": {
                 "ratio": round(load_ratio, 2) if load_ratio is not None else None,
                 "cores": cpu_count,
@@ -952,6 +1057,7 @@ def health_check():
             },
         },
         "indicators": indicators,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
     }
 
     status_code = 200 if db_status == "connected" else 500
@@ -1039,7 +1145,10 @@ def register_user():
     token_value = secrets.token_urlsafe(32)
     expires = datetime.now(timezone.utc) + timedelta(hours=24)
     verification_link = url_for('api.verify_email', token=token_value, _external=True)
-    sender = current_app.config.get('MAIL_DEFAULT_SENDER') or current_app.config.get('MAIL_USERNAME')
+    sender = _resolve_mail_sender()
+    if not sender:
+        current_app.logger.error("Registro bloqueado: remitente de correo no configurado.")
+        return jsonify(error=MAIL_SENDER_MISSING_ERROR), 503
 
     msg = Message(
         subject="¡Bienvenido a EcuPlot! Verifica tu correo.",
@@ -1178,34 +1287,27 @@ def login_user():
             )
         ).scalar_one_or_none()
 
-        if not unlock_token or (
-            unlock_token.expires_at and unlock_token.expires_at < datetime.now(timezone.utc)
-        ):
+        token_expired = False
+        if unlock_token and unlock_token.expires_at:
+            expires_at = unlock_token.expires_at
+            if expires_at.tzinfo is None:
+                expires_at = expires_at.replace(tzinfo=timezone.utc)
+            else:
+                expires_at = expires_at.astimezone(timezone.utc)
+            token_expired = expires_at < datetime.now(timezone.utc)
+
+        if not unlock_token or token_expired:
             unlock_token = _issue_user_token(user, 'account_unlock', ACCOUNT_UNLOCK_TOKEN_TTL)
             try:
                 db.session.commit()
             except Exception as exc:
                 db.session.rollback()
-        audit_entry = _record_audit(
-            "ops.backup.created",
-            target_entity_type="backup",
-            target_entity_id=metadata.filename,
-            details={
-                "filename": metadata.filename,
-                "path": metadata.path,
-                "engine": metadata.engine,
-            },
-        )
-        if audit_entry:
-            try:
-                db.session.commit()
-            except Exception as exc:
-                db.session.rollback()
-                current_app.logger.warning("No se pudo guardar auditoría de backup: %s", exc)
                 current_app.logger.error("No se pudo refrescar token de desbloqueo: %s", exc)
-            else:
-                unlock_link = url_for('api.unlock_account', token=unlock_token.token, _external=True)
-                _send_lockout_notification(user, unlock_link)
+                return jsonify(error="No se pudo generar un nuevo enlace de desbloqueo."), 500
+
+        if unlock_token:
+            unlock_link = url_for('api.unlock_account', token=unlock_token.token, _external=True)
+            _send_lockout_notification(user, unlock_link)
 
         return jsonify(error="Tu cuenta está bloqueada. Revisa tu correo para desbloquearla."), 423
 
@@ -1299,26 +1401,36 @@ def login_user():
         db.session.add(new_session)
         db.session.flush([new_session])
         session_identifier = getattr(new_session, "session_token", None)
+        session_fingerprint = None
+        if session_identifier and len(session_identifier) >= 8:
+            session_fingerprint = f"{session_identifier[:4]}…{session_identifier[-4:]}"
+        audit_details = {
+            "session_id": session_identifier,
+            "used_backup_code": bool(backup_entry),
+        }
+        if session_fingerprint:
+            audit_details["session_id_hint"] = session_fingerprint
+
         _record_audit(
             "auth.login.succeeded",
             target_entity_type="user",
             target_entity_id=user.id,
-            details={
-                "session_id": session_identifier,
-                "used_backup_code": bool(backup_entry),
-            },
+            details=audit_details,
         )
+        payload = {
+            "ip": request.remote_addr,
+            "user_agent": request.user_agent.string if request.user_agent else None,
+            "created_at": datetime.now(timezone.utc).isoformat(),
+        }
+        if session_fingerprint:
+            payload["session_id_hint"] = session_fingerprint
+
         create_notification(
             user.id,
             category="security",
             title="Nuevo inicio de sesión",
             body=f"Se inició sesión desde {request.remote_addr or 'origen desconocido'}.",
-            payload={
-                "session_token": session_identifier,
-                "ip": request.remote_addr,
-                "user_agent": request.user_agent.string if request.user_agent else None,
-                "created_at": datetime.now(timezone.utc).isoformat(),
-            },
+            payload=payload,
         )
         db.session.commit()
 
@@ -1327,11 +1439,28 @@ def login_user():
         current_app.logger.error(f"Error al crear sesión: {e}")
         return jsonify(error="Error interno al iniciar sesión."), 500
 
-    return jsonify(
+    response = jsonify(
         message=f"Inicio de sesión exitoso para {user.email}",
         session_token=session_token,
-        user_id=user.id
-    ), 200
+        user_id=user.id,
+    )
+
+    max_age = int(timedelta(days=7).total_seconds())
+    runtime_env = (current_app.config.get("APP_ENV") or current_app.config.get("ENV") or "production").lower()
+    secure_default = runtime_env == "production"
+    secure_cookie = bool(current_app.config.get("SESSION_COOKIE_SECURE", secure_default))
+
+    response.set_cookie(
+        "session_token",
+        session_token,
+        max_age=max_age,
+        httponly=True,
+        secure=secure_cookie,
+        samesite="Lax",
+        path="/",
+    )
+    response.headers["Cache-Control"] = "no-store"
+    return response, 200
 
 @api.get("/unlock-account")
 def unlock_account():
@@ -1492,7 +1621,9 @@ def logout_user():
     try:
         db.session.delete(g.current_session)
         db.session.commit()
-        return jsonify(message="Sesión cerrada."), 200
+        response = jsonify(message="Sesión cerrada.")
+        response.delete_cookie("session_token", path="/")
+        return response, 200
     except Exception as e:
         db.session.rollback()
         current_app.logger.error(f"Error al cerrar sesión: {e}")
@@ -1533,12 +1664,96 @@ def get_current_user_details():
     }), 200
 
 
-@api.get("/stream")
+@api.post("/stream/token")
 @require_session
+def issue_stream_token():
+    """Genera un token efímero para consumir el canal SSE."""
+    try:
+        token = _issue_user_token(g.current_user, "sse_stream", SSE_STREAM_TOKEN_TTL)
+        db.session.commit()
+    except Exception as exc:
+        db.session.rollback()
+        current_app.logger.error("No se pudo generar token de stream: %s", exc)
+        return jsonify(error="No se pudo generar el token de streaming."), 500
+
+    expires_at = token.expires_at
+    if expires_at and expires_at.tzinfo is None:
+        expires_at = expires_at.replace(tzinfo=timezone.utc)
+
+    response = jsonify(
+        {
+            "expires_at": expires_at.isoformat() if expires_at else None,
+        }
+    )
+
+    max_age = int(SSE_STREAM_TOKEN_TTL.total_seconds())
+    runtime_env = (current_app.config.get("APP_ENV") or "production").lower()
+    secure_default = runtime_env == "production"
+    secure_cookie = bool(current_app.config.get("SESSION_COOKIE_SECURE", secure_default))
+
+    response.set_cookie(
+        "sse_stream_token",
+        token.token,
+        max_age=max_age,
+        httponly=True,
+        secure=secure_cookie,
+        samesite="Lax",
+        path="/api/stream",
+    )
+    response.headers["Cache-Control"] = "no-store"
+    return response, 201
+
+
+@api.get("/stream")
 def user_event_stream():
-    """Canal SSE para eventos del usuario autenticado."""
-    user_id = g.current_user.id
-    subscription = event_bus.subscribe(user_id)
+    """Canal SSE protegido con token efímero."""
+    token_value = (request.cookies.get("sse_stream_token") or "").strip()
+    legacy_param = request.args.get("stream_token")
+    if legacy_param and not token_value:
+        current_app.logger.warning("Intento de acceso SSE con token en querystring bloqueado.")
+    if not token_value:
+        return jsonify(error="Token de stream faltante."), 401
+
+    token_obj = db.session.execute(
+        db.select(UserTokens).where(
+            UserTokens.token == token_value,
+            UserTokens.token_type == "sse_stream",
+            UserTokens.used_at.is_(None),
+        )
+    ).scalar_one_or_none()
+
+    if not token_obj:
+        return jsonify(error="Token de stream inválido."), 401
+
+    expires_at = token_obj.expires_at
+    if expires_at:
+        if expires_at.tzinfo is None:
+            expires_at = expires_at.replace(tzinfo=timezone.utc)
+        if expires_at <= datetime.now(timezone.utc):
+            return jsonify(error="Token de stream expirado."), 401
+
+    user = token_obj.user
+    if user is None and token_obj.user_id:
+        user = db.session.get(Users, token_obj.user_id)
+    if user is None:
+        return jsonify(error="Token de stream sin usuario asociado."), 401
+
+    g.current_user = user
+
+    token_obj.used_at = datetime.now(timezone.utc)
+    try:
+        db.session.commit()
+    except Exception as exc:
+        db.session.rollback()
+        current_app.logger.error("No se pudo marcar token de stream como usado: %s", exc)
+        return jsonify(error="No se pudo habilitar el canal de eventos."), 500
+
+    user_id = user.id
+    try:
+        subscription = event_bus.subscribe(user_id)
+    except RuntimeError:
+        current_app.logger.warning("Usuario %s excedió el límite de conexiones SSE", user_id)
+        return jsonify(error="Límite de conexiones SSE alcanzado."), 429
 
     def _iterator():
         try:
@@ -1549,6 +1764,10 @@ def user_event_stream():
                 except queue.Empty:
                     yield "event: keepalive\ndata: {}\n\n"
                     continue
+                if payload is None:
+                    break
+                if isinstance(payload, dict) and payload.get("type") == "disconnect":
+                    break
                 yield event_bus.format_sse(payload)
         finally:
             event_bus.unsubscribe(user_id, subscription)
@@ -2901,6 +3120,10 @@ def get_my_role_request_status():
 @api.get("/development/role-requests")
 @require_session
 def development_list_role_requests():
+    env_guard = _development_endpoint_guard()
+    if env_guard:
+        return env_guard
+
     guard = _require_roles({'development'})
     if guard:
         return guard
@@ -3137,9 +3360,20 @@ def _count_active_role_members(role_id):
     return db.session.execute(stmt).scalar_one()
 
 
+def _development_endpoint_guard():
+    runtime_env = (current_app.config.get("APP_ENV") or "production").lower()
+    if runtime_env == "production":
+        return "", 404
+    return None
+
+
 @api.post("/development/users/assign-admin")
 @require_session
 def development_assign_admin():
+    env_guard = _development_endpoint_guard()
+    if env_guard:
+        return env_guard
+
     guard = _require_roles({'development'})
     if guard:
         return guard
@@ -3210,6 +3444,10 @@ def development_assign_admin():
 @api.get("/development/admins")
 @require_session
 def development_list_admins():
+    env_guard = _development_endpoint_guard()
+    if env_guard:
+        return env_guard
+
     guard = _require_roles({'development'})
     if guard:
         return guard
@@ -3258,6 +3496,10 @@ def development_list_admins():
 @api.delete("/development/users/<user_identifier>/roles/admin")
 @require_session
 def development_remove_admin(user_identifier):
+    env_guard = _development_endpoint_guard()
+    if env_guard:
+        return env_guard
+
     guard = _require_roles({'development'})
     if guard:
         return guard
@@ -3320,6 +3562,10 @@ def development_remove_admin(user_identifier):
 @api.post("/development/role-requests/<uuid:request_id>/resolve")
 @require_session
 def development_resolve_request(request_id):
+    env_guard = _development_endpoint_guard()
+    if env_guard:
+        return env_guard
+
     guard = _require_roles({'development'})
     if guard:
         return guard
@@ -3381,6 +3627,10 @@ def development_resolve_request(request_id):
 @api.post("/development/backups/run")
 @require_session
 def development_backup():
+    env_guard = _development_endpoint_guard()
+    if env_guard:
+        return env_guard
+
     guard = _require_roles({'development'})
     if guard:
         return guard
@@ -3406,6 +3656,10 @@ def development_backup():
 @api.post("/development/backups/restore")
 @require_session
 def development_restore():
+    env_guard = _development_endpoint_guard()
+    if env_guard:
+        return env_guard
+
     guard = _require_roles({'development'})
     if guard:
         return guard

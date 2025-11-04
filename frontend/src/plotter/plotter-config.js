@@ -37,11 +37,6 @@ export const UI_SELECTORS = {
 };
 
 /**
- * Key used to retrieve the session token.
- */
-export { SESSION_KEY } from '../lib/session.js';
-
-/**
  * Colors used when new expressions are added.
  */
 export const EXPRESSION_COLORS = [

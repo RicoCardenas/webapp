@@ -13,6 +13,10 @@ Este repositorio parte desde cero con una separación sencilla entre backend (Fl
    ```bash
    pip install -r backend/requirements.txt
    ```
+   > Consejo: si necesitas actualizar versiones, modifica `backend/requirements.in`
+   > y regenera el archivo bloqueado con `pip-compile backend/requirements.in --output-file backend/requirements.txt`.
+   > Ejecuta ese comando con la misma versión de Python (3.14 en este proyecto) para asegurar compatibilidad.
+   > Nota: el paquete opcional `greenlet` se excluyó hasta que tenga soporte oficial para Python 3.14.
 3. Ejecutar el servidor backend:
    ```bash
    cd backend
@@ -30,10 +34,18 @@ El arranque se guía por `APP_ENV` (`production`, `development` o `test`). Si no
 cp .env.example .env
 ```
 
-| Entorno (`APP_ENV`) | Comportamiento                                                                              |
-|---------------------|---------------------------------------------------------------------------------------------|
-| `production`        | Requiere `DATABASE_URL` válido. Si falta, la app aborta con un mensaje explícito.           |
-| `development`       | Sin `DATABASE_URL`, se crea/usa automáticamente `instance/dev.db` (SQLite).                 |
-| `test`              | Sin `DATABASE_URL`, se emplea `sqlite:///:memory:` para aislar la suite de pruebas.         |
+| Entorno (`APP_ENV`) | Comportamiento                                                                      |
+| ------------------- | ----------------------------------------------------------------------------------- |
+| `production`        | Requiere `DATABASE_URL` válido. Si falta, la app aborta con un mensaje explícito.   |
+| `development`       | Sin `DATABASE_URL`, se crea/usa automáticamente `instance/dev.db` (SQLite).         |
+| `test`              | Sin `DATABASE_URL`, se emplea `sqlite:///:memory:` para aislar la suite de pruebas. |
+
+> Importante: en `APP_ENV=production` debes definir `SECRET_KEY` con un valor fuerte (32+ caracteres aleatorios). La aplicación aborta el arranque si detecta la clave por defecto `dev-secret-key`.
+>
+> Además, define `CORS_ORIGINS` con la lista de dominios permitidos (ej. `https://app.example.com,https://admin.example.com`). Si falta en producción, el backend no iniciará. Solo activa `CORS_SUPPORTS_CREDENTIALS=true` cuando realmente necesites enviar cookies o cabeceras de autenticación implícita.
+>
+> Por seguridad, la sesión autenticada ahora se entrega mediante una cookie `session_token` con flags `HttpOnly` y `SameSite=Lax`. No almacenes el token en `localStorage` ni en el frontend.
+>
+> Limita el número de conexiones SSE simultáneas por usuario con `SSE_MAX_CONNECTIONS_PER_USER` (predeterminado `3`) para evitar abusos.
 
 La carpeta `instance/` se crea automáticamente (y ya está listada en `.gitignore`) para alojar la base SQLite de desarrollo.

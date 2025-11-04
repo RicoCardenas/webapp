@@ -45,14 +45,20 @@ export function createPlotterRenderer(params) {
     exprId: '',
   };
 
-  const resizeObserver = new ResizeObserver(
-    debounce(() => {
-      fixDpi();
-      enforceSquareAspect();
-      requestRender();
-    }, 50)
-  );
-  resizeObserver.observe(container);
+  const supportsResizeObserver = typeof window !== 'undefined' && typeof window.ResizeObserver === 'function';
+  const resizeObserver = supportsResizeObserver
+    ? new ResizeObserver(
+        debounce(() => {
+          fixDpi();
+          enforceSquareAspect();
+          requestRender();
+        }, 50)
+      )
+    : null;
+
+  if (resizeObserver) {
+    resizeObserver.observe(container);
+  }
 
   const handleWindowResize = debounce(() => {
     fixDpi();
@@ -540,7 +546,7 @@ export function createPlotterRenderer(params) {
     exitFullscreen,
     getCanvas: () => canvas,
     destroy() {
-      resizeObserver.disconnect();
+  resizeObserver?.disconnect();
       canvas.removeEventListener('wheel', handleWheel);
       canvas.removeEventListener('mousedown', handleMouseDown);
       canvas.removeEventListener('mousemove', handleCanvasMove);

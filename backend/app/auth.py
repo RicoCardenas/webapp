@@ -45,7 +45,7 @@ def require_session(fn):
         if not token:
             token = request.headers.get('X-Session-Token')
         if not token:
-            token = request.args.get('token')
+            token = (request.cookies.get('session_token') or '').strip()
 
         if not token:
             return jsonify(error="Token de sesión faltante."), 401

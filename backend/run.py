@@ -109,5 +109,8 @@ def make_shell_context():
 
 
 if __name__ == "__main__":
-    app.run(debug=True)
+    debug_flag = app.config.get("DEBUG")
+    if debug_flag is None:
+        debug_flag = app.config.get("APP_ENV") == "development"
+    app.run(debug=bool(debug_flag))
     

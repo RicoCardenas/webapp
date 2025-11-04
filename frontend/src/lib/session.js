@@ -1,31 +1,41 @@
-export const SESSION_KEY = 'ecuplot_session_token';
+const LEGACY_SESSION_KEY = 'ecuplot_session_token';
+const SESSION_FLAG_KEY = 'ecuplot_session_active';
 
-export function getSessionToken() {
+function purgeLegacyStorage() {
   try {
-    return localStorage.getItem(SESSION_KEY) || '';
+    localStorage.removeItem(LEGACY_SESSION_KEY);
   } catch {
-    return '';
+    /* noop */
   }
 }
 
-export function setSessionToken(token) {
+export function getSessionToken() {
+  purgeLegacyStorage();
+  return '';
+}
+
+export function setSessionToken() {
+  purgeLegacyStorage();
   try {
-    if (token) {
-      localStorage.setItem(SESSION_KEY, token);
-    }
+    sessionStorage.setItem(SESSION_FLAG_KEY, '1');
   } catch (error) {
-    console.warn('No se pudo guardar el token de sesión', error);
+    console.warn('No se pudo marcar la sesión como activa', error);
   }
 }
 
 export function clearSessionToken() {
+  purgeLegacyStorage();
   try {
-    localStorage.removeItem(SESSION_KEY);
+    sessionStorage.removeItem(SESSION_FLAG_KEY);
   } catch (error) {
-    console.warn('No se pudo eliminar el token de sesión', error);
+    console.warn('No se pudo limpiar el indicador de sesión', error);
   }
 }
 
 export function hasSessionToken() {
-  return Boolean(getSessionToken());
+  try {
+    return sessionStorage.getItem(SESSION_FLAG_KEY) === '1';
+  } catch {
+    return false;
+  }
 }

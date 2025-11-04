@@ -7,7 +7,7 @@ import {
 } from './lib/dom.js';
 import { on, off, debounce } from './lib/events.js';
 import { contactValidators, authValidators, validate } from './lib/validators.js';
-import { getSessionToken, setSessionToken, clearSessionToken } from './lib/session.js';
+import { setSessionToken, clearSessionToken, hasSessionToken } from './lib/session.js';
 import { initThemeSync, setThemePreference, getThemePreference } from './lib/theme.js';
 import { createEventStream } from './lib/event-stream.js';
 
@@ -264,6 +264,7 @@ function setCurrentUser(user, { emit = true } = {}) {
     else sessionStorage.removeItem(USER_STATE_KEY);
   } catch {}
   if (user) maybeShowTwoFactorReminder(user);
+  BackendStatus.update?.(userState.current);
   if (emit) {
     window.dispatchEvent(new CustomEvent('ecuplot:user', { detail: userState.current }));
   }
@@ -274,22 +275,26 @@ function getCurrentUser() {
 }
 
 async function refreshCurrentUser() {
-  if (!getSessionToken()) {
-    setCurrentUser(null);
-    return { user: null, status: 401 };
-  }
-
   try {
     const res = await authFetch('/api/user/me');
     const status = res.status;
     if (!res.ok) {
+      clearSessionToken();
+      setAuthUI(false);
+      eventStream.disconnect();
       setCurrentUser(null);
       return { user: null, status };
     }
     const data = await res.json();
+    setSessionToken();
+    setAuthUI(true);
+    eventStream.ensure();
     setCurrentUser(data);
     return { user: data, status };
   } catch (error) {
+    clearSessionToken();
+    setAuthUI(false);
+    eventStream.disconnect();
     setCurrentUser(null);
     return { user: null, status: 500, error };
   }
@@ -308,13 +313,17 @@ const CLASSNAMES = {
   hasModal: 'has-modal',
   statusLoading: 'status--loading',
   statusOk: 'status--ok',
+  statusDegraded: 'status--degraded',
   statusError: 'status--error',
+  statusUnknown: 'status--unknown',
 };
 
 const STATUS_CLASSES = [
   CLASSNAMES.statusLoading,
   CLASSNAMES.statusOk,
+  CLASSNAMES.statusDegraded,
   CLASSNAMES.statusError,
+  CLASSNAMES.statusUnknown,
 ];
 
 /** Focus trap / Scroll lock */
@@ -938,49 +947,245 @@ function initScrollSpy() {
   map.forEach((_, sec) => obs.observe(sec));
 }
 
-/** Estado backend: solo si hay [data-status] en la página */
-function setStatus(element, modifierClass, message) {
-  if (!element) return;
-  element.textContent = message;
-  STATUS_CLASSES.forEach((n) => element.classList.remove(n));
-  if (modifierClass) element.classList.add(modifierClass);
+function ensureStatusSlots(element) {
+  if (!element) return { label: null, badges: null };
+  let label = element.querySelector('[data-status-label]');
+  if (!label) {
+    label = document.createElement('span');
+    label.dataset.statusLabel = 'true';
+    label.className = 'status__label';
+    element.appendChild(label);
+  }
+  let badges = element.querySelector('[data-status-badges]');
+  if (!badges) {
+    badges = document.createElement('span');
+    badges.dataset.statusBadges = 'true';
+    badges.className = 'status__badges';
+    badges.hidden = true;
+    element.appendChild(badges);
+  }
+  return { label, badges };
 }
 
-const BackendStatus = (() => {
-  const statusEl = qs('[data-status]'); // si no hay, no hace nada
-  if (!statusEl) return { check: () => {} };
+/** Estado backend: solo si hay [data-status] en la página */
+function setStatus(element, modifierClass, message, badges = []) {
+  if (!element) return;
+  const { label, badges: badgesContainer } = ensureStatusSlots(element);
 
-  setStatus(statusEl, CLASSNAMES.statusLoading, 'Verificando estado del backend…');
-  setAria(statusEl, { live: 'polite' });
-  statusEl.setAttribute('role', 'status');
+  if (label) label.textContent = message;
+  else element.textContent = message;
 
-  async function check(attempt = 1) {
-    try {
-      const res = await safeFetch('/api/health', {}, 3000);
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  STATUS_CLASSES.forEach((n) => element.classList.remove(n));
+  if (modifierClass) element.classList.add(modifierClass);
 
-      let message = 'Backend operativo';
-      try {
-        const payload = await res.json();
-        const label = payload?.status ?? 'desconocido';
-        message = `Estado del backend: ${label}`;
-      } catch {}
-
-      setStatus(statusEl, CLASSNAMES.statusOk, message);
-      return true;
-    } catch (err) {
-      if (attempt < 3) {
-        const backoff = Math.min(4000, Math.floor(1500 * Math.pow(1.5, attempt)));
-        await new Promise((r) => setTimeout(r, backoff));
-        return check(attempt + 1);
-      }
-      console.error('No se pudo verificar el backend', err);
-      setStatus(statusEl, CLASSNAMES.statusError, 'Estado del backend: error al conectar');
-      return false;
+  if (badgesContainer) {
+    badgesContainer.replaceChildren();
+    if (Array.isArray(badges) && badges.length) {
+      badges.forEach((badgeData) => {
+        const badgeLabel = badgeData?.label;
+        if (!badgeLabel) return;
+        const badge = document.createElement('span');
+        const variant = badgeData?.variant ? ` status-badge--${badgeData.variant}` : '';
+        badge.className = `status-badge${variant}`;
+        badge.textContent = badgeLabel;
+        badgesContainer.appendChild(badge);
+      });
+      badgesContainer.hidden = false;
+    } else {
+      badgesContainer.hidden = true;
     }
   }
 
-  return { check };
+  if (modifierClass) {
+    element.dataset.statusLevel = modifierClass.replace('status--', '');
+  } else {
+    delete element.dataset.statusLevel;
+  }
+}
+
+const BackendStatus = (() => {
+  const statusEl = qs('[data-status]');
+  if (!statusEl) {
+    return {
+      check: () => false,
+      enable: () => {},
+      disable: () => {},
+      update: () => {},
+    };
+  }
+
+  let timerId = null;
+  let enabled = false;
+  let ariaPrepared = false;
+
+  function clearTimer() {
+    if (timerId) {
+      window.clearTimeout(timerId);
+      timerId = null;
+    }
+  }
+
+  function setVisible(flag) {
+    statusEl.hidden = !flag;
+    statusEl.setAttribute('aria-hidden', flag ? 'false' : 'true');
+  }
+
+  setVisible(false);
+
+  const INDICATOR_LABELS = {
+    database: 'Base de datos',
+    mail: 'Cola de correo',
+    system: 'Carga del sistema',
+  };
+
+  function normalizeStatus(value) {
+    return String(value || 'unknown').toLowerCase();
+  }
+
+  function resolveVariant(status) {
+    const normalized = normalizeStatus(status);
+    if (normalized === 'ok') return CLASSNAMES.statusOk;
+    if (normalized === 'degraded') return CLASSNAMES.statusDegraded;
+    if (normalized === 'error') return CLASSNAMES.statusError;
+    return CLASSNAMES.statusUnknown;
+  }
+
+  function badgeVariant(status) {
+    if (status === 'critical' || status === 'error') return 'critical';
+    if (status === 'warning') return 'warning';
+    return 'unknown';
+  }
+
+  function buildBadges(indicators) {
+    if (!indicators || typeof indicators !== 'object') return [];
+    return Object.entries(indicators)
+      .map(([key, status]) => {
+        const normalized = normalizeStatus(status);
+        return {
+          key,
+          label: INDICATOR_LABELS[key] || key,
+          variant: badgeVariant(normalized),
+          status: normalized,
+        };
+      })
+      .filter((item) => item.status !== 'ok');
+  }
+
+  function buildMessage(status, badges) {
+    const normalized = normalizeStatus(status);
+    if (normalized === 'ok') return 'Backend operativo';
+    if (normalized === 'degraded') {
+      if (Array.isArray(badges) && badges.length) {
+        const summary = badges.map((badge) => badge.label).join(', ');
+        return `Backend degradado (${summary})`;
+      }
+      return 'Backend degradado';
+    }
+    if (normalized === 'error') return 'Backend con incidencias';
+    return 'Estado del backend desconocido';
+  }
+
+  function scheduleNext(delayMs) {
+    if (!enabled) return;
+    clearTimer();
+    timerId = window.setTimeout(() => {
+      check();
+    }, delayMs);
+  }
+
+  async function check() {
+    if (!enabled) return false;
+    clearTimer();
+
+    let lastStatus = 'unknown';
+
+    for (let attempt = 1; attempt <= 3; attempt += 1) {
+      if (!enabled) return false;
+      try {
+        const res = await safeFetch('/api/health', {}, 3000);
+        let payload = null;
+        try {
+          payload = await res.json();
+        } catch {}
+
+        const status = normalizeStatus(payload?.status ?? (res.ok ? 'unknown' : 'error'));
+        const badges = buildBadges(payload?.indicators);
+
+        if (!res.ok) {
+          const message = payload?.status
+            ? buildMessage(status, badges)
+            : `Backend con incidencias (HTTP ${res.status})`;
+          if (enabled) setStatus(statusEl, resolveVariant(status), message, badges);
+          lastStatus = status;
+          break;
+        }
+
+        const message = buildMessage(status, badges);
+        if (enabled) setStatus(statusEl, resolveVariant(status), message, badges);
+        lastStatus = status;
+        break;
+      } catch (err) {
+        if (attempt === 3) {
+          console.error('No se pudo verificar el backend', err);
+          if (enabled) setStatus(statusEl, CLASSNAMES.statusError, 'Estado del backend: error al conectar');
+          lastStatus = 'error';
+          break;
+        }
+        const backoff = Math.min(4000, Math.floor(1500 * Math.pow(1.5, attempt)));
+        await new Promise((resolve) => setTimeout(resolve, backoff));
+      }
+    }
+
+    if (!enabled) return false;
+
+    const delay = lastStatus === 'ok' ? 60000 : 30000;
+    scheduleNext(delay);
+    return lastStatus === 'ok';
+  }
+
+  function enable() {
+    if (enabled) return check();
+    enabled = true;
+    if (!ariaPrepared) {
+      setAria(statusEl, { live: 'polite' });
+      statusEl.setAttribute('role', 'status');
+      ariaPrepared = true;
+    }
+    STATUS_CLASSES.forEach((cls) => statusEl.classList.remove(cls));
+    delete statusEl.dataset.statusLevel;
+    setVisible(true);
+    setStatus(statusEl, CLASSNAMES.statusLoading, 'Verificando estado del backend…');
+    return check();
+  }
+
+  function disable() {
+    if (!enabled && statusEl.hidden === true) return;
+    enabled = false;
+    clearTimer();
+    STATUS_CLASSES.forEach((cls) => statusEl.classList.remove(cls));
+    delete statusEl.dataset.statusLevel;
+    setVisible(false);
+  }
+
+  function collectRoles(user) {
+    const roles = new Set();
+    if (!user) return roles;
+    if (user.role) roles.add(String(user.role).toLowerCase());
+    if (Array.isArray(user.roles)) {
+      user.roles.forEach((role) => {
+        if (role) roles.add(String(role).toLowerCase());
+      });
+    }
+    return roles;
+  }
+
+  function update(user) {
+    const roles = collectRoles(user);
+    if (roles.has('development')) enable();
+    else disable();
+  }
+
+  return { check, enable, disable, update };
 })();
 
 // notificaciones/toasts
@@ -1446,11 +1651,17 @@ function buildHeaderButtonMarkup(config, options = {}) {
  * @returns {Promise<Response>}
  */
 async function authFetch(url, options = {}) {
-  const token = getSessionToken();
   const headers = new Headers(options.headers || {});
-  if (token) headers.set('Authorization', `Bearer ${token}`);
-  if (!headers.has('Content-Type')) headers.set('Content-Type', 'application/json');
-  return fetch(url, { ...options, headers });
+  const hasBody = options.body !== undefined && !(options.body instanceof FormData);
+  if (hasBody && !headers.has('Content-Type')) {
+    headers.set('Content-Type', 'application/json');
+  }
+  const fetchOptions = {
+    credentials: options.credentials ?? 'same-origin',
+    ...options,
+    headers,
+  };
+  return fetch(url, fetchOptions);
 }
 
 function ensureAccountButton() {
@@ -1497,19 +1708,24 @@ function setAuthUI(isLogged) {
 }
 
 function restoreSessionAuth() {
-  const hasToken = !!getSessionToken();
-  setAuthUI(hasToken);
-  if (hasToken) {
+  const isActive = hasSessionToken();
+  setAuthUI(isActive);
+  if (isActive) {
     eventStream.ensure();
     const cached = loadStoredUser();
     if (cached) {
+      BackendStatus.update?.(cached);
       window.dispatchEvent(new CustomEvent('ecuplot:user', { detail: cached }));
+    } else {
+      BackendStatus.update?.(null);
     }
-    refreshCurrentUser();
   } else {
     eventStream.disconnect();
+    BackendStatus.update?.(null);
     setCurrentUser(null);
   }
+
+  refreshCurrentUser();
 }
 
 function initAuthForms() {
@@ -1722,7 +1938,7 @@ function initAuthForms() {
         const data = await res.json();
         if (res.ok) {
           toast.success(data.message || '¡Bienvenido de nuevo!');
-          if (data.session_token) setSessionToken(data.session_token);
+          setSessionToken();
           eventStream.ensure();
           setAuthUI(true);
           await refreshCurrentUser();
@@ -1899,7 +2115,6 @@ function init() {
   initScrollSpy();
   initLearnAnchors();
   initLearnCarousel();
-  BackendStatus.check();
   initContactForm();
   setCurrentYear();
   bindGlobalTriggers();
