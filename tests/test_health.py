@@ -2,7 +2,7 @@ from types import SimpleNamespace
 
 
 def _patch_loadavg(monkeypatch, value=(0.1, 0.1, 0.1)):
-    monkeypatch.setattr('backend.app.routes.os.getloadavg', lambda: value)
+    monkeypatch.setattr('backend.app.routes.health.os.getloadavg', lambda: value)
 
 
 def test_health_ok(client, monkeypatch):
@@ -32,7 +32,7 @@ def test_health_ok(client, monkeypatch):
 def test_health_degraded_by_mail_queue(client, monkeypatch):
     _patch_loadavg(monkeypatch)
     monkeypatch.setattr(
-        'backend.app.routes.mail',
+        'backend.app.routes.health.mail',
         SimpleNamespace(state=SimpleNamespace(outbox_size=3)),
     )
 
@@ -51,7 +51,7 @@ def test_health_db_failure_returns_error(client, monkeypatch):
     def fail_execute(*args, **kwargs):
         raise RuntimeError("db down")
 
-    monkeypatch.setattr('backend.app.routes.db.session.execute', fail_execute)
+    monkeypatch.setattr('backend.app.routes.health.db.session.execute', fail_execute)
 
     res = client.get("/api/health")
     assert res.status_code == 500

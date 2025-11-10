@@ -1,7 +1,6 @@
 import pytest
 
-from backend.app.event_stream import EventBroker
-from backend.app.routes import event_bus
+from backend.app.event_stream import EventBroker, events as event_bus
 
 def test_stream_token_flow(client, session_token_factory):
     session_token, _ = session_token_factory()

@@ -74,8 +74,11 @@ from urllib.parse import quote
 import qrcode
 
 from .backup import BackupError, RestoreError, run_backup, restore_backup, list_backups
-
 from .auth import require_session
+from .services.passwords import password_strength_error as _svc_password_strength_error
+from .services.validate import normalize_email as _svc_normalize_email
+from .services.mail import resolve_mail_sender as _svc_resolve_mail_sender
+from .services.tokens import issue_user_token as _svc_issue_user_token
 
 # --- Blueprints ---
 api = Blueprint("api", __name__)
@@ -150,80 +153,23 @@ def _password_is_compromised(password: str, minimum_count: int) -> bool:
 
 
 def _password_strength_error(password: str | None) -> str | None:
-    if not password:
-        return PASSWORD_POLICY_MESSAGE
-    if len(password) < 8:
-        return PASSWORD_POLICY_MESSAGE
-    if not re.search(r"[A-Z]", password):
-        return PASSWORD_POLICY_MESSAGE
-    if not re.search(r"[a-z]", password):
-        return PASSWORD_POLICY_MESSAGE
-    if not re.search(r"\d", password):
-        return PASSWORD_POLICY_MESSAGE
-    if not re.search(r"[^\w\s]", password):
-        return PASSWORD_POLICY_MESSAGE
-    if current_app.config.get("HIBP_PASSWORD_CHECK_ENABLED"):
-        threshold = current_app.config.get("HIBP_PASSWORD_MIN_COUNT", 1)
-        try:
-            threshold_value = int(threshold)
-        except (TypeError, ValueError):
-            threshold_value = 1
-        if _password_is_compromised(password, threshold_value):
-            return "Esta contraseña aparece en bases de datos filtradas. Usa una contraseña distinta."
-    return None
+    """Wrapper para el servicio de validación de contraseñas."""
+    return _svc_password_strength_error(password)
 
 
 def _normalize_email(value):
-    return (value or "").strip().lower()
+    """Wrapper para el servicio de normalización de emails."""
+    return _svc_normalize_email(value)
 
 
 def _resolve_mail_sender():
-    """Devuelve el remitente configurado si existe y tiene un valor utilizable."""
-    sender = current_app.config.get('MAIL_DEFAULT_SENDER')
-
-    if isinstance(sender, str):
-        stripped = sender.strip()
-        if stripped:
-            return stripped
-    elif isinstance(sender, (list, tuple)):
-        cleaned = []
-        for part in sender:
-            if isinstance(part, str):
-                part = part.strip()
-            if part:
-                cleaned.append(part)
-        if cleaned:
-            return tuple(cleaned)
-
-    fallback = current_app.config.get('MAIL_USERNAME')
-    if isinstance(fallback, str):
-        fallback = fallback.strip()
-        if fallback:
-            return fallback
-    return None
+    """Wrapper para el servicio de resolución de remitente de correo."""
+    return _svc_resolve_mail_sender()
 
 
 def _issue_user_token(user, token_type, expires_delta):
-    """Crea un token único para el usuario, reemplazando los anteriores del mismo tipo."""
-    token_value = secrets.token_urlsafe(48)
-    expiry = datetime.now(timezone.utc) + expires_delta
-
-    db.session.execute(
-        delete(UserTokens).where(
-            UserTokens.user_id == user.id,
-            UserTokens.token_type == token_type,
-            UserTokens.used_at.is_(None),
-        )
-    )
-
-    token = UserTokens(
-        user=user,
-        token=token_value,
-        token_type=token_type,
-        expires_at=expiry,
-    )
-    db.session.add(token)
-    return token
+    """Wrapper para el servicio de emisión de tokens."""
+    return _svc_issue_user_token(user, token_type, expires_delta)
 
 
 def _validate_contact_submission(name, email, message):
@@ -238,28 +184,9 @@ def _validate_contact_submission(name, email, message):
 
 
 def _send_contact_notification(name, email, message):
-    recipient = current_app.config.get('CONTACT_RECIPIENT')
-    if not recipient:
-        current_app.logger.info('Contacto recibido sin destinatario configurado: %s <%s>', name, email)
-        return None
-
-    sender = _resolve_mail_sender()
-    if not sender:
-        current_app.logger.error('No se pudo reenviar contacto: remitente de correo no configurado.')
-        return MAIL_SENDER_MISSING_ERROR
-
-    try:
-        msg = Message(
-            subject='Nuevo contacto de EcuPlot',
-            sender=sender,
-            recipients=[recipient],
-            body=f"Nombre: {name}\nEmail: {email}\n\n{message}",
-        )
-        mail.send(msg)
-    except Exception as exc:
-        current_app.logger.error('No se pudo reenviar el contacto: %s', exc)
-        return 'No se pudo enviar el mensaje en este momento.'
-    return None
+    """Wrapper para el servicio de envío de notificaciones de contacto."""
+    from .services.mail import send_contact_notification
+    return send_contact_notification(name, email, message, mail)
 
 
 DEFAULT_HISTORY_PAGE_SIZE = 20

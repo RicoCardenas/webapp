@@ -58,6 +58,7 @@ def create_app(config_object=Config) -> Flask:
     with app.app_context():
         from . import models
 
+    # Importar blueprints desde el paquete routes modular
     from .routes import api as api_blueprint
     from .routes import frontend as frontend_blueprint
 
