@@ -1,4 +1,4 @@
-# ECU Plot reiniciado
+# EcuPlotWeb
 
 Este repositorio parte desde cero con una separación sencilla entre backend (Flask) y frontend (JavaScript vanilla).
 

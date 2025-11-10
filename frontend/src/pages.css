@@ -968,6 +968,18 @@
   background: color-mix(in srgb, var(--card, var(--color-panel)) 96%, transparent);
 }
 
+.admin-panel__card-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem 1rem;
+}
+
+.admin-panel__card-head .account-card__hint {
+  margin-top: 0.35rem;
+}
+
 .admin-panel__card .role-panel__list {
   margin: 0;
 }
@@ -978,6 +990,20 @@
 
 .admin-panel__groups {
   margin-top: 0.25rem;
+}
+
+.form__feedback {
+  margin-top: 0.75rem;
+  font-size: var(--fs-xs);
+  color: var(--color-text-muted);
+}
+
+.form__feedback[data-state="error"] {
+  color: var(--color-danger);
+}
+
+.form__feedback[data-state="loading"] {
+  color: var(--color-primary);
 }
 
 .account-card__hint {
@@ -1602,6 +1628,40 @@
   letter-spacing: 0.02em;
 }
 
+.history-formula {
+  flex-basis: 100%;
+  display: block;
+  margin: 0;
+  padding: 0.35rem 0.55rem;
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--card, var(--color-panel)) 88%, transparent);
+  border: 1px solid color-mix(in srgb, var(--border, var(--color-border)) 75%, transparent);
+  font-family: 'Courier New', monospace;
+  font-size: 0.85rem;
+  color: var(--color-text-muted);
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.history-item__variables {
+  display: grid;
+  gap: 0.25rem 0.75rem;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  margin: 0;
+  font-size: 0.85rem;
+  color: var(--color-text-muted);
+}
+
+.history-item__variables dt {
+  font-weight: 600;
+}
+
+.history-item__variables dd {
+  margin: 0;
+}
+
 .history-badge {
   padding: 0.2rem 0.6rem;
   border-radius: var(--radius-pill);
@@ -2000,6 +2060,13 @@ body.account--guest {
 
 .plotter-canvas {
   background: transparent;
+  touch-action: none;
+  -ms-touch-action: none;
+  cursor: default;
+}
+
+.plotter-canvas:active {
+  cursor: grabbing;
 }
 
 .coord-hud {
@@ -2139,7 +2206,7 @@ body.account--guest {
   flex-wrap: wrap;
   justify-content: flex-end;
   gap: 0.5rem;
-  z-index: var(--z-stage-ui);
+  z-index: var(--z-stage-overlay);
 }
 
 .learning-panel {
@@ -2326,7 +2393,7 @@ body.account--guest {
 .controls-bar {
   position: absolute;
   left: 50%;
-  bottom: clamp(1.2rem, 3vw, 2.4rem);
+  bottom: max(clamp(1.2rem, 3vw, 2.4rem), calc(env(safe-area-inset-bottom, 0px) + 0.75rem));
   transform: translateX(-50%);
   width: min(92vw, 760px);
   background: color-mix(in srgb, var(--color-surface) 96%, transparent);
@@ -2484,8 +2551,8 @@ body.account--guest {
 
 .controls-bar__fab {
   position: absolute;
-  right: clamp(1rem, 4vw, 2.6rem);
-  bottom: clamp(1.2rem, 3vw, 2.4rem);
+  left: clamp(1rem, 4vw, 2.6rem);
+  bottom: calc(clamp(1.2rem, 3vw, 2.4rem) + env(safe-area-inset-bottom, 0px));
   width: 2.9rem;
   height: 2.9rem;
   border-radius: 999px;
@@ -2587,8 +2654,29 @@ body.account--guest {
   }
 
   .graph-floating-actions {
-    top: auto;
-    bottom: var(--space-4);
+    position: fixed;
+    top: calc(var(--graph-header-h) + 0.5rem);
+    bottom: auto;
+    right: auto;
+    left: clamp(0.5rem, 2vw, 0.75rem);
+    transform: none;
+    padding-left: calc(env(safe-area-inset-left, 0px) + 0.25rem);
+    padding-top: calc(env(safe-area-inset-top, 0px) + 0.25rem);
+    flex-direction: column;
+    justify-content: flex-start;
+    align-items: flex-start;
+    max-width: min(50vw, 160px);
+    gap: 0.45rem;
+  }
+  
+  .graph-floating-actions .btn {
+    font-size: 0.75rem;
+    padding: 0.5rem 0.7rem;
+    white-space: nowrap;
+    text-align: left;
+    border-radius: var(--radius-sm);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+    width: 100%;
   }
 
   .learning-panel {
@@ -2598,6 +2686,11 @@ body.account--guest {
     bottom: clamp(4.5rem, 14vw, 7rem);
     width: auto;
     max-height: 60vh;
+  }
+
+  .controls-bar {
+    bottom: max(clamp(5.5rem, 18vw, 8rem), calc(env(safe-area-inset-bottom, 0px) + 5rem));
+    width: min(96vw, 520px);
   }
 }
 
@@ -2667,6 +2760,7 @@ body.account--guest {
   }
 
   .controls-bar {
+    bottom: max(clamp(6rem, 20vw, 9rem), calc(env(safe-area-inset-bottom, 0px) + 5.5rem));
     width: min(96vw, 520px);
     padding: 0.9rem 1rem;
   }
@@ -2681,8 +2775,10 @@ body.account--guest {
   }
 
   .controls-bar__fab {
+    position: fixed;
+    left: auto;
     right: clamp(0.75rem, 5vw, 1.5rem);
-    bottom: clamp(0.9rem, 4vw, 1.8rem);
+    bottom: calc(clamp(0.9rem, 4vw, 1.8rem) + env(safe-area-inset-bottom, 0px));
     width: 2.65rem;
     height: 2.65rem;
   }

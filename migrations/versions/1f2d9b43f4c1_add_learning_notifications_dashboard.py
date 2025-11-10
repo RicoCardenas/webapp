@@ -1,7 +1,7 @@
 """Add learning progress, notifications, and dashboard layout
 
 Revision ID: 1f2d9b43f4c1
-Revises: e2edb87a6c09
+Revises: a6c3f9d1c4b0
 Create Date: 2025-11-15 00:00:00.000000
 """
 

@@ -77,6 +77,15 @@
               <img class="btn__icon-img btn__icon-img--dark" src="/static/images/signinoscuro.png" alt="" decoding="async" />
             </span>
           </a>
+          <a
+            class="btn btn--ghost header__btn"
+            href="/account"
+            data-auth-link="account"
+            aria-label="Mi cuenta"
+            style="display:none"
+          >
+            Mi cuenta
+          </a>
           <button
             id="btn-logout"
             class="btn header__btn header__btn--logout btn--has-icon btn--icon-only"
@@ -150,6 +159,7 @@
           <div class="drawer__actions">
             <a class="btn btn--ghost drawer__btn" href="/login" data-auth-link="login">Iniciar sesión</a>
             <a class="btn btn--primary drawer__btn" href="/signup" data-auth-link="signup">Crear cuenta</a>
+            <a class="btn btn--ghost drawer__btn" href="/account" data-auth-link="account" style="display:none">Mi cuenta</a>
           </div>
         </nav>
       </div>
@@ -567,16 +577,76 @@
                 </form>
 
                 <div class="admin-panel__card admin-panel__list">
-                  <h3 class="account-card__subtitle">Docentes registrados</h3>
-                  <p class="account-card__hint">Consulta los usuarios con rol docente activo.</p>
+                  <div class="admin-panel__card-head">
+                    <div>
+                      <h3 class="account-card__subtitle">Docentes bajo tu gestión</h3>
+                      <p class="account-card__hint">Visualiza los docentes a los que otorgaste el rol y su actividad reciente.</p>
+                    </div>
+                    <button id="admin-refresh-teachers" class="btn btn--ghost btn--sm" type="button">Actualizar</button>
+                  </div>
+                  <p id="admin-teachers-empty" class="role-panel__empty" hidden>No has asignado docentes todavía.</p>
                   <div id="admin-user-list" class="role-panel__list"></div>
                 </div>
               </div>
 
               <div class="admin-panel__card admin-panel__list admin-panel__groups">
-                <h3 class="account-card__subtitle">Grupos docentes</h3>
-                <p class="account-card__hint">Resumen de los grupos creados por docentes y su estado actual.</p>
+                <div class="admin-panel__card-head">
+                  <div>
+                    <h3 class="account-card__subtitle">Grupos de docentes</h3>
+                    <p class="account-card__hint">Organiza a tus docentes para seguir sus clases y estudiantes.</p>
+                  </div>
+                  <button id="admin-toggle-create-group" class="btn btn--primary btn--sm" type="button">Nuevo grupo</button>
+                </div>
+                <form id="admin-create-group-form" class="role-form" hidden novalidate>
+                  <div class="form__field">
+                    <label class="form__label" for="admin-group-name">Nombre del grupo</label>
+                    <input class="form__input" type="text" id="admin-group-name" name="name" autocomplete="off" required />
+                  </div>
+                  <div class="form__field">
+                    <label class="form__label" for="admin-group-description">Descripción</label>
+                    <textarea class="form__input" id="admin-group-description" name="description" rows="2" placeholder="Opcional"></textarea>
+                  </div>
+                  <div class="form__actions">
+                    <button class="btn btn--primary btn--sm" type="submit">Crear</button>
+                    <button class="btn btn--ghost btn--sm" type="button" data-admin-cancel-create>Cancelar</button>
+                  </div>
+                  <p id="admin-create-group-feedback" class="form__feedback" role="status" aria-live="polite"></p>
+                </form>
+                <p id="admin-groups-empty" class="role-panel__empty">Aún no has creado grupos de docentes.</p>
                 <div id="admin-group-list" class="role-panel__list"></div>
+                <section id="admin-group-detail" class="role-panel__section" hidden>
+                  <header class="role-panel__header">
+                    <div>
+                      <h3 id="admin-group-detail-name" class="role-panel__title">Grupo</h3>
+                      <p id="admin-group-detail-description" class="role-panel__meta role-panel__meta--muted"></p>
+                      <p id="admin-group-detail-meta" class="role-panel__meta"></p>
+                    </div>
+                    <div class="role-panel__actions">
+                      <button id="admin-group-close" class="btn btn--ghost btn--sm" type="button">Cerrar</button>
+                      <button id="admin-group-delete" class="btn btn--ghost btn--sm" type="button">Eliminar grupo</button>
+                    </div>
+                  </header>
+                  <div class="role-panel__cluster">
+                    <h4 class="role-panel__subtitle">Docentes del grupo</h4>
+                    <form id="admin-group-add-teacher-form" class="role-form role-form--inline" novalidate>
+                      <div class="form__field">
+                        <label class="form__label" for="admin-group-teacher-select">Agregar docente</label>
+                        <select id="admin-group-teacher-select" class="form__input form__input--select"></select>
+                      </div>
+                      <div class="form__actions">
+                        <button class="btn btn--primary btn--sm" type="submit">Agregar</button>
+                      </div>
+                    </form>
+                    <p id="admin-group-teachers-empty" class="role-panel__empty" hidden>No hay docentes en este grupo.</p>
+                    <div id="admin-group-detail-teachers" class="role-panel__list"></div>
+                  </div>
+                  <div class="role-panel__cluster">
+                    <h4 class="role-panel__subtitle">Estudiantes asociados</h4>
+                    <p class="role-panel__meta role-panel__meta--muted">Solo se muestran estudiantes pertenecientes a los docentes de este grupo.</p>
+                    <p id="admin-group-students-empty" class="role-panel__empty" hidden>No hay estudiantes asociados todavía.</p>
+                    <div id="admin-group-detail-students" class="role-panel__list role-panel__list--compact"></div>
+                  </div>
+                </section>
               </div>
             </div>
             </section>
@@ -720,6 +790,6 @@
     </noscript>
 
     <script src="/static/app.js" type="module" defer></script>
-    <script src="/static/account-page.js" type="module" defer></script>
+    <script src="/static/account/index.js" type="module" defer></script>
   </body>
 </html>

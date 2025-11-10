@@ -91,6 +91,15 @@
               <img class="btn__icon-img btn__icon-img--dark" src="/static/images/signinoscuro.png" alt="" decoding="async" />
             </span>
           </a>
+          <a
+            class="btn btn--ghost header__btn"
+            href="/account"
+            data-auth-link="account"
+            aria-label="Mi cuenta"
+            style="display:none"
+          >
+            Mi cuenta
+          </a>
           <button
             id="btn-logout"
             class="btn header__btn header__btn--logout btn--has-icon btn--icon-only"
@@ -161,6 +170,7 @@
           <div class="drawer__actions">
             <a class="btn btn--ghost drawer__btn" href="/login" data-auth-link="login">Iniciar sesión</a>
             <a class="btn btn--primary drawer__btn" href="/signup" data-auth-link="signup">Crear cuenta</a>
+            <a class="btn btn--ghost drawer__btn" href="/account" data-auth-link="account" style="display:none">Mi cuenta</a>
           </div>
         </nav>
       </div>

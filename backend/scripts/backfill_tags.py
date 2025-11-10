@@ -1,10 +1,3 @@
-#!/usr/bin/env python
-"""
-Herramienta de consola para recalcular etiquetas de historial.
-
-Uso:
-    python backend/scripts/backfill_tags.py [--dry-run] [--force]
-"""
 from __future__ import annotations
 
 import argparse

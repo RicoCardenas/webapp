@@ -38,6 +38,11 @@ export function createPlotterRenderer(params) {
   const panStart = { x: 0, y: 0 };
   let panSnapshot = core.getView();
 
+  // Gestos táctiles
+  const pointers = new Map();
+  let initialPinchDistance = 0;
+  let pinchCenter = { x: 0, y: 0 };
+
   const hoverState = {
     active: false,
     x: 0,
@@ -75,6 +80,11 @@ export function createPlotterRenderer(params) {
   canvas.addEventListener('click', handleCanvasClick);
   window.addEventListener('mousemove', handleWindowMove);
   window.addEventListener('mouseup', handleMouseUp);
+
+  canvas.addEventListener('pointerdown', handlePointerDown, { passive: false });
+  canvas.addEventListener('pointermove', handlePointerMove, { passive: false });
+  canvas.addEventListener('pointerup', handlePointerUp);
+  canvas.addEventListener('pointercancel', handlePointerCancel);
 
   fixDpi();
   enforceSquareAspect();
@@ -423,7 +433,7 @@ export function createPlotterRenderer(params) {
   }
 
   function handleCanvasMove(event) {
-    if (isPanning) return;
+    if (isPanning || pointers.size > 0) return;
     const rect = canvas.getBoundingClientRect();
     const world = eventToWorld(event.clientX - rect.left, event.clientY - rect.top);
     if (!world) return;
@@ -514,6 +524,122 @@ export function createPlotterRenderer(params) {
     return [dx, dy];
   }
 
+  function handlePointerDown(event) {
+    event.preventDefault();
+    canvas.setPointerCapture(event.pointerId);
+    
+    if (hoverState.active) {
+      hoverState.active = false;
+      onHoverEnd?.();
+    }
+    
+    const pointer = {
+      x: event.clientX,
+      y: event.clientY,
+      startX: event.clientX,
+      startY: event.clientY,
+    };
+    pointers.set(event.pointerId, pointer);
+
+    if (pointers.size === 1) {
+      isPanning = true;
+      panMoved = false;
+      panStart.x = event.clientX;
+      panStart.y = event.clientY;
+      panSnapshot = core.getView();
+      canvas.style.cursor = 'grabbing';
+    } else if (pointers.size === 2) {
+      isPanning = false;
+      canvas.style.cursor = 'default';
+      const pts = Array.from(pointers.values());
+      const dx = pts[1].x - pts[0].x;
+      const dy = pts[1].y - pts[0].y;
+      initialPinchDistance = Math.sqrt(dx * dx + dy * dy);
+      pinchCenter = {
+        x: (pts[0].x + pts[1].x) / 2,
+        y: (pts[0].y + pts[1].y) / 2,
+      };
+      panSnapshot = core.getView();
+    }
+  }
+
+  function handlePointerMove(event) {
+    if (!pointers.has(event.pointerId)) return;
+    
+    const pointer = pointers.get(event.pointerId);
+    pointer.x = event.clientX;
+    pointer.y = event.clientY;
+
+    if (pointers.size === 1 && isPanning) {
+      event.preventDefault();
+      const dxPx = event.clientX - panStart.x;
+      const dyPx = event.clientY - panStart.y;
+      panMoved = panMoved || Math.abs(dxPx) > 2 || Math.abs(dyPx) > 2;
+      const [dx, dy] = screenDeltaToWorld(dxPx, dyPx);
+      core.setViewBounds({
+        xmin: panSnapshot.xmin - dx,
+        xmax: panSnapshot.xmax - dx,
+        ymin: panSnapshot.ymin + dy,
+        ymax: panSnapshot.ymax + dy,
+      });
+      enforceSquareAspect();
+      requestRender();
+    } else if (pointers.size === 2) {
+      event.preventDefault();
+      const pts = Array.from(pointers.values());
+      const dx = pts[1].x - pts[0].x;
+      const dy = pts[1].y - pts[0].y;
+      const currentDistance = Math.sqrt(dx * dx + dy * dy);
+      
+      if (initialPinchDistance > 0 && currentDistance > 0 && Math.abs(currentDistance - initialPinchDistance) > 1) {
+        const scaleFactor = initialPinchDistance / currentDistance;
+        const rect = canvas.getBoundingClientRect();
+        const centerWorld = eventToWorld(
+          pinchCenter.x - rect.left,
+          pinchCenter.y - rect.top
+        );
+        
+        if (centerWorld) {
+          core.zoomAt(centerWorld, scaleFactor);
+          enforceSquareAspect();
+          requestRender();
+          initialPinchDistance = currentDistance;
+        }
+      }
+    }
+  }
+
+  function handlePointerUp(event) {
+    if (!pointers.has(event.pointerId)) return;
+    
+    canvas.releasePointerCapture(event.pointerId);
+    pointers.delete(event.pointerId);
+
+    if (pointers.size === 0) {
+      isPanning = false;
+      canvas.style.cursor = 'default';
+    } else if (pointers.size === 1) {
+      const remaining = Array.from(pointers.values())[0];
+      isPanning = true;
+      panMoved = false;
+      panStart.x = remaining.x;
+      panStart.y = remaining.y;
+      panSnapshot = core.getView();
+      canvas.style.cursor = 'grabbing';
+    }
+  }
+
+  function handlePointerCancel(event) {
+    if (!pointers.has(event.pointerId)) return;
+    canvas.releasePointerCapture(event.pointerId);
+    pointers.delete(event.pointerId);
+    
+    if (pointers.size === 0) {
+      isPanning = false;
+      canvas.style.cursor = 'default';
+    }
+  }
+
   function enterFullscreen() {
     container.classList.add(FULLSCREEN_CLASS);
     document.body.classList.add(BODY_LOCK_CLASS);
@@ -552,6 +678,10 @@ export function createPlotterRenderer(params) {
       canvas.removeEventListener('mousemove', handleCanvasMove);
       canvas.removeEventListener('mouseleave', handleMouseLeave);
       canvas.removeEventListener('click', handleCanvasClick);
+      canvas.removeEventListener('pointerdown', handlePointerDown);
+      canvas.removeEventListener('pointermove', handlePointerMove);
+      canvas.removeEventListener('pointerup', handlePointerUp);
+      canvas.removeEventListener('pointercancel', handlePointerCancel);
       window.removeEventListener('mousemove', handleWindowMove);
       window.removeEventListener('mouseup', handleMouseUp);
       window.removeEventListener('resize', handleWindowResize);

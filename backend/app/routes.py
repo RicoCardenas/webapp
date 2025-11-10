@@ -11,6 +11,7 @@ import secrets
 import string
 import struct
 import time
+import uuid
 from functools import lru_cache
 from dataclasses import asdict
 from datetime import datetime, timedelta, timezone
@@ -38,6 +39,9 @@ from .models import (
     PlotHistoryTags,
     StudentGroup,
     GroupMember,
+    AdminTeacherAssignment,
+    AdminTeacherGroup,
+    AdminTeacherGroupMember,
     RoleRequest,
     RequestTicket,
     TwoFactorBackupCode,
@@ -682,17 +686,24 @@ def _build_otpauth_url(user, secret):
     return f'otpauth://totp/{label}?secret={secret}&issuer={issuer}&digits={TOTP_DIGITS}&period={TOTP_PERIOD}'
 
 
-def _require_roles(allowed):
-    allowed_norm = {r.lower() for r in allowed}
-    user_roles = {
+def _current_user_roles():
+    roles = {
         (role.name or '').lower()
         for role in getattr(g.current_user, 'roles', []) or []
     }
     primary_role = getattr(getattr(g.current_user, 'role', None), 'name', None)
     if primary_role:
-        user_roles.add(primary_role.lower())
+        roles.add(primary_role.lower())
+    return roles
 
-    if user_roles.intersection(allowed_norm):
+
+def _current_user_has_role(role_name: str) -> bool:
+    return role_name.lower() in _current_user_roles()
+
+
+def _require_roles(allowed):
+    allowed_norm = {r.lower() for r in allowed}
+    if _current_user_roles().intersection(allowed_norm):
         return None
     return jsonify(error="No tienes permisos para realizar esta acción."), 403
 
@@ -707,12 +718,40 @@ def _assign_teacher_role(user):
         user.roles.append(teacher_role)
     user.role_id = teacher_role.id
 
+    assignment = db.session.query(AdminTeacherAssignment).filter(
+        AdminTeacherAssignment.teacher_id == user.id
+    ).first()
+
+    assigner = getattr(g, 'current_user', None)
+    assigner_is_admin = bool(assigner and _current_user_has_role('admin'))
+
+    if assigner_is_admin:
+        if assignment and assignment.admin_id and assignment.admin_id != assigner.id:
+            return jsonify(error="El docente ya está administrado por otro usuario."), 409
+        if not assignment:
+            assignment = AdminTeacherAssignment(admin_id=assigner.id, teacher_id=user.id)
+            db.session.add(assignment)
+        elif assignment.admin_id is None:
+            assignment.admin_id = assigner.id
+
     try:
         db.session.commit()
+    except IntegrityError as exc:
+        db.session.rollback()
+        current_app.logger.warning("Conflicto asignando rol teacher: %s", exc)
+        return jsonify(error="El docente ya está administrado por otro usuario."), 409
     except Exception as exc:
         db.session.rollback()
         current_app.logger.error("Error al asignar rol teacher: %s", exc)
         return jsonify(error="No se pudo asignar el rol."), 500
+
+    managed_by = None
+    if assignment and assignment.admin_id:
+        manager = assignment.admin if hasattr(assignment, 'admin') else None
+        managed_by = {
+            "id": str(assignment.admin_id),
+            "name": getattr(manager, 'name', None),
+        }
 
     return jsonify(
         message="Rol 'teacher' asignado.",
@@ -722,12 +761,101 @@ def _assign_teacher_role(user):
             "roles": [r.name for r in user.roles],
             "primary_role": user.role.name if user.role else None,
             "public_id": user.public_id,
+            "managed_by": managed_by,
         },
     )
 
 
 def _require_teacher():
     return _require_roles({'teacher'})
+
+
+def _require_admin():
+    return _require_roles({'admin'})
+
+
+def _require_development():
+    return _require_roles({'development'})
+
+
+def _collect_teacher_stats(teacher_ids):
+    teacher_ids = [tid for tid in teacher_ids if tid]
+    if not teacher_ids:
+        return {}
+
+    rows = (
+        db.session.query(
+            StudentGroup.teacher_id.label('teacher_id'),
+            func.count(func.distinct(StudentGroup.id)).label('class_count'),
+            func.count(func.distinct(GroupMember.student_user_id)).label('student_count'),
+        )
+        .outerjoin(GroupMember, GroupMember.group_id == StudentGroup.id)
+        .filter(StudentGroup.teacher_id.in_(teacher_ids))
+        .group_by(StudentGroup.teacher_id)
+        .all()
+    )
+
+    stats = {
+        row.teacher_id: {
+            "class_count": int(row.class_count or 0),
+            "student_count": int(row.student_count or 0),
+        }
+        for row in rows
+    }
+
+    for teacher_id in teacher_ids:
+        stats.setdefault(teacher_id, {"class_count": 0, "student_count": 0})
+
+    return stats
+
+
+def _serialize_managed_teacher(teacher, *, assignment=None, stats=None):
+    if not teacher:
+        return None
+
+    stats = stats or {}
+    payload = {
+        "id": str(teacher.id),
+        "public_id": teacher.public_id,
+        "name": teacher.name,
+        "email": teacher.email,
+        "class_count": int((stats or {}).get("class_count", 0) or 0),
+        "student_count": int((stats or {}).get("student_count", 0) or 0),
+    }
+
+    if assignment and getattr(assignment, 'assigned_at', None):
+        payload["assigned_at"] = assignment.assigned_at.isoformat()
+
+    return payload
+
+
+def _serialize_admin_teacher_group(group, stats_map):
+    if not group:
+        return None
+
+    teacher_entries = []
+    student_total = 0
+
+    for member in group.members or []:
+        teacher = member.teacher
+        if not teacher:
+            continue
+        teacher_data = _serialize_managed_teacher(teacher, stats=stats_map.get(teacher.id)) or {}
+        teacher_data["added_at"] = member.added_at.isoformat() if getattr(member, 'added_at', None) else None
+        teacher_entries.append(teacher_data)
+        student_total += int(teacher_data.get("student_count", 0) or 0)
+
+    return {
+        "id": str(group.id),
+        "name": group.name,
+        "description": group.description,
+        "created_at": group.created_at.isoformat() if getattr(group, 'created_at', None) else None,
+        "updated_at": group.updated_at.isoformat() if getattr(group, 'updated_at', None) else None,
+        "teacher_count": len(teacher_entries),
+        "student_count": int(student_total),
+        "teacher_ids": [entry.get("id") for entry in teacher_entries],
+        "teachers": teacher_entries,
+    }
 
 
 def _require_admin_or_dev():
@@ -880,6 +1008,12 @@ def graph():
 def account():
     # sirve /account -> account.html
     return send_from_directory(current_app.template_folder, "account.html")
+
+
+@frontend.get("/test-admin-delete")
+def test_admin_delete():
+    # Página de test para eliminar roles admin
+    return send_from_directory(current_app.template_folder, "test-admin-delete.html")
 
 
 @frontend.get("/reset-password")
@@ -1209,7 +1343,7 @@ def verify_email():
     """Verificación de correo por token."""
     token_value = request.args.get('token')
     if not token_value:
-        return redirect(url_for('frontend.serve_frontend', error='missing_token'))
+        return redirect(url_for('frontend.login_page', error='missing_token'))
 
     token_obj = db.session.execute(
         db.select(UserTokens).where(
@@ -1219,17 +1353,17 @@ def verify_email():
     ).scalar_one_or_none()
 
     if not token_obj:
-        return redirect(url_for('frontend.serve_frontend', error='invalid_token'))
+        return redirect(url_for('frontend.login_page', error='invalid_token'))
         
     if token_obj.used_at:
-        return redirect(url_for('frontend.serve_frontend', error='token_used'))
+        return redirect(url_for('frontend.login_page', error='token_used'))
 
     expires_at = token_obj.expires_at
     if expires_at and expires_at.tzinfo is None:
         expires_at = expires_at.replace(tzinfo=timezone.utc)
 
     if expires_at and expires_at < datetime.now(timezone.utc):
-        return redirect(url_for('frontend.serve_frontend', error='token_expired'))
+        return redirect(url_for('frontend.login_page', error='token_expired'))
 
     try:
         user = token_obj.user
@@ -1250,9 +1384,9 @@ def verify_email():
     except Exception as e:
         db.session.rollback()
         current_app.logger.error(f"Error al verificar token: {e}")
-        return redirect(url_for('frontend.serve_frontend', error='verification_failed'))
+        return redirect(url_for('frontend.login_page', error='verification_failed'))
 
-    return redirect(url_for('frontend.serve_frontend', verified='true'))
+    return redirect(url_for('frontend.login_page', verified='true'))
 
 @api.post("/login")
 def login_user():
@@ -2620,7 +2754,7 @@ def account_dashboard_preferences_update():
 @api.get("/admin/stats/users")
 @require_session
 def admin_stats_users():
-    guard = _require_admin_or_dev()
+    guard = _require_roles({'admin', 'development'})
     if guard:
         return guard
 
@@ -2654,7 +2788,7 @@ def admin_stats_users():
 @api.get("/admin/stats/requests")
 @require_session
 def admin_stats_requests():
-    guard = _require_admin_or_dev()
+    guard = _require_roles({'admin', 'development'})
     if guard:
         return guard
 
@@ -2679,7 +2813,7 @@ def admin_stats_requests():
 @api.get("/admin/stats/plots")
 @require_session
 def admin_stats_plots():
-    guard = _require_admin_or_dev()
+    guard = _require_roles({'admin', 'development'})
     if guard:
         return guard
 
@@ -2937,7 +3071,7 @@ def group_history(group_id):
 @api.get("/admin/teachers")
 @require_session
 def admin_list_teachers():
-    guard = _require_roles({'admin', 'development'})
+    guard = _require_development()
     if guard:
         return guard
 
@@ -3006,10 +3140,317 @@ def admin_assign_teacher():
     return _assign_teacher_role(user)
 
 
+@api.get("/admin/my-teachers")
+@require_session
+def admin_my_teachers():
+    guard = _require_admin()
+    if guard:
+        return guard
+
+    assignments = (
+        db.session.query(AdminTeacherAssignment)
+        .join(Users, Users.id == AdminTeacherAssignment.teacher_id)
+        .options(selectinload(AdminTeacherAssignment.teacher))
+        .filter(AdminTeacherAssignment.admin_id == g.current_user.id)
+        .order_by(asc(Users.name))
+        .all()
+    )
+
+    teacher_ids = [assignment.teacher_id for assignment in assignments if assignment.teacher_id]
+    stats_map = _collect_teacher_stats(teacher_ids)
+
+    teachers = []
+    for assignment in assignments:
+        teacher = assignment.teacher
+        data = _serialize_managed_teacher(teacher, assignment=assignment, stats=stats_map.get(getattr(teacher, 'id', None)))
+        if data:
+            teachers.append(data)
+
+    return jsonify(teachers=teachers)
+
+
+@api.post("/admin/my-teacher-groups")
+@require_session
+def admin_create_teacher_group():
+    guard = _require_admin()
+    if guard:
+        return guard
+
+    data = request.get_json(silent=True) or {}
+    name = (data.get("name") or "").strip()
+    description = (data.get("description") or "").strip() or None
+
+    if len(name) < 2:
+        return jsonify(error="El nombre del grupo debe tener al menos 2 caracteres."), 400
+
+    group = AdminTeacherGroup(
+        admin_id=g.current_user.id,
+        name=name,
+        description=description,
+    )
+    db.session.add(group)
+
+    try:
+        db.session.commit()
+    except IntegrityError as exc:
+        db.session.rollback()
+        current_app.logger.warning("Conflicto al crear grupo docente admin: %s", exc)
+        return jsonify(error="Ya existe un grupo con ese nombre."), 409
+    except Exception as exc:
+        db.session.rollback()
+        current_app.logger.error("Error al crear grupo docente admin: %s", exc)
+        return jsonify(error="No se pudo crear el grupo."), 500
+
+    payload = _serialize_admin_teacher_group(group, {})
+    return jsonify(message="Grupo creado.", group=payload), 201
+
+
+@api.get("/admin/my-teacher-groups")
+@require_session
+def admin_list_teacher_groups():
+    guard = _require_admin()
+    if guard:
+        return guard
+
+    groups = (
+        db.session.query(AdminTeacherGroup)
+        .options(selectinload(AdminTeacherGroup.members).selectinload(AdminTeacherGroupMember.teacher))
+        .filter(AdminTeacherGroup.admin_id == g.current_user.id)
+        .order_by(asc(AdminTeacherGroup.name))
+        .all()
+    )
+
+    teacher_ids = {
+        member.teacher_id
+        for group in groups
+        for member in (group.members or [])
+        if member.teacher_id
+    }
+    stats_map = _collect_teacher_stats(list(teacher_ids))
+
+    payload = [
+        _serialize_admin_teacher_group(group, stats_map)
+        for group in groups
+        if group
+    ]
+
+    return jsonify(groups=payload)
+
+
+@api.get("/admin/my-teacher-groups/<uuid:group_id>")
+@require_session
+def admin_get_teacher_group(group_id):
+    guard = _require_admin()
+    if guard:
+        return guard
+
+    group = (
+        db.session.query(AdminTeacherGroup)
+        .options(selectinload(AdminTeacherGroup.members).selectinload(AdminTeacherGroupMember.teacher))
+        .filter(
+            AdminTeacherGroup.id == group_id,
+            AdminTeacherGroup.admin_id == g.current_user.id,
+        )
+        .first()
+    )
+
+    if not group:
+        return jsonify(error="Grupo no encontrado."), 404
+
+    teacher_ids = [member.teacher_id for member in group.members or [] if member.teacher_id]
+    stats_map = _collect_teacher_stats(teacher_ids)
+    payload = _serialize_admin_teacher_group(group, stats_map) or {}
+
+    students_payload = []
+    if teacher_ids:
+        rows = (
+            db.session.query(
+                GroupMember.student_user_id,
+                GroupMember.student_visible_id,
+                Users.name.label('student_name'),
+                Users.email.label('student_email'),
+                StudentGroup.teacher_id,
+                StudentGroup.id.label('class_id'),
+                StudentGroup.name.label('class_name'),
+            )
+            .join(StudentGroup, GroupMember.group_id == StudentGroup.id)
+            .join(Users, GroupMember.student_user_id == Users.id)
+            .filter(StudentGroup.teacher_id.in_(teacher_ids))
+            .all()
+        )
+
+        teacher_lookup = {
+            member.teacher_id: member.teacher.name if member.teacher else None
+            for member in group.members or []
+        }
+
+        student_map = {}
+        for row in rows:
+            key = row.student_user_id
+            entry = student_map.setdefault(
+                key,
+                {
+                    "id": str(row.student_user_id),
+                    "public_id": row.student_visible_id,
+                    "name": row.student_name,
+                    "email": row.student_email,
+                    "enrollments": [],
+                },
+            )
+            entry['enrollments'].append({
+                "class_id": str(row.class_id) if row.class_id else None,
+                "class_name": row.class_name,
+                "teacher_id": str(row.teacher_id) if row.teacher_id else None,
+                "teacher_name": teacher_lookup.get(row.teacher_id),
+            })
+
+        students_payload = list(student_map.values())
+
+    payload['student_count'] = len(students_payload)
+    payload['students'] = students_payload
+
+    return jsonify(group=payload)
+
+
+@api.post("/admin/my-teacher-groups/<uuid:group_id>/teachers")
+@require_session
+def admin_add_teacher_to_group(group_id):
+    guard = _require_admin()
+    if guard:
+        return guard
+
+    group = (
+        db.session.query(AdminTeacherGroup)
+        .filter(
+            AdminTeacherGroup.id == group_id,
+            AdminTeacherGroup.admin_id == g.current_user.id,
+        )
+        .first()
+    )
+
+    if not group:
+        return jsonify(error="Grupo no encontrado."), 404
+
+    data = request.get_json(silent=True) or {}
+    teacher_id = data.get("teacher_id") or data.get("user_id")
+    visible_id = data.get("teacher_public_id") or data.get("visible_id")
+
+    teacher = None
+    if teacher_id:
+        try:
+            teacher_uuid = uuid.UUID(str(teacher_id))
+            teacher = db.session.get(Users, teacher_uuid)
+        except (ValueError, TypeError):
+            teacher = None
+    if not teacher and visible_id:
+        teacher = db.session.query(Users).filter(Users.public_id == visible_id).first()
+
+    if not teacher:
+        return jsonify(error="Docente no encontrado."), 404
+
+    assignment = db.session.query(AdminTeacherAssignment).filter(
+        AdminTeacherAssignment.admin_id == g.current_user.id,
+        AdminTeacherAssignment.teacher_id == teacher.id,
+    ).first()
+
+    if not assignment:
+        return jsonify(error="Este docente no está bajo tu administración."), 403
+
+    existing = db.session.query(AdminTeacherGroupMember).filter(
+        AdminTeacherGroupMember.group_id == group.id,
+        AdminTeacherGroupMember.teacher_id == teacher.id,
+    ).first()
+
+    if existing:
+        return jsonify(error="El docente ya forma parte del grupo."), 409
+
+    membership = AdminTeacherGroupMember(group_id=group.id, teacher_id=teacher.id)
+    db.session.add(membership)
+
+    try:
+        db.session.commit()
+    except IntegrityError as exc:
+        db.session.rollback()
+        current_app.logger.warning("Conflicto al agregar docente a grupo admin: %s", exc)
+        return jsonify(error="El docente ya forma parte del grupo."), 409
+    except Exception as exc:
+        db.session.rollback()
+        current_app.logger.error("Error al agregar docente a grupo admin: %s", exc)
+        return jsonify(error="No se pudo agregar el docente al grupo."), 500
+
+    stats = _collect_teacher_stats([teacher.id]).get(teacher.id, {"class_count": 0, "student_count": 0})
+    payload = _serialize_managed_teacher(teacher, stats=stats) or {}
+    payload['added_at'] = membership.added_at.isoformat() if membership.added_at else None
+
+    return jsonify(message="Docente agregado al grupo.", teacher=payload)
+
+
+@api.delete("/admin/my-teacher-groups/<uuid:group_id>/teachers/<uuid:teacher_id>")
+@require_session
+def admin_remove_teacher_from_group(group_id, teacher_id):
+    guard = _require_admin()
+    if guard:
+        return guard
+
+    membership = (
+        db.session.query(AdminTeacherGroupMember)
+        .join(AdminTeacherGroup, AdminTeacherGroupMember.group_id == AdminTeacherGroup.id)
+        .filter(
+            AdminTeacherGroupMember.group_id == group_id,
+            AdminTeacherGroupMember.teacher_id == teacher_id,
+            AdminTeacherGroup.admin_id == g.current_user.id,
+        )
+        .first()
+    )
+
+    if not membership:
+        return jsonify(error="No se encontró el docente en el grupo."), 404
+
+    try:
+        db.session.delete(membership)
+        db.session.commit()
+    except Exception as exc:
+        db.session.rollback()
+        current_app.logger.error("Error al eliminar docente de grupo admin: %s", exc)
+        return jsonify(error="No se pudo eliminar el docente del grupo."), 500
+
+    return jsonify(message="Docente eliminado del grupo.")
+
+
+@api.delete("/admin/my-teacher-groups/<uuid:group_id>")
+@require_session
+def admin_delete_teacher_group(group_id):
+    guard = _require_admin()
+    if guard:
+        return guard
+
+    group = (
+        db.session.query(AdminTeacherGroup)
+        .filter(
+            AdminTeacherGroup.id == group_id,
+            AdminTeacherGroup.admin_id == g.current_user.id,
+        )
+        .first()
+    )
+
+    if not group:
+        return jsonify(error="Grupo no encontrado."), 404
+
+    try:
+        db.session.delete(group)
+        db.session.commit()
+    except Exception as exc:
+        db.session.rollback()
+        current_app.logger.error("Error al eliminar grupo docente admin: %s", exc)
+        return jsonify(error="No se pudo eliminar el grupo."), 500
+
+    return jsonify(message="Grupo eliminado.")
+
+
 @api.get("/admin/teacher-groups")
 @require_session
 def admin_teacher_groups():
-    guard = _require_roles({'admin', 'development'})
+    guard = _require_development()
     if guard:
         return guard
 
@@ -3175,25 +3616,53 @@ def _remove_role_from_user(user, role_name, *, fallback_role="user"):
         raise ValueError(f"Rol '{role_name}' no existe.")
 
     removed = False
+    
+    # 1. Eliminar de user.roles (tabla puente)
     current_roles = list(user.roles or [])
     for assigned in current_roles:
         if assigned.id == role.id:
             user.roles.remove(assigned)
             removed = True
 
+    # 2. Eliminar directamente de la tabla puente por si acaso
+    if not removed:
+        result = db.session.execute(
+            delete(user_roles_table).where(
+                user_roles_table.c.user_id == user.id,
+                user_roles_table.c.role_id == role.id,
+            )
+        )
+        if (result.rowcount or 0) > 0:
+            removed = True
+
+    # 3. Si el rol a eliminar es el primario, marcarlo para reemplazo
+    primary_needs_replacement = (user.role_id == role.id)
+    
+    # Si el rol está como primario, eso también cuenta como "removed"
+    if primary_needs_replacement:
+        removed = True
+
     if not removed:
         return False
 
-    if user.role_id == role.id:
+    # 4. Si el rol primario era el que se eliminó, asignar un reemplazo
+    if primary_needs_replacement:
+        # Buscar un rol alternativo en los roles restantes del usuario
         replacement = next((r for r in user.roles if r.id != role.id), None)
+        
+        # Si no hay roles alternativos, usar el fallback
         if not replacement and fallback_role:
             replacement = _get_role_by_name(fallback_role)
             if not replacement:
-                raise ValueError(f"Rol '{fallback_role}' no existe.")
+                raise ValueError(f"Rol de respaldo '{fallback_role}' no existe.")
+            # Agregar el fallback a user.roles si no está presente
             if replacement not in user.roles:
                 user.roles.append(replacement)
+        
         if not replacement:
             raise ValueError("No hay un rol alternativo para el usuario.")
+        
+        # Asignar el nuevo rol primario
         user.role_id = replacement.id
         user.role = replacement
 
@@ -3347,14 +3816,23 @@ def _find_user_by_identifier(identifier):
 
 
 def _count_active_role_members(role_id):
+    if not role_id:
+        return 0
+
+    users_tbl = Users.__table__
+    join_src = users_tbl.outerjoin(
+        user_roles_table,
+        user_roles_table.c.user_id == users_tbl.c.id,
+    )
     stmt = (
-        db.select(func.count())
-        .select_from(
-            user_roles_table.join(Users, user_roles_table.c.user_id == Users.id)
-        )
+        db.select(func.count(func.distinct(users_tbl.c.id)))
+        .select_from(join_src)
         .where(
-            user_roles_table.c.role_id == role_id,
-            Users.deleted_at.is_(None),
+            users_tbl.c.deleted_at.is_(None),
+            or_(
+                user_roles_table.c.role_id == role_id,
+                users_tbl.c.role_id == role_id,
+            ),
         )
     )
     return db.session.execute(stmt).scalar_one()
@@ -3458,11 +3936,14 @@ def development_list_admins():
 
     stmt = (
         db.select(Users)
-        .options(selectinload(Users.roles))
-        .join(user_roles_table, user_roles_table.c.user_id == Users.id)
+        .options(selectinload(Users.roles), selectinload(Users.role))
+        .outerjoin(user_roles_table, user_roles_table.c.user_id == Users.id)
         .where(
-            user_roles_table.c.role_id == admin_role.id,
             Users.deleted_at.is_(None),
+            or_(
+                user_roles_table.c.role_id == admin_role.id,
+                Users.role_id == admin_role.id,
+            ),
         )
         .order_by(func.lower(Users.name))
     )
@@ -3479,12 +3960,15 @@ def development_list_admins():
 
     payload = []
     for row in rows:
+        role_names = {r.name for r in (row.roles or []) if getattr(r, "name", None)}
+        if getattr(row, "role", None) and getattr(row.role, "name", None):
+            role_names.add(row.role.name)
         payload.append({
             "id": str(row.id),
             "public_id": row.public_id,
             "name": row.name,
             "email": row.email,
-            "roles": [r.name for r in (row.roles or [])],
+            "roles": sorted(role_names),
             "created_at": row.created_at.isoformat() if row.created_at else None,
             "removable": total > 1,
             "is_self": row.id == current_id,
@@ -3512,7 +3996,9 @@ def development_remove_admin(user_identifier):
     if not user or user.deleted_at:
         return jsonify(error="Usuario no encontrado."), 404
 
-    if admin_role not in (user.roles or []):
+    # Verificar si el usuario tiene el rol admin (en user.roles o como role_id primario)
+    has_admin = admin_role in (user.roles or []) or user.role_id == admin_role.id
+    if not has_admin:
         return jsonify(error="El usuario no tiene el rol admin."), 400
 
     total_admins = _count_active_role_members(admin_role.id)
@@ -3688,7 +4174,7 @@ def development_restore():
 @api.get("/admin/ops/summary")
 @require_session
 def admin_ops_summary():
-    guard = _require_roles({'admin', 'development'})
+    guard = _require_development()
     if guard:
         return guard
 
