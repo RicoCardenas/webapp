@@ -97,6 +97,7 @@ export function createEventStream(options = {}) {
   async function openEventSource() {
     await requestStreamToken();
 
+    // Double-check: otra llamada async pudo haber creado la conexión
     if (destroyed || source) return;
 
     const streamUrl = new URL(url, window.location.origin);
@@ -108,7 +109,15 @@ export function createEventStream(options = {}) {
     nextSource.addEventListener('keepalive', () => {
       /* noop */
     });
-    nextSource.onerror = () => {
+    nextSource.addEventListener('disconnect', () => {
+      console.info('SSE: servidor solicitó desconexión (conexión duplicada reemplazada)');
+      disconnect();
+    });
+    nextSource.onerror = (event) => {
+      // Evitar reconexión inmediata si el servidor cerró la conexión activamente
+      if (nextSource.readyState === EventSource.CLOSED) {
+        console.warn('SSE: conexión cerrada por el servidor');
+      }
       scheduleReconnect();
     };
 
@@ -121,7 +130,7 @@ export function createEventStream(options = {}) {
 
   function ensureConnection() {
     if (destroyed) return;
-    if (source) return;
+    if (source && source.readyState !== EventSource.CLOSED) return;
     if (connectingPromise) return;
 
     if (!(options.token || hasSessionToken())) return;
@@ -146,6 +155,12 @@ export function createEventStream(options = {}) {
       connectingPromise = null;
     }
     if (reconnectTimer) return;
+    
+    // Solo reconectar si hay listeners activos
+    if (eventListeners.size === 0 && channelListeners.size === 0) {
+      return;
+    }
+    
     reconnectTimer = window.setTimeout(() => {
       reconnectTimer = null;
       ensureConnection();
@@ -189,6 +204,9 @@ export function createEventStream(options = {}) {
     if (reconnectTimer) {
       window.clearTimeout(reconnectTimer);
       reconnectTimer = null;
+    }
+    if (connectingPromise) {
+      connectingPromise = null;
     }
     if (source) {
       try {

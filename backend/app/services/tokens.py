@@ -1,8 +1,5 @@
 """
 Servicio de gestión de tokens de usuario.
-
-Funciones:
-- issue_user_token: Crea tokens únicos para verificación de email, reset de password, etc.
 """
 
 import secrets

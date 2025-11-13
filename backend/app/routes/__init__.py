@@ -1,8 +1,5 @@
 """
 Routes package - modular organization of API endpoints.
-
-Este paquete organiza las rutas por dominio funcional manteniendo un
-blueprint 'api' único para evitar conflictos de prefijos.
 """
 from flask import Blueprint
 

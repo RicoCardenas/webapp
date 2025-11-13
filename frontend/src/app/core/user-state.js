@@ -52,7 +52,7 @@ export async function refreshCurrentUser() {
     }
     const data = await res.json().catch(() => null);
     setSessionToken();
-    eventStream.ensure?.();
+    // No llamamos ensure() aquí - ya se llamó en restoreSessionAuth()
     setCurrentUser(data);
     return { user: data, status };
   } catch (error) {

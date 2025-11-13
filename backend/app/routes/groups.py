@@ -1,12 +1,5 @@
 """
 Rutas de gestión de grupos de estudiantes.
-
-Endpoints:
-- POST /api/groups - Crear grupo de estudiantes
-- GET /api/groups - Listar grupos del docente
-- POST /api/groups/<id>/members - Agregar estudiante a grupo
-- DELETE /api/groups/<id>/members/<visible_id> - Remover estudiante de grupo
-- GET /api/teacher/groups/<id>/history - Ver historial del grupo
 """
 
 from datetime import datetime, timezone

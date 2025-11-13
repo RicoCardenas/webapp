@@ -1,5 +1,4 @@
 import { authFetch, toast, eventStream } from '/static/app.js';
-import { createNotificationsStore } from '../../lib/notifications-store.js';
 import { accountState } from '../state.js';
 import { ui } from '../ui.js';
 
@@ -22,10 +21,74 @@ const notificationsState = {
   lastUnread: 0,
   error: null,
   initialFetchDone: false,
+  sectionActive: false, // Rastrear si la sección está activa
 };
 
-const notificationsStore = createNotificationsStore({ authFetch, eventStream });
-notificationsStore.subscribe(handleNotificationsSnapshot);
+// Store se crea bajo demanda, no al importar
+let notificationsStore = null;
+let storeUnsubscribe = null;
+let minimalSSEUnsubscribe = null; // Para badge mientras store no está activo
+
+/**
+ * Inicializa el notificationsStore solo cuando se necesita
+ */
+async function ensureStore() {
+  if (notificationsStore) return notificationsStore;
+  
+  // Import dinámico del store
+  const { createNotificationsStore } = await import('../../lib/notifications-store.js');
+  
+  notificationsStore = createNotificationsStore({ 
+    authFetch, 
+    eventStream 
+  });
+  
+  // Suscribirse a cambios
+  storeUnsubscribe = notificationsStore.subscribe(handleNotificationsSnapshot);
+  
+  return notificationsStore;
+}
+
+/**
+ * Listener mínimo de SSE para actualizar badge sin cargar store completo
+ */
+function attachMinimalSSE() {
+  if (!eventStream || minimalSSEUnsubscribe) return;
+  
+  minimalSSEUnsubscribe = eventStream.subscribeChannel('notifications', (payload) => {
+    // Solo actualizar contador de no leídos
+    if (typeof payload?.data?.unread === 'number') {
+      notificationsState.unread = payload.data.unread;
+      updateUnreadBadge();
+    }
+  });
+  
+  eventStream.ensure?.();
+}
+
+/**
+ * Desconectar listener mínimo de SSE
+ */
+function detachMinimalSSE() {
+  if (minimalSSEUnsubscribe) {
+    minimalSSEUnsubscribe();
+    minimalSSEUnsubscribe = null;
+  }
+}
+
+/**
+ * Actualiza el badge de notificaciones no leídas
+ */
+function updateUnreadBadge() {
+  if (ui.notificationsUnread) {
+    const count = notificationsState.unread;
+    if (count > 0) {
+      ui.notificationsUnread.textContent = `Tienes ${count} notificación${count !== 1 ? 'es' : ''} sin leer.`;
+    } else {
+      ui.notificationsUnread.textContent = 'No tienes notificaciones sin leer.';
+    }
+  }
+}
 
 function describeNotificationsEmptyMessage() {
   if (notificationsState.loading) return 'Cargando notificaciones…';
@@ -322,7 +385,8 @@ async function handleNotificationsPrefsSubmit(event) {
   updateNotificationsControls();
 
   try {
-    const result = await notificationsStore.updatePreferences(payload);
+    const store = await ensureStore();
+    const result = await store.updatePreferences(payload);
     if (!result?.ok) {
       toast?.error?.(describeNotificationError(result?.reason || 'prefs:500'));
       return;
@@ -380,7 +444,8 @@ async function markNotificationRead(notificationId, { silent = false } = {}) {
   notificationsState.pendingMarks.add(id);
   updateNotificationsControls();
   try {
-    const result = await notificationsStore.markRead(id);
+    const store = await ensureStore();
+    const result = await store.markRead(id);
     if (!result?.ok && !silent) {
       toast?.error?.(describeNotificationError(result?.reason || 'mark-read:500'));
     }
@@ -427,7 +492,8 @@ async function handleNotificationsMarkAll(event) {
   notificationsState.markAllPending = true;
   updateNotificationsControls();
   try {
-    const result = await notificationsStore.markAll({ category: notificationsState.category || undefined });
+    const store = await ensureStore();
+    const result = await store.markAll({ category: notificationsState.category || undefined });
     if (!result?.ok) {
       toast?.error?.(describeNotificationError(result?.reason || 'mark-all:500'));
       return;
@@ -612,10 +678,11 @@ function bindNotificationsSection() {
     if (cancel) cancel.addEventListener('click', handleNotificationsPrefsCancel);
   }
 
-  loadNotifications({ fetch: true, resetPage: true });
+  // Iniciar con listener mínimo de SSE para badge
+  attachMinimalSSE();
 }
 
-function loadNotifications(options = {}) {
+async function loadNotifications(options = {}) {
   const partial = {};
   if (options.resetPage) partial.page = 1;
   if (options.page != null) partial.page = options.page;
@@ -623,11 +690,20 @@ function loadNotifications(options = {}) {
   if (options.category != null) partial.category = options.category;
   const fetch = options.fetch !== false;
 
+  // Asegurar que el store existe antes de usarlo
+  const store = await ensureStore();
+  
+  // Al activar el store completo, desactivar SSE mínimo
+  if (!notificationsState.sectionActive) {
+    notificationsState.sectionActive = true;
+    detachMinimalSSE();
+  }
+
   let request;
   if (Object.keys(partial).length) {
-    request = notificationsStore.setFilters(partial, { fetch });
+    request = store.setFilters(partial, { fetch });
   } else if (fetch) {
-    request = notificationsStore.load();
+    request = store.load();
   } else {
     request = Promise.resolve({ ok: true });
   }
@@ -639,10 +715,30 @@ function loadNotifications(options = {}) {
   return request;
 }
 
+/**
+ * Desactiva el store completo y vuelve a SSE mínimo para badge
+ */
+function deactivateFullStore() {
+  if (!notificationsState.sectionActive) return;
+  
+  notificationsState.sectionActive = false;
+  
+  // Desconectar listener completo del store
+  if (storeUnsubscribe) {
+    storeUnsubscribe();
+    storeUnsubscribe = null;
+  }
+  
+  // Volver a listener mínimo para mantener badge actualizado
+  attachMinimalSSE();
+}
+
 export function createNotificationsSection() {
   return {
     init: bindNotificationsSection,
     load: loadNotifications,
     reset: resetNotificationsUI,
+    activate: loadNotifications,  // Activar store completo
+    deactivate: deactivateFullStore,  // Volver a modo mínimo
   };
 }

@@ -39,7 +39,7 @@
     </script>
   <link rel="stylesheet" href="/static/base.css" />
   <link rel="stylesheet" href="/static/components.css" />
-  <link rel="stylesheet" href="/static/pages.css" />
+  <link rel="stylesheet" href="/static/landing.css" />
   </head>
   <body class="page page--landing">
     <a class="skip-link" href="#app">Saltar al contenido principal</a>
@@ -48,12 +48,17 @@
       <div class="header__inner">
         <div class="header__brand">
           <a href="#hero" class="header__logo" aria-label="Ir al inicio">
-            <img
-              src="/static/images/logo.jpg"
-              alt="EcuPlot logo"
-              class="header__logo-img img-responsive"
-              decoding="async"
-            />
+            <picture>
+              <source type="image/webp" srcset="/static/images/logo.webp" />
+              <img
+                src="/static/images/logo.jpg"
+                alt="EcuPlot logo"
+                class="header__logo-img img-responsive"
+                width="48"
+                height="48"
+                decoding="async"
+              />
+            </picture>
             <span class="header__logo-text">EcuPlot</span>
           </a>
         </div>

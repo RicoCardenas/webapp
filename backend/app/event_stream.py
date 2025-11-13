@@ -1,4 +1,3 @@
-"""Simple in-process event broker for Server-Sent Events streams."""
 from __future__ import annotations
 
 import json
@@ -51,11 +50,18 @@ class EventBroker:
 
         if replacement is not None:
             self._logger.warning(
-                "Reemplazando conexión SSE anterior para el usuario %s por exceso de conexiones",
+                "⚠️ Reemplazando conexión SSE anterior para el usuario %s por exceso de conexiones (límite: %d)",
                 normalized,
+                self._max_subscribers_per_user,
             )
+            # Intentar enviar evento de desconexión a la conexión antigua
             try:
                 replacement.put_nowait(self._DISCONNECT_EVENT.copy())
+            except queue.Full:
+                pass
+            # Forzar limpieza de la cola antigua
+            try:
+                replacement.put_nowait(None)
             except queue.Full:
                 pass
         return q

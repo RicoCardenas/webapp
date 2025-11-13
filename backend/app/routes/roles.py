@@ -1,12 +1,5 @@
 """
 Rutas de solicitud de roles (role requests).
-
-Endpoints:
-- POST /api/role-requests - Crear solicitud de rol
-- GET /api/role-requests/me - Ver estado de mi solicitud más reciente
-
-Nota: Los endpoints de administración de solicitudes (/development/role-requests)
-están en dev.py por requerir permisos de development.
 """
 
 from datetime import datetime, timezone

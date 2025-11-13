@@ -80,6 +80,11 @@ export function updateOpsPagination(meta = {}) {
   developmentState.opsHasNext = meta.has_next ?? page * pageSize < total;
   developmentState.opsHasPrev = meta.has_prev ?? page > 1;
 
+  if (ui.opsEventsPagination) {
+    const shouldShow = total > pageSize;
+    ui.opsEventsPagination.hidden = !shouldShow;
+  }
+
   if (ui.opsEventsPageInfo) {
     const pages = pageSize > 0 ? Math.ceil(total / pageSize) : 1;
     ui.opsEventsPageInfo.textContent = `Página ${page} de ${pages || 1}`;

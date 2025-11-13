@@ -31,7 +31,7 @@
     </script>
     <link rel="stylesheet" href="/static/base.css" />
     <link rel="stylesheet" href="/static/components.css" />
-    <link rel="stylesheet" href="/static/pages.css" />
+    <link rel="stylesheet" href="/static/account.css" />
   </head>
 
   <body class="page page--account">
@@ -459,12 +459,16 @@
                 </div>
                 <button id="security-refresh" class="btn btn--ghost btn--sm" type="button">Actualizar seguridad</button>
               </div>
-              <p id="twofa-status" class="account-2fa__status">Autenticación en dos pasos desactivada</p>
-              <button id="twofa-setup" class="btn btn--primary btn--sm" type="button">Activar 2FA</button>
+              <div>
+                <p id="twofa-status" class="account-2fa__status">Autenticación en dos pasos desactivada</p>
+                <div class="account-2fa__actions">
+                  <button id="twofa-setup" class="btn btn--primary" type="button">Activar 2FA</button>
+                </div>
+              </div>
 
               <div id="twofa-setup-panel" class="account-2fa__panel" hidden>
                 <div class="account-2fa__qr">
-                  <img id="twofa-qr" src="" alt="Código QR para configurar autenticación en dos pasos" hidden />
+                  <img id="twofa-qr" src="" alt="Código QR para configurar autenticación en dos pasos" loading="lazy" width="200" height="200" hidden />
                 </div>
                 <p class="account-card__hint">Escanea el código con tu aplicación de autenticación o ingresa esta clave manualmente:</p>
                 <code id="twofa-secret" class="account-2fa__secret"></code>
@@ -686,15 +690,15 @@
               </div>
 
                 <div class="role-panel__actions">
-                <div class="role-panel__cluster">
-                  <h3 class="role-panel__subtitle">Crear respaldo</h3>
+                <div class="role-panel__cluster role-panel__cluster--backup">
+                  <h3>Crear respaldo</h3>
                   <p class="role-panel__hint">Genera un nuevo backup de manera inmediata para resguardar los datos actuales.</p>
                   <p class="role-panel__meta" id="development-backup-status">Último backup: sin registros</p>
                   <p class="role-panel__meta role-panel__meta--muted" id="development-backup-meta"></p>
-                  <button id="development-create-backup" class="btn btn--primary btn--sm" type="button">Ejecutar backup</button>
+                  <button id="development-create-backup" class="btn btn--primary" type="button">Ejecutar backup</button>
                 </div>
-                <div class="role-panel__cluster">
-                  <h3 class="role-panel__subtitle">Restaurar respaldo</h3>
+                <div class="role-panel__cluster role-panel__cluster--backup">
+                  <h3>Restaurar respaldo</h3>
                   <p class="role-panel__hint">Ingresa el nombre exacto del archivo que deseas restaurar desde el servidor.</p>
                   <form id="development-restore-form" class="role-form" novalidate>
                     <div class="form__field">
@@ -702,7 +706,7 @@
                       <input class="form__input" type="text" id="development-backup-name" autocomplete="off" placeholder="Ej. backup-2025-10-30" />
                     </div>
                     <div class="form__actions">
-                      <button class="btn btn--ghost btn--sm" type="submit">Restaurar backup</button>
+                      <button class="btn btn--ghost" type="submit">Restaurar backup</button>
                     </div>
                   </form>
                 </div>

@@ -1,9 +1,5 @@
 """
 Servicio de validación y normalización de datos.
-
-Funciones:
-- normalize_email: Normaliza direcciones de email
-- validate_contact_submission: Valida formularios de contacto
 """
 
 

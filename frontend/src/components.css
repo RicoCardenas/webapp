@@ -1,5 +1,3 @@
-/* Reusable UI components shared across pages */
-
 /* Buttons */
 .btn,
 .btn-primary,
@@ -104,6 +102,39 @@
 .btn__icon { display: inline-flex; align-items: center; justify-content: center; }
 .btn__icon-img { width: 20px; height: 20px; object-fit: contain; }
 .btn__icon-img--dark { display: none; }
+
+/* SVG icons - lighter and scalable */
+.btn__icon-svg {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+}
+
+.btn__icon-svg svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+  stroke: currentColor;
+  color: inherit;
+}
+
+/* Icon variants para diferentes contextos */
+.icon--theme,
+.icon--menu {
+  width: 20px;
+  height: 20px;
+  object-fit: contain;
+}
+
+.icon--theme.btn__icon-svg,
+.icon--menu.btn__icon-svg {
+  width: 20px;
+  height: 20px;
+}
+
 .btn__label { white-space: nowrap; }
 
 body.theme-dark .btn__icon-img--light,

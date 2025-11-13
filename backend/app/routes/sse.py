@@ -46,6 +46,20 @@ def _issue_user_token(user, token_type, expires_delta):
 def issue_stream_token():
     """Genera un token efímero para consumir el canal SSE."""
     try:
+        # Invalidar tokens SSE anteriores no usados del mismo usuario
+        # para evitar conexiones duplicadas
+        existing_tokens = db.session.execute(
+            db.select(UserTokens).where(
+                UserTokens.user_id == g.current_user.id,
+                UserTokens.token_type == "sse_stream",
+                UserTokens.used_at.is_(None),
+            )
+        ).scalars().all()
+        
+        for old_token in existing_tokens:
+            # Marcar como usado para que no se puedan usar
+            old_token.used_at = datetime.now(timezone.utc)
+        
         token = _issue_user_token(g.current_user, "sse_stream", SSE_STREAM_TOKEN_TTL)
         db.session.commit()
     except Exception as exc:

@@ -1,9 +1,5 @@
 """
 Servicio de correo electrónico.
-
-Funciones:
-- resolve_mail_sender: Determina el remitente de correo configurado
-- send_contact_notification: Envía notificación de formulario de contacto
 """
 
 from flask import current_app

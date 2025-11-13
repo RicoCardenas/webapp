@@ -1,11 +1,5 @@
 """
 Servicio de gestión de historial de gráficos.
-
-Funciones:
-- parse_iso_datetime: Parsea fechas ISO con manejo de timezones
-- history_query_params: Extrae y valida parámetros de consulta de historial
-- build_history_query: Construye query SQLAlchemy con filtros aplicados
-- serialize_history_item: Serializa un item de PlotHistory a JSON
 """
 
 from datetime import datetime, timezone, timedelta

@@ -24,7 +24,7 @@ export const developmentState = {
   opsEvents: [],
   opsTotal: 0,
   opsPage: 1,
-  opsPageSize: 20,
+  opsPageSize: 8,
   opsHasNext: false,
   opsHasPrev: false,
   opsPaginationBound: false,

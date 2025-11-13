@@ -3,7 +3,9 @@ import { authFetch } from './app/core/http.js';
 import { toast } from './app/core/toast.js';
 import { eventStream } from './app/core/stream.js';
 import { getCurrentUser, refreshCurrentUser } from './app/core/user-state.js';
+// import { replaceIconImages } from './lib/icons.js';
 import './app/index.js';
+
 
 // API complementaria que otras vistas consumen
 export async function savePlot(expression, plot_parameters = null, plot_metadata = null) {

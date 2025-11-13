@@ -370,6 +370,21 @@ export function createHistoryStore({ authFetch, eventStream, initialFilters = {}
     };
   }
 
+  function detachEvents() {
+    if (unsubscribeEvents) {
+      unsubscribeEvents();
+      unsubscribeEvents = null;
+    }
+  }
+
+  function pause() {
+    detachEvents();
+  }
+
+  function resume() {
+    attachEvents();
+  }
+
   return {
     subscribe,
     load,
@@ -378,5 +393,7 @@ export function createHistoryStore({ authFetch, eventStream, initialFilters = {}
     getState: snapshot,
     updateItem,
     deleteItems,
+    pause,
+    resume,
   };
 }

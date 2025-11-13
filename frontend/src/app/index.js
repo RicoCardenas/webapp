@@ -15,23 +15,36 @@ ready(async () => {
   initLayout();
   restoreSessionAuth();
 
-  // Backend status (landing)
+  // Limpiar conexiones SSE al cerrar/salir de la página
+  window.addEventListener('beforeunload', () => {
+    eventStream.disconnect?.();
+  });
+
+  // Limpiar cuando la página se oculta (cambio de tab, minimizar)
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) {
+      // Dar un pequeño delay para reconexión si el usuario vuelve rápido
+      setTimeout(() => {
+        if (document.hidden) {
+          eventStream.disconnect?.();
+        }
+      }, 30000); // 30 segundos de tab inactivo
+    }
+  });
+
+
   if (document.querySelector('[data-status]')) {
     const { initBackendStatus } = await import('./ui/backend-status.js');
     initBackendStatus();
   }
 
-  // Learn carousel (landing)
   if (document.querySelector('.learn__carousel')) {
     const { initLearnCarousel } = await import('./ui/learn.js');
     initLearnCarousel();
   }
 
-  // Bind logout in header if present
   bindLogout();
-  // Initial sync for header auth links with current user (if any)
   syncHeaderAuthLinks(getCurrentUser());
-  // Sync header auth links on user change
   window.addEventListener('ecuplot:user', syncHeaderAuthLinks);
 
   // Cargas diferidas por presencia en el DOM

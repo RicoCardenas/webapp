@@ -43,6 +43,26 @@ export function createPlotterRenderer(params) {
   let initialPinchDistance = 0;
   let pinchCenter = { x: 0, y: 0 };
 
+  // Cache de estilos computados (optimización de rendimiento)
+  let cachedStyles = {
+    gridLine: 'rgba(148, 163, 184, 0.2)',
+    gridAxis: 'rgba(148, 163, 184, 0.5)',
+    gridText: 'rgba(148, 163, 184, 0.7)',
+    timestamp: 0,
+  };
+  const STYLE_CACHE_TTL = 1000; // 1 segundo
+
+  // Cache de dimensiones por frame (evita reflows)
+  let frameCache = {
+    width: 0,
+    height: 0,
+    widthDpi: 0,
+    heightDpi: 0,
+    scaleX: 0,
+    scaleY: 0,
+    valid: false,
+  };
+
   const hoverState = {
     active: false,
     x: 0,
@@ -98,6 +118,47 @@ export function createPlotterRenderer(params) {
     return canvas?.clientHeight || 500;
   }
 
+  /**
+   * Actualiza el caché de estilos computados (solo si ha expirado)
+   * Llamar en resize, cambio de tema, o periodicamente
+   */
+  function updateStyleCache() {
+    const now = performance.now();
+    if (now - cachedStyles.timestamp < STYLE_CACHE_TTL) return;
+
+    const styles = getComputedStyle(container || document.body);
+    cachedStyles.gridLine = (styles.getPropertyValue('--grid-line') || 'rgba(148, 163, 184, 0.2)').trim();
+    cachedStyles.gridAxis = (styles.getPropertyValue('--grid-axis') || 'rgba(148, 163, 184, 0.5)').trim();
+    cachedStyles.gridText = (styles.getPropertyValue('--grid-text') || 'rgba(148, 163, 184, 0.7)').trim();
+    cachedStyles.timestamp = now;
+  }
+
+  /**
+   * Precalcula valores de frame (dimensiones, escalas) - evita recomputes en bucles
+   */
+  function updateFrameCache() {
+    const w = width();
+    const h = height();
+    frameCache.width = w;
+    frameCache.height = h;
+    frameCache.widthDpi = w * dpi;
+    frameCache.heightDpi = h * dpi;
+    
+    const view = core.getView();
+    const spanX = view.xmax - view.xmin;
+    const spanY = view.ymax - view.ymin;
+    frameCache.scaleX = w / spanX;
+    frameCache.scaleY = h / spanY;
+    frameCache.valid = true;
+  }
+
+  /**
+   * Invalida el caché de frame (llamar en resize o cambios de vista)
+   */
+  function invalidateFrameCache() {
+    frameCache.valid = false;
+  }
+
   function worldToScreen(x, y) {
     const view = core.getView();
     const w = width() * dpi;
@@ -120,6 +181,8 @@ export function createPlotterRenderer(params) {
     if (raf) return;
     raf = requestAnimationFrame(() => {
       raf = 0;
+      updateFrameCache(); // Precalcular antes de renderizar
+      updateStyleCache();  // Actualizar estilos si es necesario
       renderAll();
     });
   }
@@ -132,22 +195,20 @@ export function createPlotterRenderer(params) {
     const view = core.getView();
     if (!view.gridOn) return;
 
-    const w = width() * dpi;
-    const h = height() * dpi;
+    // Usar valores precalculados del frameCache
+    const w = frameCache.widthDpi;
+    const h = frameCache.heightDpi;
     const spanX = view.xmax - view.xmin;
     const spanY = view.ymax - view.ymin;
     const baseStep = niceStep(Math.min(spanX, spanY));
     const stepX = baseStep;
     const stepY = baseStep;
 
-  ctx.save();
-  const styles = getComputedStyle(container || document.body);
-  const gridLine = (styles.getPropertyValue('--grid-line') || 'rgba(148, 163, 184, 0.2)').trim();
-  const gridAxis = (styles.getPropertyValue('--grid-axis') || 'rgba(148, 163, 184, 0.5)').trim();
-  const gridText = (styles.getPropertyValue('--grid-text') || 'rgba(148, 163, 184, 0.7)').trim();
+    ctx.save();
+    // Usar estilos cacheados en lugar de getComputedStyle por frame
     ctx.scale(1, 1);
-  ctx.lineWidth = 1 * dpi;
-  ctx.strokeStyle = gridLine;
+    ctx.lineWidth = 1 * dpi;
+    ctx.strokeStyle = cachedStyles.gridLine;
 
     const drawLines = (axis, step, min, max, drawFn) => {
       let start = Math.ceil(min / step) * step;
@@ -174,7 +235,7 @@ export function createPlotterRenderer(params) {
       ctx.stroke();
     });
 
-  ctx.strokeStyle = gridAxis;
+    ctx.strokeStyle = cachedStyles.gridAxis;
     ctx.lineWidth = 1.5 * dpi;
 
     // eje X
@@ -197,8 +258,8 @@ export function createPlotterRenderer(params) {
       ctx.stroke();
     }
 
-  ctx.fillStyle = gridText;
-  ctx.font = `${12 * dpi}px Inter, system-ui, sans-serif`;
+    ctx.fillStyle = cachedStyles.gridText;
+    ctx.font = `${12 * dpi}px Inter, system-ui, sans-serif`;
 
     drawLines('x-labels', stepX, view.xmin, view.xmax, (value) => {
       const [sx] = worldToScreen(value, view.ymin);
@@ -349,6 +410,7 @@ export function createPlotterRenderer(params) {
     if (canvas.width !== w || canvas.height !== h) {
       canvas.width = w;
       canvas.height = h;
+      invalidateFrameCache(); // Dimensiones cambiaron
     }
   }
 
@@ -376,6 +438,7 @@ export function createPlotterRenderer(params) {
         ymin: midY - half,
         ymax: midY + half,
       });
+      invalidateFrameCache(); // Vista cambiada
     } else {
       const midX = (view.xmax + view.xmin) / 2;
       const newSpanX = spanY * canvasAspect;
@@ -386,6 +449,7 @@ export function createPlotterRenderer(params) {
         ymin: view.ymin,
         ymax: view.ymax,
       });
+      invalidateFrameCache(); // Vista cambiada
     }
   }
 

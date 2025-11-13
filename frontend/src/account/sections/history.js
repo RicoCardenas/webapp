@@ -1,6 +1,6 @@
 import { authFetch, toast, eventStream } from '/static/app.js';
 import { on } from '../../lib/events.js';
-import { ensureHistoryStore } from '../../lib/history-store-singleton.js';
+import { createHistoryStore } from '../../lib/history-store.js';
 import { requestWithAuth } from '../api-client.js';
 import { ui } from '../ui.js';
 
@@ -21,20 +21,35 @@ const historyState = {
   items: [],
   pendingDeletes: new Set(),
   listActionsBound: false,
+  panelOpen: false, // Rastrear si el panel está abierto
 };
 
-const historyStore = ensureHistoryStore({
-  authFetch,
-  eventStream,
-  initialFilters: {
-    page: historyState.page,
-    pageSize: historyState.pageSize,
-    order: historyState.order,
-    q: historyState.q,
-  },
-});
+// Store se crea bajo demanda, no al importar el módulo
+let historyStore = null;
+let storeUnsubscribe = null;
 
-historyStore.subscribe(handleHistorySnapshot);
+/**
+ * Inicializa el historyStore solo cuando se necesita (primera apertura del panel)
+ */
+function ensureStore() {
+  if (historyStore) return historyStore;
+  
+  historyStore = createHistoryStore({
+    authFetch,
+    eventStream,
+    initialFilters: {
+      page: historyState.page,
+      pageSize: historyState.pageSize,
+      order: historyState.order,
+      q: historyState.q,
+    },
+  });
+
+  // Suscribirse a cambios del store
+  storeUnsubscribe = historyStore.subscribe(handleHistorySnapshot);
+  
+  return historyStore;
+}
 
 function toggleHistoryPanel(force) {
   if (!ui.historyPanel || !ui.historyToggle) return false;
@@ -47,6 +62,28 @@ function toggleHistoryPanel(force) {
     ui.historyCollapsed.hidden = shouldOpen;
     ui.historyCollapsed.setAttribute('aria-hidden', String(shouldOpen));
   }
+  
+  // Actualizar estado del panel
+  const wasOpen = historyState.panelOpen;
+  historyState.panelOpen = shouldOpen;
+  
+  // Gestionar SSE según estado del panel
+  if (shouldOpen) {
+    // Panel abierto: activar SSE
+    const store = ensureStore();
+    if (store.resume) store.resume();
+    
+    // Si es la primera apertura, cargar datos
+    if (!wasOpen && !historyState.initialized) {
+      loadHistory();
+    }
+  } else {
+    // Panel cerrado: pausar SSE para ahorrar recursos
+    if (historyStore && historyStore.pause) {
+      historyStore.pause();
+    }
+  }
+  
   return shouldOpen;
 }
 
@@ -253,6 +290,119 @@ function updateHistoryPagination(meta) {
   }
 }
 
+/**
+ * Crea un elemento DOM para un item de historial.
+ * Separado para facilitar el render incremental.
+ */
+function createHistoryItemElement(item) {
+  const li = document.createElement('li');
+  li.className = 'history-item';
+  if (item?.id != null) {
+    const id = String(item.id);
+    li.dataset.historyId = id;
+    if (historyState.pendingDeletes.has(id)) {
+      li.classList.add('history-item--pending');
+    }
+  }
+
+  const main = document.createElement('div');
+  main.className = 'history-item__main';
+
+  const expressionText = typeof item?.expression === 'string' ? item.expression : '';
+  const titleText = typeof item?.title === 'string' ? item.title : '';
+  const rawExpression = expressionText.trim();
+  const rawTitle = titleText.trim();
+  const displayLabel = rawTitle || rawExpression || 'Expresión guardada';
+
+  const label = document.createElement('span');
+  label.className = 'history-expr';
+  label.textContent = displayLabel;
+  if (rawExpression) label.title = expressionText;
+  main.appendChild(label);
+
+  if (item?.deleted) {
+    const badge = document.createElement('span');
+    badge.className = 'history-badge history-badge--deleted';
+    badge.textContent = 'Eliminado';
+    main.appendChild(badge);
+  }
+
+  if (item?.created_at) {
+    const timestamp = document.createElement('time');
+    timestamp.className = 'history-date';
+    timestamp.dateTime = item.created_at;
+    const formatted = formatHistoryDate(item.created_at);
+    timestamp.textContent = formatted || item.created_at;
+    main.appendChild(timestamp);
+  }
+
+  li.appendChild(main);
+
+  const metaContainer = document.createElement('div');
+  metaContainer.className = 'history-item__meta';
+
+  if (rawExpression && rawTitle && rawExpression !== rawTitle) {
+    const expression = document.createElement('code');
+    expression.className = 'history-formula';
+    expression.textContent = expressionText.trim() || expressionText;
+    metaContainer.appendChild(expression);
+  }
+
+  if (Array.isArray(item?.tags) && item.tags.length) {
+    const tags = document.createElement('ul');
+    tags.className = 'history-tags';
+    item.tags.forEach((tag) => {
+      if (!tag) return;
+      const chip = document.createElement('li');
+      chip.className = 'history-tag';
+      chip.textContent = tag;
+      tags.appendChild(chip);
+    });
+    metaContainer.appendChild(tags);
+  }
+
+  if (item?.variables && typeof item.variables === 'object' && Object.keys(item.variables).length) {
+    const variables = document.createElement('dl');
+    variables.className = 'history-item__variables';
+    Object.entries(item.variables).forEach(([key, value]) => {
+      const dt = document.createElement('dt');
+      dt.textContent = key;
+      const dd = document.createElement('dd');
+      dd.textContent = typeof value === 'number' ? value.toString() : String(value ?? '');
+      variables.append(dt, dd);
+    });
+    metaContainer.appendChild(variables);
+  }
+
+  const id = item?.id != null ? String(item.id) : null;
+  const isPendingDelete = id ? historyState.pendingDeletes.has(id) : false;
+
+  if (id) {
+    const actions = document.createElement('div');
+    actions.className = 'history-item__actions';
+    const deleteBtn = document.createElement('button');
+    deleteBtn.type = 'button';
+    deleteBtn.className = 'btn btn--ghost btn--sm history-item__delete';
+    deleteBtn.dataset.historyAction = 'delete';
+    deleteBtn.textContent = isPendingDelete ? 'Eliminando...' : item?.deleted ? 'Eliminado' : 'Eliminar';
+    if (isPendingDelete || item?.deleted) {
+      deleteBtn.disabled = true;
+    }
+    actions.appendChild(deleteBtn);
+    metaContainer.appendChild(actions);
+  }
+
+  if (metaContainer.childElementCount > 0) {
+    li.appendChild(metaContainer);
+  }
+
+  return li;
+}
+
+/**
+ * Renderiza items de historial con render incremental.
+ * Para listas grandes, renderiza por lotes para evitar bloquear el thread principal.
+ */
 function renderHistoryItems(items) {
   if (!ui.historyList) return;
   ui.historyList.replaceChildren();
@@ -276,110 +426,39 @@ function renderHistoryItems(items) {
 
   if (ui.historyEmpty) ui.historyEmpty.hidden = true;
 
-  items.forEach((item) => {
-    const li = document.createElement('li');
-    li.className = 'history-item';
-    if (item?.id != null) {
-      const id = String(item.id);
-      li.dataset.historyId = id;
-      if (historyState.pendingDeletes.has(id)) {
-        li.classList.add('history-item--pending');
-      }
+  // Para listas pequeñas (<= 20 items), render directo
+  if (items.length <= 20) {
+    const fragment = document.createDocumentFragment();
+    items.forEach((item) => {
+      fragment.appendChild(createHistoryItemElement(item));
+    });
+    ui.historyList.appendChild(fragment);
+    return;
+  }
+
+  // Para listas grandes, render incremental por lotes de 10 items
+  let currentIndex = 0;
+  const batchSize = 10;
+
+  function renderBatch() {
+    const endIndex = Math.min(currentIndex + batchSize, items.length);
+    const fragment = document.createDocumentFragment();
+
+    for (let i = currentIndex; i < endIndex; i++) {
+      fragment.appendChild(createHistoryItemElement(items[i]));
     }
 
-    const main = document.createElement('div');
-    main.className = 'history-item__main';
+    ui.historyList.appendChild(fragment);
+    currentIndex = endIndex;
 
-  const expressionText = typeof item?.expression === 'string' ? item.expression : '';
-  const titleText = typeof item?.title === 'string' ? item.title : '';
-  const rawExpression = expressionText.trim();
-  const rawTitle = titleText.trim();
-  const displayLabel = rawTitle || rawExpression || 'Expresión guardada';
-
-    const label = document.createElement('span');
-    label.className = 'history-expr';
-    label.textContent = displayLabel;
-  if (rawExpression) label.title = expressionText;
-    main.appendChild(label);
-
-    if (item?.deleted) {
-      const badge = document.createElement('span');
-      badge.className = 'history-badge history-badge--deleted';
-      badge.textContent = 'Eliminado';
-      main.appendChild(badge);
+    // Si quedan más items, programar siguiente lote
+    if (currentIndex < items.length) {
+      requestAnimationFrame(renderBatch);
     }
+  }
 
-    if (item?.created_at) {
-      const timestamp = document.createElement('time');
-      timestamp.className = 'history-date';
-      timestamp.dateTime = item.created_at;
-      const formatted = formatHistoryDate(item.created_at);
-      timestamp.textContent = formatted || item.created_at;
-      main.appendChild(timestamp);
-    }
-
-    li.appendChild(main);
-
-    const metaContainer = document.createElement('div');
-    metaContainer.className = 'history-item__meta';
-
-    if (rawExpression && rawTitle && rawExpression !== rawTitle) {
-      const expression = document.createElement('code');
-      expression.className = 'history-formula';
-      expression.textContent = expressionText.trim() || expressionText;
-      metaContainer.appendChild(expression);
-    }
-
-    if (Array.isArray(item?.tags) && item.tags.length) {
-      const tags = document.createElement('ul');
-      tags.className = 'history-tags';
-      item.tags.forEach((tag) => {
-        if (!tag) return;
-        const chip = document.createElement('li');
-        chip.className = 'history-tag';
-        chip.textContent = tag;
-        tags.appendChild(chip);
-      });
-      metaContainer.appendChild(tags);
-    }
-
-    if (item?.variables && typeof item.variables === 'object' && Object.keys(item.variables).length) {
-      const variables = document.createElement('dl');
-      variables.className = 'history-item__variables';
-      Object.entries(item.variables).forEach(([key, value]) => {
-        const dt = document.createElement('dt');
-        dt.textContent = key;
-        const dd = document.createElement('dd');
-  dd.textContent = typeof value === 'number' ? value.toString() : String(value ?? '');
-        variables.append(dt, dd);
-      });
-      metaContainer.appendChild(variables);
-    }
-
-    const id = item?.id != null ? String(item.id) : null;
-    const isPendingDelete = id ? historyState.pendingDeletes.has(id) : false;
-
-    if (id) {
-      const actions = document.createElement('div');
-      actions.className = 'history-item__actions';
-      const deleteBtn = document.createElement('button');
-      deleteBtn.type = 'button';
-      deleteBtn.className = 'btn btn--ghost btn--sm history-item__delete';
-      deleteBtn.dataset.historyAction = 'delete';
-      deleteBtn.textContent = isPendingDelete ? 'Eliminando...' : item?.deleted ? 'Eliminado' : 'Eliminar';
-      if (isPendingDelete || item?.deleted) {
-        deleteBtn.disabled = true;
-      }
-      actions.appendChild(deleteBtn);
-      metaContainer.appendChild(actions);
-    }
-
-    if (metaContainer.childElementCount > 0) {
-      li.appendChild(metaContainer);
-    }
-
-    ui.historyList.appendChild(li);
-  });
+  // Iniciar el render incremental
+  renderBatch();
 }
 
 function handleHistoryListClick(event) {
@@ -422,7 +501,8 @@ async function requestHistoryDelete(id) {
   renderHistoryItems(historyState.items);
 
   try {
-    const result = await historyStore.deleteItems(id);
+    const store = ensureStore();
+    const result = await store.deleteItems(id);
     if (!result?.ok) {
       historyState.pendingDeletes.delete(id);
       renderHistoryItems(historyState.items);
@@ -465,7 +545,8 @@ function handleHistoryFiltersSubmit(event) {
   const to = ui.historyTo instanceof HTMLInputElement ? ui.historyTo.value : '';
   const tags = ui.historyTags instanceof HTMLInputElement ? parseTagsInput(ui.historyTags.value) : [];
   const order = ui.historyOrder instanceof HTMLSelectElement ? ui.historyOrder.value : historyState.order;
-  historyStore.setFilters({ page: 1, q, from, to, tags, order }, { resetPage: true, fetch: true });
+  const store = ensureStore();
+  store.setFilters({ page: 1, q, from, to, tags, order }, { resetPage: true, fetch: true });
 }
 
 function handleHistoryFiltersReset(event) {
@@ -475,21 +556,24 @@ function handleHistoryFiltersReset(event) {
   if (ui.historyOrder instanceof HTMLSelectElement) {
     ui.historyOrder.value = 'desc';
   }
-  historyStore.setFilters({ page: 1, q: '', from: '', to: '', tags: [], order: 'desc' }, { resetPage: true, fetch: true });
+  const store = ensureStore();
+  store.setFilters({ page: 1, q: '', from: '', to: '', tags: [], order: 'desc' }, { resetPage: true, fetch: true });
 }
 
 function handleHistoryPrev(event) {
   event.preventDefault();
   if (historyState.loading) return;
   if (historyState.page <= 1) return;
-  historyStore.setFilters({ page: historyState.page - 1 }, { fetch: true });
+  const store = ensureStore();
+  store.setFilters({ page: historyState.page - 1 }, { fetch: true });
 }
 
 function handleHistoryNext(event) {
   event.preventDefault();
   if (historyState.loading) return;
   if (historyState.totalPages && historyState.page >= historyState.totalPages) return;
-  historyStore.setFilters({ page: historyState.page + 1 }, { fetch: true });
+  const store = ensureStore();
+  store.setFilters({ page: historyState.page + 1 }, { fetch: true });
 }
 
 async function handleHistoryExportClick(event) {
@@ -505,7 +589,8 @@ function handleHistoryOrderChange(event) {
   if (!(select instanceof HTMLSelectElement)) return;
   const value = select.value === 'asc' ? 'asc' : 'desc';
   clearHistoryError();
-  historyStore.setFilters({ order: value }, { resetPage: true, fetch: true });
+  const store = ensureStore();
+  store.setFilters({ order: value }, { resetPage: true, fetch: true });
 }
 
 async function exportHistory(format, button) {
@@ -516,7 +601,8 @@ async function exportHistory(format, button) {
   clearHistoryError();
 
   try {
-    const params = historyStore.buildQueryParams();
+    const store = ensureStore();
+    const params = store.buildQueryParams();
     params.set('format', format);
     const res = await requestWithAuth(`/api/plot/history/export?${params.toString()}`);
     if (!res) return;
@@ -599,8 +685,12 @@ function resetHistoryUI() {
 
 export async function loadHistory() {
   clearHistoryError();
+  
+  // Asegurar que el store exista antes de usarlo
+  const store = ensureStore();
+  
   if (!historyState.initialized) {
-    await historyStore.setFilters({
+    await store.setFilters({
       page: historyState.page,
       pageSize: historyState.pageSize,
       order: historyState.order,
@@ -608,7 +698,7 @@ export async function loadHistory() {
     }, { resetPage: true });
   }
   historyState.initialized = true;
-  await historyStore.load();
+  await store.load();
 }
 
 export function createHistorySection() {

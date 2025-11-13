@@ -1,10 +1,5 @@
 """
 Servicio de validación de contraseñas.
-
-Funciones:
-- hibp_fetch_range: Consulta rangos de hashes en Have I Been Pwned
-- password_is_compromised: Verifica si una contraseña está en bases de datos filtradas
-- password_strength_error: Valida política de contraseñas y compromiso
 """
 
 import hashlib

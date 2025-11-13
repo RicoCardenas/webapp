@@ -353,7 +353,19 @@ body.theme-light .auth-shell__panel--info,
   padding: 0.25rem;
   cursor: pointer;
 }
-.password-toggle img { width: 1.25rem; height: 1.25rem; pointer-events: none; }
+.password-toggle img,
+.password-toggle .btn__icon-svg { 
+  width: 1.25rem; 
+  height: 1.25rem; 
+  pointer-events: none; 
+}
+.password-toggle .btn__icon-svg svg {
+  stroke: currentColor;
+  color: var(--color-text-muted);
+}
+.password-toggle:hover .btn__icon-svg svg {
+  color: var(--color-text);
+}
 .password-toggle:focus-visible {
   outline: 3px solid color-mix(in srgb, var(--color-primary) 50%, transparent);
   outline-offset: 2px;
