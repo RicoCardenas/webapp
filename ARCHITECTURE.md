@@ -1072,5 +1072,5 @@ All indexes are fully tested with SQLite in the test suite:
 ---
 
 **Última actualización**: 16 de noviembre de 2025  
-**Autor**: GitHub Copilot  
+**Autor**: Julian Cardenas
 **Versión**: 1.2 (Structured Logging + Optimized Indexes)
