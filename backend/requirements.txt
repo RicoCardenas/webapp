@@ -21,8 +21,11 @@ MarkupSafe==3.0.2
 packaging==24.1
 pluggy==1.5.0
 psycopg[binary]==3.2.12
+Flask-Limiter==3.5.0
 python-dotenv==1.0.1
+python-json-logger==2.0.7
 pytest==8.3.3
 qrcode==7.4.2
+requests==2.32.3
 SQLAlchemy==2.0.35
 Werkzeug==3.0.2

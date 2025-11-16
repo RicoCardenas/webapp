@@ -275,7 +275,7 @@ def development_backup():
 @api.post("/development/backups/restore")
 @require_session
 def development_restore():
-    """Restaura la base de datos desde un backup (requiere rol development)."""
+    """Inicia la restauración de la base de datos desde un backup en background."""
     env_guard = _development_endpoint_guard()
     if env_guard:
         return env_guard
@@ -289,20 +289,116 @@ def development_restore():
     if not backup_name:
         return jsonify(error="Debes indicar el nombre del backup."), 400
 
-    try:
-        metadata = restore_backup(backup_name)
-    except FileNotFoundError:
-        return jsonify(error="El backup solicitado no existe."), 404
-    except RestoreError as exc:
-        current_app.logger.error("Restore fallido: %s", exc)
-        return jsonify(error=str(exc)), 500
+    # Iniciar restore en background usando threading
+    import threading
+    
+    # Estado global del restore (en producción, usar Redis o DB)
+    if not hasattr(current_app, '_restore_status'):
+        current_app._restore_status = {}
+    
+    job_id = f"restore_{backup_name}_{datetime.now().strftime('%Y%m%d%H%M%S')}"
+    
+    # Capturar la app actual para pasarla al thread
+    app = current_app._get_current_object()
+    user_email = g.current_user.email
+    
+    # Inicializar estado
+    app._restore_status[job_id] = {
+        'status': 'running',
+        'message': 'Restaurando backup...',
+        'backup_name': backup_name,
+        'started_at': datetime.now(timezone.utc).isoformat(),
+        'started_by': user_email,
+    }
+
+    def _run_restore():
+        """Función que ejecuta el restore en background."""
+        try:
+            # Usar el contexto de la app pasada explícitamente
+            with app.app_context():
+                metadata = restore_backup(backup_name)
+                app._restore_status[job_id] = {
+                    'status': 'completed',
+                    'message': 'Restauración completada exitosamente.',
+                    'backup_name': backup_name,
+                    'started_at': app._restore_status[job_id]['started_at'],
+                    'started_by': user_email,
+                    'completed_at': datetime.now(timezone.utc).isoformat(),
+                    'metadata': asdict(metadata),
+                }
+                app.logger.info(
+                    "Backup '%s' restaurado exitosamente por %s",
+                    metadata.filename,
+                    user_email,
+                )
+        except FileNotFoundError:
+            app._restore_status[job_id] = {
+                'status': 'failed',
+                'message': 'El backup solicitado no existe.',
+                'backup_name': backup_name,
+                'started_at': app._restore_status[job_id]['started_at'],
+                'started_by': user_email,
+                'failed_at': datetime.now(timezone.utc).isoformat(),
+            }
+            app.logger.error("Restore failed: backup '%s' no encontrado", backup_name)
+        except RestoreError as exc:
+            app.logger.error("Restore fallido: %s", exc)
+            app._restore_status[job_id] = {
+                'status': 'failed',
+                'message': str(exc),
+                'backup_name': backup_name,
+                'started_at': app._restore_status[job_id]['started_at'],
+                'started_by': user_email,
+                'failed_at': datetime.now(timezone.utc).isoformat(),
+            }
+        except Exception as exc:
+            app.logger.error("Error inesperado en restore: %s", exc, exc_info=True)
+            app._restore_status[job_id] = {
+                'status': 'failed',
+                'message': f'Error inesperado: {str(exc)}',
+                'backup_name': backup_name,
+                'started_at': app._restore_status[job_id]['started_at'],
+                'started_by': user_email,
+                'failed_at': datetime.now(timezone.utc).isoformat(),
+            }
+
+    thread = threading.Thread(target=_run_restore, daemon=True)
+    thread.start()
 
     current_app.logger.info(
-        "Backup '%s' restaurado por %s",
-        metadata.filename,
-        g.current_user.email,
+        "Restore iniciado en background: job_id=%s, backup=%s, user=%s",
+        job_id,
+        backup_name,
+        user_email,
     )
-    return jsonify(message="Restauración completada.", backup=asdict(metadata))
+
+    return jsonify(
+        message='Restauración iniciada en background. Consulta el estado con el job_id.',
+        job_id=job_id,
+        status='running'
+    ), 202
+
+
+@api.get("/development/backups/restore/<job_id>/status")
+@require_session
+def development_restore_status(job_id):
+    """Consulta el estado de una restauración en background."""
+    env_guard = _development_endpoint_guard()
+    if env_guard:
+        return env_guard
+
+    guard = _require_roles({'development'})
+    if guard:
+        return guard
+
+    if not hasattr(current_app, '_restore_status'):
+        return jsonify(error='No hay trabajos de restauración registrados.'), 404
+
+    status = current_app._restore_status.get(job_id)
+    if not status:
+        return jsonify(error='Job no encontrado.'), 404
+
+    return jsonify(status)
 
 
 @api.get("/admin/ops/summary")

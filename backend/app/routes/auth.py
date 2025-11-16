@@ -4,11 +4,11 @@ import base64
 import hashlib
 import hmac
 import re
+import requests
 import secrets
 import struct
 import time
 from datetime import datetime, timedelta, timezone
-from urllib import request as urllib_request, error as urllib_error
 from urllib.parse import quote
 from functools import lru_cache
 
@@ -17,7 +17,7 @@ from flask_mail import Message
 from sqlalchemy import cast, String, delete, func
 
 from . import api
-from ..extensions import db, bcrypt, mail
+from ..extensions import db, bcrypt, mail, limiter
 from ..models import (
     Users,
     Roles,
@@ -63,10 +63,16 @@ OPS_AUDIT_ACTIONS = {
 }
 
 
-def _log_warning(message: str, *args) -> None:
-    """Registra un warning en el logger de la aplicación."""
+def _log_warning(message: str, *args, **kwargs) -> None:
+    """
+    Registra un warning en el logger de la aplicación.
+    
+    Supports both formatted strings and extra contextual fields via kwargs.
+    """
     try:
-        current_app.logger.warning(message, *args)
+        # Extract 'extra' dict if provided for structured logging
+        extra = kwargs.pop('extra', {})
+        current_app.logger.warning(message, *args, extra=extra, **kwargs)
     except Exception:
         pass
 
@@ -79,15 +85,16 @@ def _hibp_fetch_range(prefix: str) -> dict[str, int]:
         return {}
 
     url = f"{HIBP_API_RANGE_URL}{prefix}"
-    request_obj = urllib_request.Request(url, headers={"User-Agent": HIBP_USER_AGENT})
 
     try:
-        with urllib_request.urlopen(request_obj, timeout=3.0) as response:
-            if getattr(response, "status", 200) >= 400:
-                _log_warning("HIBP devolvió estado inesperado (%s)", getattr(response, "status", "unknown"))
-                return {}
-            payload = response.read().decode("utf-8", errors="ignore")
-    except (urllib_error.URLError, urllib_error.HTTPError) as exc:
+        response = requests.get(
+            url,
+            headers={"User-Agent": HIBP_USER_AGENT},
+            timeout=3.0
+        )
+        response.raise_for_status()  # Lanza excepción si status >= 400
+        payload = response.text
+    except requests.exceptions.RequestException as exc:
         _log_warning("No se pudo consultar HIBP: %s", exc)
         return {}
     except Exception as exc:  # pragma: no cover - ruta defensiva
@@ -158,6 +165,12 @@ def _send_lockout_notification(user, unlock_link):
             "No se pudo enviar correo de bloqueo a %s: %s",
             user.email,
             exc,
+            extra={
+                "event": "auth.account_lock_email_failed",
+                "user_id": user.id,
+                "user_email": user.email,
+                "error_type": type(exc).__name__,
+            },
         )
 
 
@@ -191,6 +204,12 @@ def _send_password_reset_email(user, reset_link):
             "No se pudo enviar correo de restablecimiento a %s: %s",
             user.email,
             exc,
+            extra={
+                "event": "auth.password_reset_email_failed",
+                "user_id": user.id,
+                "user_email": user.email,
+                "error_type": type(exc).__name__,
+            },
         )
 
 
@@ -347,6 +366,7 @@ def _record_audit(action, *, target_entity_type=None, target_entity_id=None, det
 
 
 @api.post("/register")
+@limiter.limit(lambda: current_app.config.get("RATELIMIT_REGISTER", "5 per hour"))
 def register_user():
     """Registro de nuevo usuario (envía correo de verificación)."""
     data = request.get_json(silent=True)
@@ -470,6 +490,7 @@ El equipo de EcuPlot
 
 
 @api.get("/verify-email")
+@limiter.limit(lambda: current_app.config.get("RATELIMIT_EMAIL_VERIFY", "5 per hour"))
 def verify_email():
     """Verificación de correo por token."""
     token_value = request.args.get('token')
@@ -521,9 +542,14 @@ def verify_email():
 
 
 @api.post("/login")
+@limiter.limit(lambda: current_app.config.get("RATELIMIT_LOGIN", "10 per 5 minutes"))
 def login_user():
     """Inicio de sesión: devuelve session_token y crea registro en user_sessions."""
-    data = request.get_json()
+    try:
+        data = request.get_json()
+    except Exception:
+        return jsonify(error="Datos JSON inválidos o Content-Type incorrecto."), 400
+    
     if not data:
         return jsonify(error="No se proporcionaron datos JSON."), 400
 
@@ -607,7 +633,16 @@ def login_user():
             db.session.commit()
         except Exception as exc:
             db.session.rollback()
-            current_app.logger.error("No se pudo registrar intento de login fallido: %s", exc)
+            current_app.logger.error(
+                "No se pudo registrar intento de login fallido: %s", exc,
+                extra={
+                    "event": "auth.login.failed_db_error",
+                    "user_id": user.id,
+                    "email": email,
+                    "failed_attempts": failed_attempts,
+                    "error_type": type(exc).__name__,
+                }
+            )
             return jsonify(error="Error interno al procesar la solicitud."), 500
 
         if locked and unlock_token:
@@ -730,6 +765,7 @@ def login_user():
 
 
 @api.get("/unlock-account")
+@limiter.limit(lambda: current_app.config.get("RATELIMIT_UNLOCK_ACCOUNT", "3 per hour"))
 def unlock_account():
     """Desbloquea una cuenta usando un token de desbloqueo."""
     token_value = request.args.get('token', '').strip()
@@ -777,6 +813,7 @@ def unlock_account():
 
 
 @api.post("/password/forgot")
+@limiter.limit(lambda: current_app.config.get("RATELIMIT_PASSWORD_RESET", "3 per hour"))
 def request_password_reset():
     """Solicita un restablecimiento de contraseña."""
     data = request.get_json(silent=True) or {}
@@ -812,6 +849,7 @@ def request_password_reset():
 
 
 @api.post("/password/reset")
+@limiter.limit(lambda: current_app.config.get("RATELIMIT_PASSWORD_RESET", "3 per hour"))
 def reset_password():
     """Restablece la contraseña usando un token válido."""
     data = request.get_json(silent=True) or {}

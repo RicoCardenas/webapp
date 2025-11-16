@@ -19,7 +19,13 @@ def health_check():
         db.session.execute(db.select(1))
         db_latency_ms = (time.perf_counter() - start) * 1000
     except Exception as exc:
-        current_app.logger.error("Error de conexión a DB: %s", exc)
+        current_app.logger.error(
+            "Error de conexión a DB: %s", exc,
+            extra={
+                "event": "health.db_connection_failed",
+                "error_type": type(exc).__name__,
+            }
+        )
         db_status = "error"
         db_latency_ms = None
 

@@ -4,8 +4,9 @@ from flask import Flask
 from backend.config import Config, init_app_config
 
 # Importamos las instancias de las extensiones
-from .extensions import db, migrate, bcrypt, mail, cors
+from .extensions import db, migrate, bcrypt, mail, cors, limiter
 from .event_stream import events as event_bus
+from .logging_config import configure_logging, setup_request_logging
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 PUBLIC_DIR = PROJECT_ROOT / "frontend" / "public"
@@ -26,6 +27,10 @@ def create_app(config_object=Config) -> Flask:
 
     app.config.from_object(config_object)
     init_app_config(app)
+
+    # Configure structured logging early
+    configure_logging(app)
+    setup_request_logging(app)
 
     # Inicializar Extensiones
     # Vinculamos las instancias de 'extensions.py' con nuestra 'app'
@@ -52,6 +57,12 @@ def create_app(config_object=Config) -> Flask:
         resources={r"/api/*": {"origins": cors_origins}},
         supports_credentials=supports_credentials,
     )
+
+    # Initialize rate limiter
+    # Note: storage_uri debe configurarse en el limiter object antes de init_app
+    storage_uri = app.config.get("RATELIMIT_STORAGE_URI", "memory://")
+    limiter.storage_uri = storage_uri
+    limiter.init_app(app)
 
     event_bus.set_max_subscribers(app.config.get("SSE_MAX_CONNECTIONS_PER_USER", 3))
 

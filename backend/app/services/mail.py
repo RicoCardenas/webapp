@@ -58,12 +58,26 @@ def send_contact_notification(name, email, message, mail):
     """
     recipient = current_app.config.get('CONTACT_RECIPIENT')
     if not recipient:
-        current_app.logger.info('Contacto recibido sin destinatario configurado: %s <%s>', name, email)
+        current_app.logger.info(
+            'Contacto recibido sin destinatario configurado: %s <%s>', name, email,
+            extra={
+                "event": "contact.no_recipient",
+                "contact_name": name,
+                "contact_email": email,
+            }
+        )
         return None
 
     sender = resolve_mail_sender()
     if not sender:
-        current_app.logger.error('No se pudo reenviar contacto: remitente de correo no configurado.')
+        current_app.logger.error(
+            'No se pudo reenviar contacto: remitente de correo no configurado.',
+            extra={
+                "event": "contact.no_sender",
+                "contact_name": name,
+                "contact_email": email,
+            }
+        )
         return MAIL_SENDER_MISSING_ERROR
 
     try:
@@ -75,6 +89,15 @@ def send_contact_notification(name, email, message, mail):
         )
         mail.send(msg)
     except Exception as exc:
-        current_app.logger.error('No se pudo reenviar el contacto: %s', exc)
+        current_app.logger.error(
+            'No se pudo reenviar el contacto: %s', exc,
+            extra={
+                "event": "contact.send_failed",
+                "contact_name": name,
+                "contact_email": email,
+                "recipient": recipient,
+                "error_type": type(exc).__name__,
+            }
+        )
         return 'No se pudo enviar el mensaje en este momento.'
     return None

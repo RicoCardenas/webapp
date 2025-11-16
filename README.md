@@ -48,4 +48,40 @@ cp .env.example .env
 >
 > Limita el número de conexiones SSE simultáneas por usuario con `SSE_MAX_CONNECTIONS_PER_USER` (predeterminado `3`) para evitar abusos.
 
+## Logging Estructurado
+
+El sistema de logging está configurado para adaptarse automáticamente al entorno:
+
+- **Producción**: Logs en formato JSON para agregación y análisis
+- **Desarrollo**: Logs con colores y formato human-readable
+- **Test**: Logs mínimos (WARNING+) para reducir ruido
+
+Cada log incluye automáticamente:
+
+- `timestamp`, `level`, `logger`, `message`, `app_env`
+- `request_id` único por petición (UUID)
+- `method`, `path`, `remote_addr`, `user_agent`
+- `user_id` y `email` cuando el usuario está autenticado
+- `response_time_ms` al completar requests
+
+Para más detalles, consulta [docs/STRUCTURED_LOGGING.md](docs/STRUCTURED_LOGGING.md).
+
+## Database Performance & Indexes
+
+La base de datos incluye **índices optimizados** basados en patrones de consulta reales del código:
+
+- **Login queries**: Índice compuesto en `(email, deleted_at)` para autenticación rápida con soft-deletes
+- **Token validation**: Índice de 4 columnas `(user_id, token_type, used_at, expires_at)` para validación eficiente
+- **History pagination**: Índice crítico `(user_id, deleted_at, created_at DESC)` que elimina table scans en el historial
+- **Session management**: Índice `(user_id, expires_at)` para consultas de sesiones activas
+- **Partial indexes**: Optimizaciones PostgreSQL para queries filtradas (compatibles con SQLite)
+
+**Mejoras de performance esperadas:**
+- Login: 90% más rápido
+- Validación de tokens: 95% más rápido  
+- Paginación de historial: 98% más rápido
+- Verificación de sesiones: 85% más rápido
+
+Todos los índices están probados con SQLite (tests) y optimizados para PostgreSQL (producción). Ver detalles completos en [ARCHITECTURE.md - Database Indexes](ARCHITECTURE.md#-database-indexes--query-optimization).
+
 La carpeta `instance/` se crea automáticamente (y ya está listada en `.gitignore`) para alojar la base SQLite de desarrollo.

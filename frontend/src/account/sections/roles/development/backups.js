@@ -63,9 +63,10 @@ async function handleDevelopmentRestore(backupName) {
   const originalLabel = button?.textContent || 'Restaurar backup';
   if (button instanceof HTMLButtonElement) {
     button.disabled = true;
-    button.textContent = 'Restaurando...';
+    button.textContent = 'Iniciando restauración...';
   }
   try {
+    // Iniciar restore en background
     const res = await requestWithAuth('/api/development/backups/restore', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -74,11 +75,62 @@ async function handleDevelopmentRestore(backupName) {
     if (!res) return;
     const data = await res.json().catch(() => ({}));
     if (!res.ok) {
-      toast?.error?.(data?.error || 'No se pudo restaurar el backup.');
+      toast?.error?.(data?.error || 'No se pudo iniciar la restauración.');
       return;
     }
-    toast?.success?.(data?.message || 'Backup restaurado.');
-    await loadOperationsSummary({ fetch: true });
+
+    // Obtener job_id y hacer polling del estado
+    const jobId = data?.job_id;
+    if (!jobId) {
+      toast?.error?.('No se recibió el ID del trabajo de restauración.');
+      return;
+    }
+
+    toast?.info?.('Restauración iniciada. Esto puede tardar varios minutos...');
+    if (button instanceof HTMLButtonElement) {
+      button.textContent = 'Restaurando...';
+    }
+
+    // Hacer polling cada 2 segundos para verificar el estado
+    const maxAttempts = 180; // 6 minutos máximo (180 * 2s)
+    let attempts = 0;
+    
+    while (attempts < maxAttempts) {
+      await new Promise(resolve => setTimeout(resolve, 2000)); // Esperar 2 segundos
+      
+      const statusRes = await requestWithAuth(`/api/development/backups/restore/${jobId}/status`, {
+        method: 'GET',
+      });
+      
+      if (!statusRes) {
+        toast?.error?.('Error al consultar el estado de la restauración.');
+        return;
+      }
+      
+      const statusData = await statusRes.json().catch(() => ({}));
+      
+      if (statusData?.status === 'completed') {
+        toast?.success?.(statusData?.message || 'Backup restaurado exitosamente.');
+        await loadOperationsSummary({ fetch: true });
+        return;
+      }
+      
+      if (statusData?.status === 'failed') {
+        toast?.error?.(statusData?.message || 'La restauración falló.');
+        return;
+      }
+      
+      // Actualizar el texto del botón con el estado actual
+      if (button instanceof HTMLButtonElement) {
+        button.textContent = `Restaurando... (${Math.floor(attempts * 2 / 60)}m ${(attempts * 2) % 60}s)`;
+      }
+      
+      attempts++;
+    }
+    
+    // Si llegamos aquí, se agotó el tiempo
+    toast?.warning?.('La restauración está tardando más de lo esperado. Puede completarse en background.');
+    
   } finally {
     if (button instanceof HTMLButtonElement) {
       button.disabled = false;

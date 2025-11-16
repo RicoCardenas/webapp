@@ -4,8 +4,7 @@ Servicio de validación de contraseñas.
 
 import hashlib
 import re
-import urllib.request as urllib_request
-import urllib.error as urllib_error
+import requests
 from functools import lru_cache
 
 from flask import current_app
@@ -19,10 +18,15 @@ PASSWORD_POLICY_MESSAGE = (
 )
 
 
-def _log_warning(message: str, *args) -> None:
-    """Helper para logging seguro."""
+def _log_warning(message: str, *args, **kwargs) -> None:
+    """
+    Helper para logging seguro con soporte para campos estructurados.
+    
+    Supports both formatted strings and extra contextual fields via kwargs.
+    """
     try:
-        current_app.logger.warning(message, *args)
+        extra = kwargs.pop('extra', {})
+        current_app.logger.warning(message, *args, extra=extra, **kwargs)
     except Exception:
         pass
 
@@ -43,19 +47,34 @@ def hibp_fetch_range(prefix: str) -> dict[str, int]:
         return {}
 
     url = f"{HIBP_API_RANGE_URL}{prefix}"
-    request = urllib_request.Request(url, headers={"User-Agent": HIBP_USER_AGENT})
 
     try:
-        with urllib_request.urlopen(request, timeout=3.0) as response:
-            if getattr(response, "status", 200) >= 400:
-                _log_warning("HIBP devolvió estado inesperado (%s)", getattr(response, "status", "unknown"))
-                return {}
-            payload = response.read().decode("utf-8", errors="ignore")
-    except (urllib_error.URLError, urllib_error.HTTPError) as exc:
-        _log_warning("No se pudo consultar HIBP: %s", exc)
+        response = requests.get(
+            url,
+            headers={"User-Agent": HIBP_USER_AGENT},
+            timeout=3.0
+        )
+        response.raise_for_status()  # Lanza excepción si status >= 400
+        payload = response.text
+    except requests.exceptions.RequestException as exc:
+        _log_warning(
+            "No se pudo consultar HIBP: %s", exc,
+            extra={
+                "event": "hibp.api_request_failed",
+                "prefix": prefix,
+                "error_type": type(exc).__name__,
+            }
+        )
         return {}
     except Exception as exc:  # pragma: no cover - ruta defensiva
-        _log_warning("Fallo inesperado consultando HIBP: %s", exc)
+        _log_warning(
+            "Fallo inesperado consultando HIBP: %s", exc,
+            extra={
+                "event": "hibp.unexpected_error",
+                "prefix": prefix,
+                "error_type": type(exc).__name__,
+            }
+        )
         return {}
 
     results: dict[str, int] = {}

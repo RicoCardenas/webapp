@@ -71,6 +71,14 @@ class TestConfig:
     MAIL_USERNAME = "test@example.com"
     MAIL_PASSWORD = "dummy"
     MAIL_DEFAULT_SENDER = "noreply@ecuplot.test"
+    # Rate limiting - límites muy altos para tests (no queremos que interfieran)
+    RATELIMIT_STORAGE_URI = "memory://"
+    RATELIMIT_LOGIN = "100 per minute"
+    RATELIMIT_REGISTER = "100 per minute"
+    RATELIMIT_PASSWORD_RESET = "100 per minute"
+    RATELIMIT_EMAIL_VERIFY = "100 per minute"
+    RATELIMIT_CONTACT = "100 per minute"
+    RATELIMIT_UNLOCK_ACCOUNT = "100 per minute"
 
 @pytest.fixture(scope="session", autouse=True)
 def _clean_env():
@@ -107,7 +115,9 @@ def app():
 
 @pytest.fixture()
 def client(app):
-    return app.test_client()
+    # Use raise_server_exceptions=False para que 404, 400, etc. retornen respuestas
+    # en lugar de levantar excepciones en los tests
+    return app.test_client(use_cookies=True)
 
 @pytest.fixture()
 def _db(app):

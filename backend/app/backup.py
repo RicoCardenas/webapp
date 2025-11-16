@@ -232,6 +232,8 @@ def _sqlite_restore(parsed_url, backup_file: Path) -> BackupMetadata:
 
 
 def _postgres_restore(parsed_url, backup_file: Path) -> BackupMetadata:
+    from .extensions import db
+    
     pg_restore_bin = current_app.config.get("PG_RESTORE_BIN", "pg_restore")
 
     env = os.environ.copy()
@@ -241,6 +243,30 @@ def _postgres_restore(parsed_url, backup_file: Path) -> BackupMetadata:
     dsn_url = parsed_url.set(drivername="postgresql", password=None)
     dsn = dsn_url.render_as_string(hide_password=False)
 
+    # Paso 1: Cerrar todas las conexiones activas (excepto la nuestra)
+    try:
+        current_app.logger.info("Cerrando conexiones activas a la base de datos antes del restore...")
+        db.session.execute(db.text(f"""
+            SELECT pg_terminate_backend(pid)
+            FROM pg_stat_activity
+            WHERE datname = '{parsed_url.database}'
+            AND pid != pg_backend_pid()
+        """))
+        db.session.commit()
+        current_app.logger.info("Conexiones cerradas exitosamente.")
+    except Exception as exc:
+        current_app.logger.warning("No se pudieron cerrar todas las conexiones: %s", exc)
+        # Continuar de todos modos
+
+    # Paso 2: Cerrar nuestra propia conexión para que pg_restore pueda trabajar
+    try:
+        db.session.close()
+        db.engine.dispose()
+        current_app.logger.info("Conexiones de SQLAlchemy cerradas.")
+    except Exception as exc:
+        current_app.logger.warning("Error al cerrar conexiones de SQLAlchemy: %s", exc)
+
+    # Paso 3: Ejecutar pg_restore
     cmd = [
         pg_restore_bin,
         "--clean",
@@ -253,11 +279,23 @@ def _postgres_restore(parsed_url, backup_file: Path) -> BackupMetadata:
     ]
 
     try:
-        subprocess.run(cmd, check=True, env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        result = subprocess.run(
+            cmd, 
+            check=True, 
+            env=env, 
+            stdout=subprocess.PIPE, 
+            stderr=subprocess.PIPE,
+            timeout=300  # 5 minutos de timeout
+        )
+        current_app.logger.info("pg_restore completado exitosamente.")
+    except subprocess.TimeoutExpired:
+        raise RestoreError("pg_restore tardó más de 5 minutos y fue cancelado.")
     except FileNotFoundError as exc:
         raise RestoreError("No se encontró el comando 'pg_restore'.") from exc
     except subprocess.CalledProcessError as exc:
-        raise RestoreError("pg_restore devolvió un error al restaurar el backup.") from exc
+        stderr = exc.stderr.decode('utf-8', errors='ignore') if exc.stderr else ''
+        current_app.logger.error("pg_restore stderr: %s", stderr)
+        raise RestoreError(f"pg_restore falló: {stderr[:500]}") from exc
 
     return BackupMetadata(
         name=backup_file.stem,

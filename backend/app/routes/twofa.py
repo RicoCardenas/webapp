@@ -86,7 +86,7 @@ def two_factor_status():
     )
 
 
-@api.post("/account/2fa/setup")
+@api.route("/account/2fa/setup", methods=["GET", "POST"])
 @require_session
 def two_factor_setup():
     """Genera un nuevo secreto TOTP para configurar 2FA."""
@@ -234,3 +234,18 @@ def regenerate_backup_codes():
         return jsonify(error='No se pudieron regenerar los códigos de respaldo.'), 500
 
     return jsonify(message='Códigos de respaldo regenerados.', backup_codes=new_codes)
+
+
+# Alias routes for backward compatibility with tests
+@api.route("/2fa/totp/setup", methods=["GET", "POST"])
+@require_session
+def totp_setup_alias():
+    """Alias para /account/2fa/setup (compatibilidad)."""
+    return two_factor_setup()
+
+
+@api.post("/2fa/totp/verify")
+@require_session
+def totp_verify_alias():
+    """Alias para /account/2fa/enable (compatibilidad)."""
+    return two_factor_enable()

@@ -64,7 +64,14 @@ def issue_stream_token():
         db.session.commit()
     except Exception as exc:
         db.session.rollback()
-        current_app.logger.error("No se pudo generar token de stream: %s", exc)
+        current_app.logger.error(
+            "No se pudo generar token de stream: %s", exc,
+            extra={
+                "event": "sse.token_generation_failed",
+                "user_id": g.current_user.id,
+                "error_type": type(exc).__name__,
+            }
+        )
         return jsonify(error="No se pudo generar el token de streaming."), 500
 
     expires_at = token.expires_at
@@ -136,14 +143,29 @@ def user_event_stream():
         db.session.commit()
     except Exception as exc:
         db.session.rollback()
-        current_app.logger.error("No se pudo marcar token de stream como usado: %s", exc)
+        current_app.logger.error(
+            "No se pudo marcar token de stream como usado: %s", exc,
+            extra={
+                "event": "sse.token_commit_failed",
+                "user_id": user.id,
+                "token_id": token_obj.id,
+                "error_type": type(exc).__name__,
+            }
+        )
         return jsonify(error="No se pudo habilitar el canal de eventos."), 500
 
     user_id = user.id
     try:
         subscription = event_bus.subscribe(user_id)
     except RuntimeError:
-        current_app.logger.warning("Usuario %s excedió el límite de conexiones SSE", user_id)
+        current_app.logger.warning(
+            "Usuario %s excedió el límite de conexiones SSE", user_id,
+            extra={
+                "event": "sse.connection_limit_exceeded",
+                "user_id": user_id,
+                "max_connections": current_app.config.get("SSE_MAX_CONNECTIONS_PER_USER", 3),
+            }
+        )
         return jsonify(error="Límite de conexiones SSE alcanzado."), 429
 
     def _iterator():

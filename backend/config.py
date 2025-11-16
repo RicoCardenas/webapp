@@ -186,3 +186,23 @@ class Config:
         _hibp_threshold = 1
     HIBP_PASSWORD_MIN_COUNT = max(1, _hibp_threshold)
     del _hibp_threshold
+
+    # --- Rate Limiting Configuration ---
+    RATELIMIT_STORAGE_URI = os.getenv('RATELIMIT_STORAGE_URI', 'memory://')
+    # Per-endpoint rate limits (configurable via environment)
+    RATELIMIT_LOGIN = os.getenv('RATELIMIT_LOGIN', '10 per 5 minutes')
+    RATELIMIT_REGISTER = os.getenv('RATELIMIT_REGISTER', '5 per hour')
+    RATELIMIT_PASSWORD_RESET = os.getenv('RATELIMIT_PASSWORD_RESET', '3 per hour')
+    RATELIMIT_EMAIL_VERIFY = os.getenv('RATELIMIT_EMAIL_VERIFY', '5 per hour')
+    RATELIMIT_CONTACT = os.getenv('RATELIMIT_CONTACT', '5 per hour')
+    RATELIMIT_UNLOCK_ACCOUNT = os.getenv('RATELIMIT_UNLOCK_ACCOUNT', '3 per hour')
+
+    # --- Logging Configuration ---
+    LOG_LEVEL = os.getenv('LOG_LEVEL', None)  # None = auto-detect based on APP_ENV
+    LOG_JSON_ENABLED = None  # None = auto-detect (True for production, False otherwise)
+    _log_json_env = os.getenv('LOG_JSON_ENABLED', '').strip().lower()
+    if _log_json_env in {'1', 'true', 'yes', 'on'}:
+        LOG_JSON_ENABLED = True
+    elif _log_json_env in {'0', 'false', 'no', 'off'}:
+        LOG_JSON_ENABLED = False
+    del _log_json_env

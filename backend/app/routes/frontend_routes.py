@@ -12,6 +12,7 @@ from flask import (
 
 # Importar el blueprint desde el paquete routes
 from . import frontend
+from ..extensions import limiter
 
 
 def _normalize_email(value):
@@ -105,6 +106,7 @@ def signup_page():
 
 
 @frontend.post("/contact")
+@limiter.limit(lambda: current_app.config.get("RATELIMIT_CONTACT", "5 per hour"))
 def contact_form_submit():
     """Procesa el formulario de contacto cuando el usuario no tiene JavaScript."""
     name = (request.form.get('name') or '').strip()
