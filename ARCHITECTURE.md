@@ -559,6 +559,238 @@ jq -s 'group_by(.error_type) | map({type: .[0].error_type, count: length})' app.
 
 ---
 
+## 🔍 Error Monitoring con Sentry
+
+### Arquitectura de Monitoreo
+
+La aplicación integra Sentry para captura automática de errores y análisis de rendimiento en producción:
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                   Flask Application                          │
+│                   (backend/app/__init__.py)                  │
+└────────────────────────┬────────────────────────────────────┘
+                         │
+                         │ init_sentry(app)
+                         │
+                         ▼
+┌────────────────────────────────────────────────────────────┐
+│           Sentry Initialization                             │
+│           (backend/app/__init__.py:init_sentry)             │
+├────────────────────────────────────────────────────────────┤
+│                                                             │
+│  ┌──────────────────┐  ┌───────────────────────┐          │
+│  │ Configuration    │  │ Environment Guard      │          │
+│  │ Validation       │  │                        │          │
+│  ├──────────────────┤  ├───────────────────────┤          │
+│  │ • SENTRY_DSN     │  │ ✓ production          │          │
+│  │ • APP_ENV        │  │ ✓ staging             │          │
+│  │ • SAMPLE_RATE    │  │ ✗ development         │          │
+│  └──────────────────┘  │ ✗ test                │          │
+│                        └───────────────────────┘          │
+│                                                             │
+│  ┌──────────────────────────────────────────────────────┐  │
+│  │           Sentry SDK Initialization                  │  │
+│  ├──────────────────────────────────────────────────────┤  │
+│  │ Integrations:                                        │  │
+│  │   • FlaskIntegration() - HTTP context                │  │
+│  │   • SqlalchemyIntegration() - DB queries             │  │
+│  │                                                       │  │
+│  │ Options:                                             │  │
+│  │   • traces_sample_rate - Performance sampling        │  │
+│  │   • profiles_sample_rate - Code profiling            │  │
+│  │   • send_default_pii=False - Privacy protection      │  │
+│  └──────────────────────────────────────────────────────┘  │
+│                                                             │
+│  ┌──────────────────────────────────────────────────────┐  │
+│  │           Request Context Enrichment                 │  │
+│  ├──────────────────────────────────────────────────────┤  │
+│  │ @before_request hook:                                │  │
+│  │   - Add authenticated user context                   │  │
+│  │   - Set custom tags (app_env, etc.)                  │  │
+│  │                                                       │  │
+│  │ Auto-captured data:                                  │  │
+│  │   - Request method, path, headers                    │  │
+│  │   - Query parameters, form data                      │  │
+│  │   - Response status codes                            │  │
+│  │   - Stack traces with local variables                │  │
+│  │   - SQL queries and execution time                   │  │
+│  └──────────────────────────────────────────────────────┘  │
+└────────────────────────────────────────────────────────────┘
+                         │
+                         │ Auto-capture errors
+                         │ Track performance
+                         │
+                         ▼
+┌────────────────────────────────────────────────────────────┐
+│                    Sentry Cloud                             │
+│                    (sentry.io)                              │
+├────────────────────────────────────────────────────────────┤
+│                                                             │
+│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐    │
+│  │   Issues     │  │ Performance  │  │   Releases   │    │
+│  │  Dashboard   │  │  Monitoring  │  │   Tracking   │    │
+│  └──────────────┘  └──────────────┘  └──────────────┘    │
+│                                                             │
+│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐    │
+│  │   Alerts     │  │   Context    │  │   Trends     │    │
+│  │ & Webhooks   │  │  Enrichment  │  │  & Reports   │    │
+│  └──────────────┘  └──────────────┘  └──────────────┘    │
+└────────────────────────────────────────────────────────────┘
+```
+
+### Configuración
+
+**Variables de entorno requeridas:**
+
+```bash
+# Requerido para activar Sentry (obtén del dashboard de Sentry)
+SENTRY_DSN=https://examplePublicKey@o0.ingest.sentry.io/0
+
+# Opcional: entorno personalizado (por defecto usa APP_ENV)
+SENTRY_ENVIRONMENT=production
+
+# Opcional: sampling rate para performance monitoring (0.0 - 1.0)
+SENTRY_TRACES_SAMPLE_RATE=0.1  # 10% de transacciones
+
+# Opcional: habilitar profiling de código (requiere plan con profiling)
+SENTRY_ENABLE_PROFILING=false
+
+# Opcional: versión de la app para tracking de releases
+APP_VERSION=1.0.0
+```
+
+**Guardias de activación:**
+
+1. Solo se activa si `SENTRY_DSN` está configurado
+2. Solo se activa en entornos `production` o `staging`
+3. Nunca se activa en `development` o `test`
+
+### Contexto Capturado Automáticamente
+
+**Datos de usuario (si está autenticado):**
+
+```python
+{
+    "id": "550e8400-e29b-41d4-a716-446655440000",
+    "email": "user@example.com",
+    "username": "John Doe"
+}
+```
+
+**Datos de request:**
+
+- HTTP method, path, query string
+- Headers (sin tokens ni secretos)
+- Form data (sanitizado automáticamente)
+- Remote IP, user agent
+- Request ID para correlación con logs
+
+**Datos de error:**
+
+- Stack trace completo con variables locales
+- Tipo de excepción y mensaje
+- Breadcrumbs (historial de eventos antes del error)
+
+**Datos de performance:**
+
+- Tiempo de respuesta de endpoints
+- Queries SQL ejecutadas y su tiempo
+- Detección de N+1 queries
+- Análisis de cuellos de botella
+
+### Integraciones
+
+**FlaskIntegration:**
+
+- Captura excepciones no manejadas en requests
+- Agrega contexto de Flask (session, request, g)
+- Tracking de performance de endpoints
+
+**SqlalchemyIntegration:**
+
+- Tracking de queries SQL
+- Detección de queries lentas
+- Análisis de N+1 problems
+- Context de transacciones
+
+### Sampling y Costos
+
+El `SENTRY_TRACES_SAMPLE_RATE` controla qué porcentaje de transacciones se envía:
+
+| Sample Rate | Uso Recomendado               | Cobertura               |
+| ----------- | ----------------------------- | ----------------------- |
+| `1.0`       | Debug temporal, staging       | 100% de transacciones   |
+| `0.1`       | Producción estándar           | 10% de transacciones    |
+| `0.01`      | Alto tráfico (>10k req/día)   | 1% de transacciones     |
+| `0.0`       | Solo errores, sin performance | 0% (solo error capture) |
+
+**Nota:** Los errores siempre se capturan al 100%, independientemente del sampling rate.
+
+### Script de Verificación
+
+```bash
+# Verificar instalación y configuración
+python backend/scripts/test_sentry.py
+
+# El script verifica:
+# 1. Sentry SDK instalado
+# 2. Variables de entorno configuradas
+# 3. Envía eventos de prueba
+# 4. Confirma recepción en Sentry
+```
+
+### Captura Manual de Errores
+
+**En código Python:**
+
+```python
+import sentry_sdk
+
+# Capturar excepción específica
+try:
+    risky_operation()
+except Exception as e:
+    sentry_sdk.capture_exception(e)
+
+# Enviar mensaje personalizado
+sentry_sdk.capture_message("Operación crítica completada", level="info")
+
+# Agregar contexto adicional
+with sentry_sdk.configure_scope() as scope:
+    scope.set_tag("payment_method", "credit_card")
+    scope.set_extra("transaction_id", "txn_123")
+    scope.set_user({"id": "123", "email": "user@example.com"})
+```
+
+### Mejores Prácticas
+
+**En desarrollo:**
+
+- No configurar `SENTRY_DSN` para evitar eventos de desarrollo
+- Usar logs estructurados para debugging
+
+**En staging:**
+
+- Usar un proyecto/DSN separado de producción
+- `SENTRY_ENVIRONMENT=staging`
+- `TRACES_SAMPLE_RATE=1.0` para captura completa
+
+**En producción:**
+
+- DSN único para producción
+- `TRACES_SAMPLE_RATE=0.1` o menor según tráfico
+- Configurar alertas para errores críticos
+- Revisar dashboard diariamente
+
+**Privacy & Security:**
+
+- `send_default_pii=False` por defecto
+- Headers sensitivos (Authorization, Cookie) se filtran automáticamente
+- No capturar passwords ni tokens en contexto manual
+
+---
+
 ## 📊 Database Indexes & Query Optimization
 
 ### Overview
@@ -568,6 +800,7 @@ The database schema includes comprehensive indexes optimized for PostgreSQL prod
 ### Index Strategy
 
 **Design Principles:**
+
 1. **Query-driven**: Each index maps to specific WHERE/JOIN/ORDER BY patterns in the codebase
 2. **Composite indexes**: Multiple columns indexed together for complex queries
 3. **Partial indexes**: PostgreSQL-specific optimizations for filtered queries (e.g., `WHERE deleted_at IS NULL`)
@@ -577,6 +810,7 @@ The database schema includes comprehensive indexes optimized for PostgreSQL prod
 ### Critical Indexes by Table
 
 #### 1. Users (Authentication & User Management)
+
 ```sql
 -- Login queries with soft-delete filtering
 ix_users_email_deleted_at (email, deleted_at)
@@ -588,6 +822,7 @@ ix_users_active (id) WHERE deleted_at IS NULL
 ```
 
 **Query Pattern:**
+
 ```python
 # backend/app/routes/auth.py:563
 db.select(Users).where(
@@ -597,6 +832,7 @@ db.select(Users).where(
 ```
 
 #### 2. UserTokens (Token Validation & Cleanup)
+
 ```sql
 -- Active token lookups
 ix_user_tokens_active_lookup (user_id, token_type, used_at, expires_at)
@@ -612,6 +848,7 @@ ix_user_tokens_unused (user_id, token_type, expires_at) WHERE used_at IS NULL
 ```
 
 **Query Pattern:**
+
 ```python
 # backend/app/routes/auth.py:776
 db.select(UserTokens).where(
@@ -623,6 +860,7 @@ db.select(UserTokens).where(
 ```
 
 #### 3. UserSessions (Session Management)
+
 ```sql
 -- Active session queries
 ix_user_sessions_user_expires (user_id, expires_at)
@@ -634,6 +872,7 @@ ix_user_sessions_expires_at (expires_at)
 ```
 
 **Query Pattern:**
+
 ```python
 # backend/app/auth.py (decorator)
 session = db.session.query(UserSessions).filter(
@@ -643,6 +882,7 @@ session = db.session.query(UserSessions).filter(
 ```
 
 #### 4. PlotHistory (Most Frequent Queries - CRITICAL)
+
 ```sql
 -- User history pagination (MOST IMPORTANT INDEX)
 ix_plot_history_user_active_created (user_id, deleted_at, created_at DESC)
@@ -658,6 +898,7 @@ ix_plot_history_created_at (created_at DESC)
 ```
 
 **Query Pattern:**
+
 ```python
 # backend/app/routes/history.py:32
 query = db.session.query(PlotHistory).filter(
@@ -669,6 +910,7 @@ query = db.session.query(PlotHistory).filter(
 **Performance Impact:** This query runs on every page load in the history view. The composite index eliminates table scans and provides O(log n) lookup instead of O(n).
 
 #### 5. RoleRequest (Admin Moderation)
+
 ```sql
 -- User's role requests
 ix_role_requests_user_created (user_id, created_at DESC)
@@ -681,6 +923,7 @@ ix_role_requests_user_status (user_id, status)
 ```
 
 #### 6. AuditLog (Compliance & Debugging)
+
 ```sql
 -- User audit trail
 ix_audit_log_user_created (user_id, created_at DESC)
@@ -693,6 +936,7 @@ ix_audit_log_created_at (created_at DESC)
 ```
 
 #### 7. RequestTicket (Support System)
+
 ```sql
 -- User's tickets
 ix_request_tickets_user_created (user_id, created_at DESC)
@@ -705,6 +949,7 @@ ix_request_tickets_user_status (user_id, status)
 ```
 
 #### 8. PlotHistoryTags (Tag Filtering)
+
 ```sql
 -- Reverse lookup: find all plots with specific tag
 ix_plot_history_tags_tag_id (tag_id)
@@ -712,6 +957,7 @@ ix_plot_history_tags_tag_id (tag_id)
 ```
 
 #### 9. StudentGroup (Teacher Features)
+
 ```sql
 -- Teacher's groups
 ix_student_groups_teacher_created (teacher_id, created_at DESC)
@@ -754,6 +1000,7 @@ Multiple indexes on user_id, teacher_id, admin_id (from foreign keys)
 **Total New Indexes:** 20
 
 **Performance Improvements Expected:**
+
 - **Login queries:** 90% faster (email + deleted_at composite)
 - **Token validation:** 95% faster (4-column composite for active tokens)
 - **History pagination:** 98% faster (eliminates table scans)
@@ -816,6 +1063,7 @@ REINDEX DATABASE ecuplot_web;  -- Full database
 ### Testing
 
 All indexes are fully tested with SQLite in the test suite:
+
 - ✅ 363 tests pass with new indexes
 - ✅ Partial indexes gracefully ignored by SQLite
 - ✅ DESC ordering supported in both databases

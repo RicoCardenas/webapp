@@ -64,8 +64,6 @@ Cada log incluye automáticamente:
 - `user_id` y `email` cuando el usuario está autenticado
 - `response_time_ms` al completar requests
 
-Para más detalles, consulta [docs/STRUCTURED_LOGGING.md](docs/STRUCTURED_LOGGING.md).
-
 ## Database Performance & Indexes
 
 La base de datos incluye **índices optimizados** basados en patrones de consulta reales del código:
@@ -77,11 +75,130 @@ La base de datos incluye **índices optimizados** basados en patrones de consult
 - **Partial indexes**: Optimizaciones PostgreSQL para queries filtradas (compatibles con SQLite)
 
 **Mejoras de performance esperadas:**
+
 - Login: 90% más rápido
-- Validación de tokens: 95% más rápido  
+- Validación de tokens: 95% más rápido
 - Paginación de historial: 98% más rápido
 - Verificación de sesiones: 85% más rápido
 
-Todos los índices están probados con SQLite (tests) y optimizados para PostgreSQL (producción). Ver detalles completos en [ARCHITECTURE.md - Database Indexes](ARCHITECTURE.md#-database-indexes--query-optimization).
+Todos los índices están probados con SQLite (tests) y optimizados para PostgreSQL (producción).
 
 La carpeta `instance/` se crea automáticamente (y ya está listada en `.gitignore`) para alojar la base SQLite de desarrollo.
+
+## Error Monitoring con Sentry
+
+La aplicación integra [Sentry](https://sentry.io) para monitoreo de errores y análisis de rendimiento en producción.
+
+### Configuración
+
+Sentry solo se activa en entornos **`production`** o **`staging`**. Nunca en `development` o `test`.
+
+1. **Crear cuenta y proyecto en Sentry**:
+
+   - Registrarse en [sentry.io](https://sentry.io)
+   - Crear un nuevo proyecto Flask
+   - Copiar el DSN del proyecto
+
+2. **Configurar variables de entorno**:
+
+   ```bash
+   # Requerido para activar Sentry
+   SENTRY_DSN=https://examplePublicKey@o0.ingest.sentry.io/0
+
+   # Opcional: personalizar entorno (por defecto usa APP_ENV)
+   SENTRY_ENVIRONMENT=production
+
+   # Opcional: ajustar sampling de performance (0.0 - 1.0)
+   SENTRY_TRACES_SAMPLE_RATE=0.1  # 10% de transacciones
+
+   # Opcional: habilitar profiling (requiere plan con profiling)
+   SENTRY_ENABLE_PROFILING=false
+   ```
+
+3. **Verificar instalación**:
+   ```bash
+   # Al iniciar la app en production/staging, verás:
+   # [INFO] Sentry inicializado correctamente [environment=production, traces_sample_rate=0.1]
+   ```
+
+### Características
+
+**Captura automática de errores:**
+
+- Excepciones no manejadas en requests
+- Errores de base de datos (SQLAlchemy)
+- Errores en workers y background jobs
+
+**Contexto enriquecido:**
+
+- Información del usuario autenticado (ID, email, nombre)
+- Detalles del request (método, path, headers, query params)
+- Tags personalizados (app_env, etc.)
+- Stack traces completos con variables locales
+
+**Performance Monitoring:**
+
+- Tiempo de respuesta de endpoints
+- Queries SQL lentas
+- Detección de N+1 queries
+- Análisis de cuellos de botella
+
+### Sampling y costos
+
+El `SENTRY_TRACES_SAMPLE_RATE` controla qué porcentaje de transacciones se envía a Sentry:
+
+- `1.0` (100%): Captura todas las transacciones (costoso, solo para debug temporal)
+- `0.1` (10%): Recomendado para producción (balance entre datos y costos)
+- `0.01` (1%): Para aplicaciones de muy alto tráfico
+- `0.0` (0%): Desactiva performance monitoring (solo captura errores)
+
+### Mejores prácticas
+
+**En desarrollo:**
+
+- No configurar `SENTRY_DSN` para evitar enviar errores de desarrollo
+- Usar logs estructurados para debugging local
+
+**En staging:**
+
+- Configurar con `SENTRY_ENVIRONMENT=staging`
+- Usar `TRACES_SAMPLE_RATE=1.0` para captura completa
+
+**En producción:**
+
+- Usar un DSN diferente al de staging
+- Configurar `TRACES_SAMPLE_RATE=0.1` o menor según tráfico
+- Revisar alertas diariamente
+- Configurar notificaciones para errores críticos
+
+**Releases y tracking:**
+
+- Definir `APP_VERSION` en `.env` para trackear releases
+- Asociar errores con versiones específicas del código
+- Configurar source maps si aplica
+
+### Captura manual de errores
+
+```python
+import sentry_sdk
+
+# Capturar excepción específica
+try:
+    risky_operation()
+except Exception as e:
+    sentry_sdk.capture_exception(e)
+
+# Enviar mensaje personalizado
+sentry_sdk.capture_message("Operación crítica completada", level="info")
+
+# Agregar contexto adicional
+with sentry_sdk.configure_scope() as scope:
+    scope.set_tag("payment_method", "credit_card")
+    scope.set_extra("transaction_id", "txn_123")
+```
+
+Para más información, consulta la [documentación oficial de Sentry](https://docs.sentry.io/platforms/python/guides/flask/).
+
+```
+
+```

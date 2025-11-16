@@ -206,3 +206,26 @@ class Config:
     elif _log_json_env in {'0', 'false', 'no', 'off'}:
         LOG_JSON_ENABLED = False
     del _log_json_env
+
+    # --- Sentry Configuration ---
+    SENTRY_DSN = os.getenv('SENTRY_DSN')
+    SENTRY_ENVIRONMENT = os.getenv('SENTRY_ENVIRONMENT')  # None = auto-detect from APP_ENV
+    
+    # Sentry traces sample rate (0.0 to 1.0)
+    # 1.0 = 100% of transactions, 0.1 = 10% of transactions
+    try:
+        _traces_sample_rate = float(os.getenv('SENTRY_TRACES_SAMPLE_RATE', '0.1'))
+    except ValueError:
+        _traces_sample_rate = 0.1
+    SENTRY_TRACES_SAMPLE_RATE = max(0.0, min(1.0, _traces_sample_rate))
+    del _traces_sample_rate
+    
+    # Enable/disable Sentry profiling
+    _sentry_profiling = os.getenv('SENTRY_ENABLE_PROFILING', 'false').strip().lower()
+    SENTRY_ENABLE_PROFILING = _sentry_profiling in {'1', 'true', 'yes', 'on'}
+    del _sentry_profiling
+    
+    # Enable Sentry in development (for testing only)
+    _sentry_enable_in_dev = os.getenv('SENTRY_ENABLE_IN_DEV', 'false').strip().lower()
+    SENTRY_ENABLE_IN_DEV = _sentry_enable_in_dev in {'1', 'true', 'yes', 'on'}
+    del _sentry_enable_in_dev
