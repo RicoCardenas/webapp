@@ -1,8 +1,3 @@
-# Pinned backend dependencies validadas con Python 3.14.
-# Regenera este archivo ejecutando:
-#   pip-compile backend/requirements.in --output-file backend/requirements.txt
-# usando la misma versión de Python.
-
 alembic==1.13.2
 bcrypt==4.1.2
 blinker==1.8.2
@@ -20,6 +15,7 @@ Mako==1.3.5
 MarkupSafe==3.0.2
 packaging==24.1
 pluggy==1.5.0
+PyYAML==6.0.2
 psycopg[binary]==3.2.12
 Flask-Limiter==3.5.0
 python-dotenv==1.0.1
