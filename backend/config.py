@@ -89,7 +89,19 @@ def init_app_config(app) -> None:
         app.config["SECRET_KEY"] = secret_key
 
     db_uri = app.config.get("SQLALCHEMY_DATABASE_URI") or os.getenv("DATABASE_URL")
-    if not db_uri:
+    
+    # PROTECCIÓN CRÍTICA: En tests, NUNCA usar PostgreSQL de producción
+    if runtime_env == "test" or app.config.get("TESTING"):
+        # Si estamos en tests pero db_uri apunta a PostgreSQL, forzar SQLite
+        if db_uri and db_uri.startswith("postgresql"):
+            app.logger.warning(
+                f"⚠️  TESTS intentando usar PostgreSQL - FORZANDO SQLite para proteger producción"
+            )
+            db_uri = "sqlite:///:memory:"
+        # Si no hay db_uri en tests, usar memoria
+        elif not db_uri:
+            db_uri = "sqlite:///:memory:"
+    elif not db_uri:
         db_uri = _fallback_database_uri(runtime_env)
 
     if not db_uri:

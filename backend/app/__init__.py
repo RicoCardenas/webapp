@@ -27,6 +27,9 @@ def init_sentry(app: Flask) -> None:
         return
     
     runtime_env = app.config.get('APP_ENV', 'production')
+    if app.config.get("TESTING") or runtime_env == "test":
+        app.logger.info("Sentry deshabilitado en entorno de pruebas (TESTING/APP_ENV=test)")
+        return
     
     # Permitir Sentry en development solo si se habilita explícitamente
     enable_in_dev = app.config.get('SENTRY_ENABLE_IN_DEV', False)

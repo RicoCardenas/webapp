@@ -405,6 +405,10 @@ def development_restore_status(job_id):
 @require_session
 def admin_ops_summary():
     """Resumen de operaciones críticas: último backup y eventos de auditoría (requiere rol development)."""
+    env_guard = _development_endpoint_guard()
+    if env_guard:
+        return env_guard
+
     guard = _require_development()
     if guard:
         return guard

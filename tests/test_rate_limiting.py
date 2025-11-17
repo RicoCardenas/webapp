@@ -9,21 +9,38 @@ from backend.app.extensions import db
 @pytest.fixture
 def app_with_rate_limits():
     """Fixture que crea una app con rate limits muy bajos para testing."""
-    app = create_app()
-    app.config.update({
-        "TESTING": True,
-        "SQLALCHEMY_DATABASE_URI": "sqlite:///:memory:",
-        "WTF_CSRF_ENABLED": False,
-        "RATELIMIT_STORAGE_URI": "memory://",
-        "RATELIMIT_LOGIN": "3 per minute",
-        "RATELIMIT_REGISTER": "2 per minute",
-        "RATELIMIT_PASSWORD_RESET": "2 per minute",
-        "RATELIMIT_EMAIL_VERIFY": "3 per minute",
-        "RATELIMIT_CONTACT": "2 per minute",
-        "RATELIMIT_UNLOCK_ACCOUNT": "2 per minute",
-    })
+    # CRÍTICO: Crear config de test antes de inicializar la app
+    class TestRateLimitConfig:
+        TESTING = True
+        SECRET_KEY = "testing-rate-limit"
+        SQLALCHEMY_DATABASE_URI = "sqlite:///:memory:"
+        SQLALCHEMY_TRACK_MODIFICATIONS = False
+        WTF_CSRF_ENABLED = False
+        RATELIMIT_STORAGE_URI = "memory://"
+        RATELIMIT_LOGIN = "3 per minute"
+        RATELIMIT_REGISTER = "2 per minute"
+        RATELIMIT_PASSWORD_RESET = "2 per minute"
+        RATELIMIT_EMAIL_VERIFY = "3 per minute"
+        RATELIMIT_CONTACT = "2 per minute"
+        RATELIMIT_UNLOCK_ACCOUNT = "2 per minute"
+        # Prevenir carga de variables de entorno peligrosas
+        APP_ENV = "test"
+        ENV = "test"
+        MAIL_SUPPRESS_SEND = True
+        MAIL_DEFAULT_SENDER = "test@example.com"
+    
+    # Pasar TestConfig explícitamente para evitar usar Config por defecto
+    app = create_app(TestRateLimitConfig)
     
     with app.app_context():
+        # Verificación de seguridad: asegurar que usamos SQLite
+        db_uri = app.config.get("SQLALCHEMY_DATABASE_URI", "")
+        if "postgresql" in db_uri.lower():
+            raise RuntimeError(
+                f"🔴 test_rate_limiting.py intentando usar PostgreSQL: {db_uri}\n"
+                f"   Este test DEBE usar SQLite para proteger producción."
+            )
+        
         db.create_all()
         yield app
         db.session.remove()
@@ -82,8 +99,11 @@ class TestLoginRateLimit:
         
         # Verificar que retorna 429
         assert response.status_code == 429
-        # Flask-Limiter retorna HTML por defecto
-        assert response.content_type == "text/html; charset=utf-8"
+        assert response.is_json
+        payload = response.get_json()
+        assert payload.get("error") == "Too Many Requests"
+        assert "message" in (payload.get("details") or {})
+        assert response.headers.get("Retry-After") is not None
 
 
 class TestRegisterRateLimit:

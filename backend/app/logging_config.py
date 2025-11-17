@@ -21,6 +21,7 @@ from datetime import datetime, timezone
 
 from flask import Flask, g, has_request_context, request
 from pythonjsonlogger import jsonlogger
+from .services.request_utils import get_client_ip
 
 
 class ContextualJsonFormatter(jsonlogger.JsonFormatter):
@@ -68,7 +69,7 @@ class ContextualJsonFormatter(jsonlogger.JsonFormatter):
                 log_record["query_string"] = request.query_string.decode("utf-8")
             
             # Remote address (sanitized)
-            log_record["remote_addr"] = request.remote_addr
+            log_record["remote_addr"] = get_client_ip(request)
             
             # User agent
             if request.user_agent:

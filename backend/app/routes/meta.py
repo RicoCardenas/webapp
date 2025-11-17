@@ -1,8 +1,11 @@
 """Meta endpoints - app metadata."""
-from flask import jsonify, current_app, request
+import json
+from pathlib import Path
+from flask import jsonify, current_app, request, Response, url_for
 
 from . import api
 from ..extensions import limiter
+from ..services.validate import normalize_email as _normalize_email, validate_contact_submission as _validate_contact_submission
 
 
 @api.get("/meta/env")
@@ -15,21 +18,101 @@ def meta_env():
     })
 
 
-def _normalize_email(value):
-    """Normalize email to lowercase."""
-    return (value or "").strip().lower()
+@api.errorhandler(429)
+def handle_rate_limit(e):
+    """Retorna respuestas JSON consistentes para errores de rate limit en la API."""
+    retry_after = getattr(e, "retry_after", None)
+    try:
+        headers = dict(e.get_headers()) if hasattr(e, "get_headers") else dict(e.headers or {})
+        retry_after = retry_after or headers.get("Retry-After")
+    except Exception:
+        retry_after = None
+
+    if retry_after is None:
+        # Fallback for determinism in tests when flask-limiter doesn't populate header
+        limit = getattr(e, "limit", None)
+        try:
+            retry_after = str(int(getattr(limit, "reset_at", 1))) if limit else "1"
+        except Exception:
+            retry_after = "1"
+
+    limit = getattr(e, "limit", None)
+    details = {"message": getattr(e, "description", "Too many requests.")}
+    if limit:
+        details["limit"] = str(limit)
+    if retry_after:
+        details["retry_after"] = retry_after
+
+    response = jsonify(error="Too Many Requests", details=details)
+    if retry_after:
+        response.headers["Retry-After"] = retry_after
+    return response, 429
 
 
-def _validate_contact_submission(name, email, message):
-    """Validate contact form fields."""
-    errors = {}
-    if len(name) < 2:
-        errors['name'] = 'Ingresa tu nombre (mínimo 2 caracteres).'
-    if not email or '@' not in email:
-        errors['email'] = 'Proporciona un correo válido.'
-    if len(message) < 10:
-        errors['message'] = 'El mensaje debe tener al menos 10 caracteres.'
-    return errors
+def _load_openapi_spec():
+    """Carga el archivo OpenAPI desde docs/."""
+    root_path = Path(current_app.root_path).resolve()
+    candidates = [
+        root_path / "docs",
+        root_path.parent / "docs",
+        root_path.parents[1] / "docs" if len(root_path.parents) > 1 else None,
+    ]
+    docs_dir = next((c for c in candidates if c and c.exists()), root_path / "docs")
+    spec_path = docs_dir / "openapi.yaml"
+    if not spec_path.exists():
+        return {}
+
+    try:
+        with spec_path.open("r", encoding="utf-8") as fh:
+            return json.load(fh)
+    except json.JSONDecodeError:
+        try:
+            import yaml  # type: ignore
+            with spec_path.open("r", encoding="utf-8") as fh:
+                return yaml.safe_load(fh) or {}
+        except Exception:
+            current_app.logger.warning("No se pudo parsear openapi.yaml")
+    return {}
+
+
+@api.get("/openapi.json")
+def openapi_json():
+    """Retorna el esquema OpenAPI."""
+    spec = _load_openapi_spec()
+    if not spec:
+        return jsonify(error="OpenAPI spec not found"), 404
+    return jsonify(spec)
+
+
+@api.get("/docs")
+def api_docs():
+    """Sirve la página de documentación Swagger UI."""
+    spec_url = url_for("api.openapi_json", _external=False)
+    html = f"""
+    <!doctype html>
+    <html lang="es">
+      <head>
+        <meta charset="utf-8" />
+        <title>EcuPlot API Docs</title>
+        <link rel="stylesheet" href="https://unpkg.com/swagger-ui-dist@5/swagger-ui.css" />
+      </head>
+      <body>
+        <div id="swagger-ui"></div>
+        <script src="https://unpkg.com/swagger-ui-dist@5/swagger-ui-bundle.js"></script>
+        <script>
+          window.onload = () => {{
+            SwaggerUIBundle({{
+              url: "{spec_url}",
+              dom_id: '#swagger-ui',
+              presets: [SwaggerUIBundle.presets.apis],
+              layout: "BaseLayout",
+            }});
+          }};
+        </script>
+      </body>
+    </html>
+    """
+    return Response(html, mimetype="text/html")
 
 
 def _send_contact_notification(name, email, message):

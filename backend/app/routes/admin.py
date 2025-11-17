@@ -26,6 +26,11 @@ from ..models import (
 )
 from ..auth import require_session
 from ..event_stream import events as event_bus
+from ..services.audit import (
+    serialize_audit_entry as _serialize_audit_entry,
+    queue_ops_event as _queue_ops_event,
+    record_audit as _record_audit_base,
+)
 
 # Acciones de auditoría que generan notificaciones para ops
 OPS_AUDIT_ACTIONS = {
@@ -193,56 +198,6 @@ def _count_active_role_members(role_id):
     return db.session.execute(stmt).scalar_one()
 
 
-def _serialize_audit_entry(entry):
-    """Serializa una entrada de auditoría."""
-    if not entry:
-        return {}
-
-    user_payload = None
-    if getattr(entry, "user", None) is not None:
-        user_payload = {
-            "id": str(entry.user.id),
-            "email": entry.user.email,
-            "name": entry.user.name,
-        }
-    elif entry.user_id:
-        actor = db.session.get(Users, entry.user_id)
-        if actor:
-            user_payload = {
-                "id": str(actor.id),
-                "email": actor.email,
-                "name": actor.name,
-            }
-
-    target_payload = None
-    if entry.target_entity_type or entry.target_entity_id:
-        target_payload = {
-            "type": entry.target_entity_type,
-            "id": str(entry.target_entity_id) if entry.target_entity_id else None,
-        }
-
-    return {
-        "id": str(entry.id) if entry.id is not None else None,
-        "action": entry.action,
-        "created_at": entry.created_at.isoformat() if entry.created_at else None,
-        "ip_address": entry.ip_address,
-        "details": entry.details or {},
-        "user": user_payload,
-        "target": target_payload,
-    }
-
-
-def _queue_ops_event(payload):
-    """Encola un evento de auditoría para broadcast."""
-    if not payload:
-        return
-    events = getattr(g, "_ops_audit_events", None)
-    if events is None:
-        events = []
-        g._ops_audit_events = events
-    events.append(payload)
-
-
 def _get_ops_audience():
     """Obtiene la audiencia de eventos ops (admin y development)."""
     cached = getattr(g, "_ops_audience", None)
@@ -303,31 +258,13 @@ api.after_app_request(_flush_ops_events)
 
 def _record_audit(action, *, target_entity_type=None, target_entity_id=None, details=None):
     """Registra una entrada en el log de auditoría."""
-    try:
-        actor = getattr(getattr(g, "current_user", None), "id", None)
-        payload = dict(details or {})
-        entry = AuditLog(
-            user_id=actor,
-            action=action,
-            target_entity_type=target_entity_type,
-            target_entity_id=target_entity_id,
-            details=payload,
-            ip_address=request.headers.get('X-Forwarded-For') or request.remote_addr,
-        )
-        db.session.add(entry)
-        db.session.flush([entry])
-        try:
-            db.session.refresh(entry)
-        except Exception:
-            pass
-        if action in OPS_AUDIT_ACTIONS:
-            serialized = _serialize_audit_entry(entry)
-            if serialized:
-                _queue_ops_event(serialized)
-        return entry
-    except Exception as exc:
-        current_app.logger.warning("No se pudo registrar auditoría (%s): %s", action, exc)
-        return None
+    return _record_audit_base(
+        action,
+        target_entity_type=target_entity_type,
+        target_entity_id=target_entity_id,
+        details=details,
+        audit_actions=OPS_AUDIT_ACTIONS,
+    )
 
 
 def _assign_teacher_role(user):

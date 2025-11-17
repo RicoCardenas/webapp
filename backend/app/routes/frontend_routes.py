@@ -13,23 +13,10 @@ from flask import (
 # Importar el blueprint desde el paquete routes
 from . import frontend
 from ..extensions import limiter
-
-
-def _normalize_email(value):
-    """Normalize email to lowercase."""
-    return (value or "").strip().lower()
-
-
-def _validate_contact_submission(name, email, message):
-    """Validate contact form fields."""
-    errors = {}
-    if len(name) < 2:
-        errors['name'] = 'Ingresa tu nombre (mínimo 2 caracteres).'
-    if not email or '@' not in email:
-        errors['email'] = 'Proporciona un correo válido.'
-    if len(message) < 10:
-        errors['message'] = 'El mensaje debe tener al menos 10 caracteres.'
-    return errors
+from ..services.validate import (
+    normalize_email as _normalize_email,
+    validate_contact_submission as _validate_contact_submission,
+)
 
 
 def _send_contact_notification(name, email, message):

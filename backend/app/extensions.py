@@ -6,9 +6,9 @@ from flask_bcrypt import Bcrypt
 from flask_mail import Mail
 from flask_cors import CORS
 from flask_limiter import Limiter
-from flask_limiter.util import get_remote_address
 from sqlalchemy import event
 from sqlalchemy.engine import Engine
+from .services.request_utils import get_client_ip
 
 
 db = SQLAlchemy(session_options={"expire_on_commit": False})
@@ -17,7 +17,7 @@ bcrypt = Bcrypt()
 mail = Mail()
 cors = CORS()
 limiter = Limiter(
-    key_func=get_remote_address,
+    key_func=get_client_ip,
     default_limits=[],  # No default limits, only explicit per-endpoint
     storage_uri="memory://",  # In-memory storage by default
 )

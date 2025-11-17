@@ -1,0 +1,301 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "EcuPlot API",
+    "version": "1.0.0",
+    "description": "API pública utilizada por el frontend de EcuPlot para autenticación, historial de gráficas, SSE y administración básica."
+  },
+  "servers": [
+    { "url": "/api", "description": "API base" }
+  ],
+  "paths": {
+    "/health": {
+      "get": {
+        "summary": "Estado del servicio",
+        "responses": {
+          "200": {
+            "description": "Servicio operativo",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/HealthStatus" } } }
+          },
+          "500": { "description": "Error interno" }
+        }
+      }
+    },
+    "/meta/env": {
+      "get": {
+        "summary": "Entorno de ejecución",
+        "responses": {
+          "200": {
+            "description": "Entorno y flags de demo",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/MetaEnv" } } }
+          }
+        }
+      }
+    },
+    "/contact": {
+      "post": {
+        "summary": "Enviar formulario de contacto",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/ContactRequest" }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "Mensaje enviado" },
+          "400": { "description": "Datos inválidos" },
+          "502": { "description": "Fallo al reenviar" }
+        }
+      }
+    },
+    "/register": {
+      "post": {
+        "summary": "Registrar nuevo usuario",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": { "schema": { "$ref": "#/components/schemas/RegisterRequest" } }
+          }
+        },
+        "responses": {
+          "201": { "description": "Usuario creado", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/RegisterResponse" } } } },
+          "400": { "description": "Validación fallida" },
+          "409": { "description": "Conflicto" }
+        }
+      }
+    },
+    "/login": {
+      "post": {
+        "summary": "Iniciar sesión",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": { "schema": { "$ref": "#/components/schemas/LoginRequest" } }
+          }
+        },
+        "responses": {
+          "200": { "description": "Login exitoso", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/LoginResponse" } } } },
+          "401": { "description": "Credenciales inválidas" },
+          "423": { "description": "Cuenta bloqueada" }
+        }
+      }
+    },
+    "/logout": {
+      "post": {
+        "summary": "Cerrar sesión",
+        "responses": { "200": { "description": "Logout exitoso" }, "401": { "description": "Sesión inválida" } },
+        "security": [{ "BearerAuth": [] }]
+      }
+    },
+    "/user/me": {
+      "get": {
+        "summary": "Datos del usuario autenticado",
+        "responses": {
+          "200": { "description": "Datos del usuario", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/UserProfile" } } } },
+          "401": { "description": "No autenticado" }
+        },
+        "security": [{ "BearerAuth": [] }]
+      }
+    },
+    "/plot": {
+      "post": {
+        "summary": "Crear gráfica",
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": { "$ref": "#/components/schemas/PlotRequest" } } }
+        },
+        "responses": {
+          "200": { "description": "Gráfica creada", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/PlotHistory" } } } },
+          "401": { "description": "No autenticado" }
+        },
+        "security": [{ "BearerAuth": [] }]
+      }
+    },
+    "/plot/history": {
+      "get": {
+        "summary": "Historial de gráficas",
+        "responses": {
+          "200": {
+            "description": "Listado de gráficas",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": { "items": { "type": "array", "items": { "$ref": "#/components/schemas/PlotHistory" } } }
+                }
+              }
+            }
+          },
+          "401": { "description": "No autenticado" }
+        },
+        "security": [{ "BearerAuth": [] }]
+      }
+    },
+    "/stream": {
+      "get": {
+        "summary": "Suscribirse a SSE",
+        "responses": { "200": { "description": "Stream SSE" }, "401": { "description": "No autenticado" } },
+        "security": [{ "BearerAuth": [] }]
+      }
+    },
+    "/role-requests": {
+      "post": {
+        "summary": "Solicitar rol",
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": { "$ref": "#/components/schemas/RoleRequest" } } }
+        },
+        "responses": {
+          "201": { "description": "Solicitud enviada" },
+          "400": { "description": "Datos inválidos" }
+        },
+        "security": [{ "BearerAuth": [] }]
+      },
+      "get": {
+        "summary": "Solicitudes del usuario",
+        "responses": {
+          "200": {
+            "description": "Listado de solicitudes",
+            "content": { "application/json": { "schema": { "type": "array", "items": { "$ref": "#/components/schemas/RoleRequest" } } } }
+          },
+          "401": { "description": "No autenticado" }
+        },
+        "security": [{ "BearerAuth": [] }]
+      }
+    },
+    "/admin/stats/users": {
+      "get": {
+        "summary": "Estadísticas de usuarios",
+        "responses": {
+          "200": { "description": "Estadísticas", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/AdminUserStats" } } } },
+          "403": { "description": "Solo admin" }
+        },
+        "security": [{ "BearerAuth": [] }]
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "BearerAuth": { "type": "http", "scheme": "bearer", "bearerFormat": "JWT" }
+    },
+    "schemas": {
+      "HealthStatus": {
+        "type": "object",
+        "properties": {
+          "status": { "type": "string" },
+          "db_status": { "type": "string" },
+          "metrics": {
+            "type": "object",
+            "properties": {
+              "db_latency_ms": { "type": "number", "nullable": true },
+              "mail_queue": { "type": "integer", "nullable": true },
+              "system_load": {
+                "type": "object",
+                "properties": {
+                  "ratio": { "type": "number", "nullable": true },
+                  "cores": { "type": "integer" },
+                  "raw": { "type": "number", "nullable": true }
+                }
+              }
+            }
+          },
+          "indicators": { "type": "object" },
+          "timestamp": { "type": "string", "format": "date-time" }
+        }
+      },
+      "MetaEnv": {
+        "type": "object",
+        "properties": {
+          "env": { "type": "string" },
+          "demo_mode": { "type": "boolean" }
+        }
+      },
+      "ContactRequest": {
+        "type": "object",
+        "properties": {
+          "name": { "type": "string" },
+          "email": { "type": "string", "format": "email" },
+          "message": { "type": "string" }
+        },
+        "required": ["name", "email", "message"]
+      },
+      "RegisterRequest": {
+        "type": "object",
+        "properties": {
+          "email": { "type": "string", "format": "email" },
+          "password": { "type": "string", "format": "password" },
+          "password_confirm": { "type": "string", "format": "password" },
+          "terms": { "type": "boolean" }
+        },
+        "required": ["email", "password", "password_confirm", "terms"]
+      },
+      "RegisterResponse": {
+        "type": "object",
+        "properties": {
+          "message": { "type": "string" }
+        }
+      },
+      "LoginRequest": {
+        "type": "object",
+        "properties": {
+          "email": { "type": "string", "format": "email" },
+          "password": { "type": "string", "format": "password" },
+          "otp": { "type": "string", "nullable": true }
+        },
+        "required": ["email", "password"]
+      },
+      "LoginResponse": {
+        "type": "object",
+        "properties": {
+          "session_token": { "type": "string" },
+          "user_id": { "type": "string" }
+        }
+      },
+      "UserProfile": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" },
+          "email": { "type": "string", "format": "email" },
+          "name": { "type": "string" },
+          "roles": { "type": "array", "items": { "type": "string" } }
+        }
+      },
+      "PlotRequest": {
+        "type": "object",
+        "properties": {
+          "expression": { "type": "string" },
+          "variables": { "type": "object", "additionalProperties": { "type": "number" } }
+        },
+        "required": ["expression"]
+      },
+      "PlotHistory": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string", "format": "uuid" },
+          "expression": { "type": "string" },
+          "created_at": { "type": "string", "format": "date-time" },
+          "deleted_at": { "type": "string", "format": "date-time", "nullable": true }
+        }
+      },
+      "RoleRequest": {
+        "type": "object",
+        "properties": {
+          "requested_role": { "type": "string" },
+          "status": { "type": "string", "enum": ["pending", "approved", "rejected"] },
+          "reason": { "type": "string", "nullable": true }
+        },
+        "required": ["requested_role"]
+      },
+      "AdminUserStats": {
+        "type": "object",
+        "properties": {
+          "total": { "type": "integer" },
+          "activos_7d": { "type": "integer" },
+          "por_rol": { "type": "object", "additionalProperties": { "type": "integer" } }
+        }
+      }
+    }
+  }
+}

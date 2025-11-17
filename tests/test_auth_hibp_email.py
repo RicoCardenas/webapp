@@ -25,7 +25,7 @@ class TestHIBPPasswordCheck:
             mock_response.text = "00D4F6E8FA6EECAD2A3AA415EEC418D38EC:2\n011053FD0102E94D6AE2F8B83D76FAF94F6:1\n"
             mock_response.raise_for_status = MagicMock()
             
-            with patch('backend.app.routes.auth.requests.get', return_value=mock_response):
+            with patch('backend.app.services.passwords.requests.get', return_value=mock_response):
                 result = _hibp_fetch_range("5BAA6")
                 
                 assert isinstance(result, dict)
@@ -50,7 +50,7 @@ class TestHIBPPasswordCheck:
         with app.app_context():
             # Limpiar cache para este test
             _hibp_fetch_range.cache_clear()
-            with patch('backend.app.routes.auth.requests.get', side_effect=Exception("Network error")):
+            with patch('backend.app.services.passwords.requests.get', side_effect=Exception("Network error")):
                 result = _hibp_fetch_range("ABCDE")  # Prefijo diferente
                 assert result == {}
 
@@ -61,7 +61,7 @@ class TestHIBPPasswordCheck:
             mock_response = MagicMock()
             mock_response.raise_for_status.side_effect = Exception("404")
             
-            with patch('backend.app.routes.auth.requests.get', return_value=mock_response):
+            with patch('backend.app.services.passwords.requests.get', return_value=mock_response):
                 result = _hibp_fetch_range("FGHIJ")  # Prefijo diferente
                 assert result == {}
 
@@ -73,7 +73,7 @@ class TestHIBPPasswordCheck:
             mock_response.text = "INVALID_LINE\n00D4F6E8FA6EECAD2A3AA415EEC418D38EC:2\nBAD:COUNT:FORMAT\n"
             mock_response.raise_for_status = MagicMock()
             
-            with patch('backend.app.routes.auth.requests.get', return_value=mock_response):
+            with patch('backend.app.services.passwords.requests.get', return_value=mock_response):
                 result = _hibp_fetch_range("KLMNO")  # Prefijo diferente
                 
                 # Solo debe parsear la línea válida
@@ -89,7 +89,7 @@ class TestHIBPPasswordCheck:
             mock_response.text = "1E4C9B93F3F0682250B6CF8331B7EE68FD8:3645804\n"
             mock_response.raise_for_status = MagicMock()
             
-            with patch('backend.app.routes.auth.requests.get', return_value=mock_response):
+            with patch('backend.app.services.passwords.requests.get', return_value=mock_response):
                 result = _password_is_compromised("password", minimum_count=1)
                 assert result is True
 
@@ -100,7 +100,7 @@ class TestHIBPPasswordCheck:
             mock_response.text = "00D4F6E8FA6EECAD2A3AA415EEC418D38EC:2\n"  # Otro hash
             mock_response.raise_for_status = MagicMock()
             
-            with patch('backend.app.routes.auth.requests.get', return_value=mock_response):
+            with patch('backend.app.services.passwords.requests.get', return_value=mock_response):
                 result = _password_is_compromised("MySecureP@ssw0rd123!", minimum_count=1)
                 assert result is False
 
@@ -120,7 +120,7 @@ class TestHIBPPasswordCheck:
             mock_response.text = "8996FB92427AE41E4649B934CA495991B7852BE:5\n"  # Solo 5 ocurrencias
             mock_response.raise_for_status = MagicMock()
             
-            with patch('backend.app.routes.auth.requests.get', return_value=mock_response):
+            with patch('backend.app.services.passwords.requests.get', return_value=mock_response):
                 result = _password_is_compromised("testpass123", minimum_count=10)  # Requiere mínimo 10
                 assert result is False
 

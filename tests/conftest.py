@@ -62,6 +62,8 @@ PlotHistory = _get(models, "PlotHistory")
 # ---------- Config de pruebas ----------
 class TestConfig:
     TESTING = True
+    APP_ENV = "test"
+    LOG_LEVEL = None  # Auto-detect per APP_ENV during tests
     SECRET_KEY = "testing-secret"
     SQLALCHEMY_DATABASE_URI = "sqlite:///./test_ecuplot.sqlite"
     SQLALCHEMY_TRACK_MODIFICATIONS = False
@@ -82,8 +84,31 @@ class TestConfig:
 
 @pytest.fixture(scope="session", autouse=True)
 def _clean_env():
+    """
+    Limpia variables de entorno peligrosas antes de ejecutar tests.
+    
+    CRÍTICO: Esto previene que los tests usen accidentalmente la base de datos
+    de producción y la eliminen con db.drop_all().
+    """
+    # Guardar valores originales
+    original_database_url = os.environ.get("DATABASE_URL")
+    original_sqlalchemy_uri = os.environ.get("SQLALCHEMY_DATABASE_URI")
+    
+    # REMOVER variables que apunten a PostgreSQL de producción
     os.environ.pop("DATABASE_URL", None)
+    os.environ.pop("SQLALCHEMY_DATABASE_URI", None)
+    
+    # Forzar entorno de testing
+    os.environ["APP_ENV"] = "test"
+    os.environ["TESTING"] = "true"
+    
     yield
+    
+    # Restaurar valores originales después de los tests
+    if original_database_url:
+        os.environ["DATABASE_URL"] = original_database_url
+    if original_sqlalchemy_uri:
+        os.environ["SQLALCHEMY_DATABASE_URI"] = original_sqlalchemy_uri
 
 @pytest.fixture(scope="session")
 def app():
@@ -102,6 +127,23 @@ def app():
         raise RuntimeError("No se pudo importar 'db' desde backend/app/extensions.py")
 
     with app.app_context():
+        # PROTECCIÓN CRÍTICA: Verificar que NO estamos usando PostgreSQL de producción
+        db_uri = app.config.get("SQLALCHEMY_DATABASE_URI", "")
+        if "postgresql" in db_uri.lower():
+            raise RuntimeError(
+                f"🔴 ALERTA DE SEGURIDAD: Los tests intentan usar PostgreSQL de producción!\n"
+                f"   URI detectada: {db_uri}\n"
+                f"   Los tests DEBEN usar SQLite para evitar eliminar datos de producción.\n"
+                f"   Revisa TestConfig en conftest.py y la función init_app_config()."
+            )
+        
+        # Solo si es SQLite, proceder con drop_all (seguro)
+        if "sqlite" not in db_uri.lower():
+            raise RuntimeError(
+                f"🔴 Base de datos desconocida en tests: {db_uri}\n"
+                f"   Solo se permite SQLite en tests."
+            )
+        
         db.drop_all()
         db.create_all()
         if Roles and not db.session.execute(db.select(Roles).where(Roles.name == "user")).first():
