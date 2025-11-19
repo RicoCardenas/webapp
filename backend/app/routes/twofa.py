@@ -5,6 +5,8 @@ import base64
 import secrets
 import string
 from datetime import datetime, timezone
+from io import BytesIO
+import base64
 
 from flask import current_app, jsonify, request, g
 from sqlalchemy import delete, func
@@ -67,6 +69,29 @@ def _build_otpauth_url(user, secret):
     return f'otpauth://totp/{label}?secret={secret}&issuer={issuer}&digits={TOTP_DIGITS}&period={TOTP_PERIOD}'
 
 
+def _build_qr_data_url(otpauth_url: str) -> str | None:
+    """Genera un data URL de un QR PNG a partir de la URL otpauth."""
+    try:
+        import qrcode
+    except ImportError:
+        current_app.logger.warning("qrcode no está instalado; 2FA QR no se generará.")
+        return None
+
+    try:
+        qr = qrcode.QRCode(border=1, box_size=6)
+        qr.add_data(otpauth_url)
+        qr.make(fit=True)
+        img = qr.make_image(fill_color="black", back_color="white")
+        buf = BytesIO()
+        img.save(buf, format="PNG")
+        buf.seek(0)
+        encoded = base64.b64encode(buf.read()).decode("ascii")
+        return f"data:image/png;base64,{encoded}"
+    except Exception as exc:  # pragma: no cover - defensivo
+        current_app.logger.error("No se pudo generar QR para 2FA: %s", exc)
+        return None
+
+
 @api.get("/account/2fa/status")
 @require_session
 def two_factor_status():
@@ -103,7 +128,8 @@ def two_factor_setup():
         return jsonify(error='No se pudo generar la configuración de 2FA.'), 500
 
     otpauth = _build_otpauth_url(g.current_user, secret)
-    return jsonify(secret=secret, otpauth_url=otpauth)
+    qr_url = _build_qr_data_url(otpauth)
+    return jsonify(secret=secret, otpauth_url=otpauth, qr=qr_url)
 
 
 @api.post("/account/2fa/enable")

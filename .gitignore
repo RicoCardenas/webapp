@@ -26,7 +26,7 @@ __pycache__/
 
 # Carpeta de "instance" de Flask (si Flask la crea)
 instance/
-
+Diagramas/
 # ----------------------------------------------------------------------
 # 4. Bases de Datos y Backups
 # ----------------------------------------------------------------------

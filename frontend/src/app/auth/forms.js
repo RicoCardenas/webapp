@@ -79,7 +79,8 @@ export function initAuthForms() {
           terms: values.terms,
           role: values.role,
         };
-        const res = await safeFetch('/api/register', { method:'POST', headers:{ 'Content-Type':'application/json' }, body:JSON.stringify(payload) }, 8000);
+        // Puede tardar más si el servidor envía correo; damos un margen mayor para evitar abortar
+        const res = await safeFetch('/api/register', { method:'POST', headers:{ 'Content-Type':'application/json' }, body:JSON.stringify(payload) }, 20000);
         const data = await res.json().catch(()=>({}));
         if (res.ok) {
           toast.success(data.message || '¡Registro exitoso! Revisa tu correo.');
@@ -89,7 +90,11 @@ export function initAuthForms() {
         }
       } catch (err) {
         console.error('Signup failed', err);
-        toast.error('Error de red.');
+        if (err?.name === 'AbortError') {
+          toast.error('El servidor tardó en responder. Revisa tu correo por si ya se creó la cuenta antes de reintentar para evitar duplicados.');
+        } else {
+          toast.error('Error de red.');
+        }
       } finally { if (submitBtn) { submitBtn.disabled=false; submitBtn.textContent=originalLabel; } }
     });
   }
