@@ -4,7 +4,16 @@ import sys
 import pathlib
 import importlib
 import uuid
+import ast
+import inspect
+import re
+import textwrap
+from collections import Counter, defaultdict
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
+from functools import lru_cache
+from typing import Optional
+
 import pytest
 
 # ---------- PATH raíz del repo ----------
@@ -242,3 +251,232 @@ def mail_outbox(monkeypatch):
         sent.append(message)
     monkeypatch.setattr(mail, "send", fake_send)
     return sent
+
+# ---------- Narrativa automática de pruebas ----------
+HTTP_METHODS = {"get", "post", "put", "delete", "patch", "options"}
+FEATURE_PREFIX = "tests"
+_TEST_NARRATIVES = {}
+_TERMINAL_REPORTER = None
+_SUMMARY_DATA = {
+    "total": 0,
+    "outcomes": Counter(),
+    "features": defaultdict(
+        lambda: {
+            "total": 0,
+            "outcomes": Counter(),
+            "scopes": set(),
+            "methods": set(),
+            "descriptions": [],
+        }
+    ),
+}
+
+@dataclass(frozen=True)
+class TestNarrative:
+    feature: str
+    description: str
+    methodology: str
+    scope: str
+    detail: Optional[str] = None
+
+def pytest_runtest_setup(item):
+    """
+    Antes de cada prueba, imprime información contextual para facilitar
+    la lectura del reporte de pytest.
+    """
+    global _TERMINAL_REPORTER
+    if _TERMINAL_REPORTER is None:
+        _TERMINAL_REPORTER = item.config.pluginmanager.get_plugin("terminalreporter")
+    info = _build_test_narrative(item)
+    _TEST_NARRATIVES[item.nodeid] = info
+
+def pytest_runtest_logreport(report):
+    if report.when != "call":
+        return
+    info = _TEST_NARRATIVES.pop(report.nodeid, None)
+    if info is None:
+        return
+    outcome = {
+        "passed": "PASÓ",
+        "failed": "FALLÓ",
+        "skipped": "SE OMITIÓ",
+    }.get(report.outcome, report.outcome.upper())
+    block = [
+        f"[Prueba] {report.nodeid}",
+        f"  Resultado    : {outcome}",
+        f"  Funcionalidad: {info.feature}",
+        f"  Descripción  : {info.description}",
+        f"  Clasificación: {info.scope} | {info.methodology}",
+    ]
+    if info.detail:
+        block.append(f"  Cobertura    : {info.detail}")
+    message = "\n".join(block)
+    if _TERMINAL_REPORTER:
+        _TERMINAL_REPORTER.write_line(message)
+    else:
+        print(message)
+    _record_summary(info, report.outcome)
+
+def _build_test_narrative(item) -> TestNarrative:
+    fixtures = set(getattr(item, "fixturenames", []))
+    http_calls = _extract_http_calls(item.function)
+
+    feature = _infer_feature_name(item)
+    description = _resolve_description(item, feature, http_calls)
+    methodology = _infer_methodology(fixtures)
+    scope = _infer_scope(fixtures)
+    detail = _format_http_calls(http_calls)
+
+    return TestNarrative(
+        feature=feature,
+        description=description,
+        methodology=methodology,
+        scope=scope,
+        detail=detail,
+    )
+
+def _infer_feature_name(item):
+    try:
+        rel = pathlib.Path(str(item.fspath)).resolve().relative_to(ROOT)
+    except ValueError:
+        rel = pathlib.Path(str(item.fspath)).name
+    slug = str(rel)
+    if slug.startswith(f"{FEATURE_PREFIX}/"):
+        slug = slug[len(FEATURE_PREFIX) + 1 :]
+    slug = slug.replace("test_", "").replace(".py", "")
+    parts = [segment for segment in slug.split(os.sep) if segment]
+    formatted = []
+    for segment in parts:
+        tokens = segment.replace("_", " ").split()
+        pretty = " ".join(_title_case(token) for token in tokens)
+        formatted.append(pretty or segment)
+    return " > ".join(formatted) or "Suite de pruebas"
+
+def _title_case(word):
+    if not word:
+        return word
+    if word.isupper():
+        return word
+    if len(word) <= 3:
+        return word.upper()
+    return word.capitalize()
+
+def _resolve_description(item, feature, http_calls):
+    doc = inspect.getdoc(getattr(item, "function", None)) or ""
+    if doc:
+        return doc.strip().splitlines()[0]
+    human_name = _humanize_identifier(getattr(item, "originalname", item.name))
+    if http_calls:
+        if len(http_calls) == 1:
+            method, path = http_calls[0]
+            return (
+                f"Verifica que la petición {method} {path} responda correctamente "
+                f"dentro de la funcionalidad de {feature.lower()}."
+            )
+        summary = ", ".join(f"{m} {p}" for m, p in http_calls)
+        return f"Encadena llamadas ({summary}) para validar comportamientos de {feature.lower()}."
+    return f"Valida el escenario '{human_name}' dentro de {feature.lower()}."
+
+def _humanize_identifier(name):
+    if not name:
+        return "sin nombre"
+    name = re.sub(r"^test_", "", name)
+    name = re.sub(r"[_\s]+", " ", name)
+    return name.strip()
+
+def _infer_methodology(fixtures):
+    if "client" in fixtures:
+        return "Caja negra (interacción HTTP)"
+    if fixtures & {"app", "_db", "models_ns", "user_factory", "session_token_factory"}:
+        return "Caja blanca (capas internas controladas)"
+    return "Caja blanca (lógica aislada)"
+
+def _infer_scope(fixtures):
+    if "client" in fixtures:
+        return "Prueba funcional / integración"
+    if fixtures & {"app", "_db", "models_ns", "user_factory", "session_token_factory", "mail_outbox"}:
+        return "Prueba de integración"
+    return "Prueba unitaria"
+
+def _format_http_calls(http_calls):
+    if not http_calls:
+        return None
+    unique = []
+    for method, path in http_calls:
+        label = f"{method} {path}"
+        if label not in unique:
+            unique.append(label)
+    return "Interacciones HTTP: " + ", ".join(unique)
+
+@lru_cache(maxsize=None)
+def _extract_http_calls(func):
+    if func is None:
+        return ()
+    try:
+        source = inspect.getsource(func)
+    except (OSError, TypeError):
+        return ()
+    source = textwrap.dedent(source)
+    try:
+        tree = ast.parse(source)
+    except SyntaxError:
+        return ()
+    visitor = _HTTPVisitor()
+    visitor.visit(tree)
+    return tuple(visitor.calls)
+
+class _HTTPVisitor(ast.NodeVisitor):
+    def __init__(self):
+        self.calls = []
+
+    def visit_Call(self, node):
+        func = node.func
+        if (
+            isinstance(func, ast.Attribute)
+            and isinstance(func.value, ast.Name)
+            and func.value.id == "client"
+            and func.attr.lower() in HTTP_METHODS
+            and node.args
+            and isinstance(node.args[0], ast.Constant)
+            and isinstance(node.args[0].value, str)
+        ):
+            method = func.attr.upper()
+            path = node.args[0].value
+            self.calls.append((method, path))
+        self.generic_visit(node)
+
+def _record_summary(info, outcome):
+    _SUMMARY_DATA["total"] += 1
+    _SUMMARY_DATA["outcomes"][outcome] += 1
+    bucket = _SUMMARY_DATA["features"][info.feature]
+    bucket["total"] += 1
+    bucket["outcomes"][outcome] += 1
+    bucket["scopes"].add(info.scope)
+    bucket["methods"].add(info.methodology)
+    if len(bucket["descriptions"]) < 3 and info.description not in bucket["descriptions"]:
+        bucket["descriptions"].append(info.description)
+
+def pytest_terminal_summary(terminalreporter, exitstatus, config):
+    if not _SUMMARY_DATA["total"]:
+        return
+    total = _SUMMARY_DATA["total"]
+    outcomes = _SUMMARY_DATA["outcomes"]
+    terminalreporter.write_sep("-", "Resumen general de pruebas")
+    terminalreporter.write_line(
+        f"Total: {total} | Pasaron: {outcomes.get('passed', 0)} | "
+        f"Fallaron: {outcomes.get('failed', 0)} | Omitidas: {outcomes.get('skipped', 0)}"
+    )
+    terminalreporter.write_line("Cobertura por secciones:")
+    for feature in sorted(_SUMMARY_DATA["features"]):
+        bucket = _SUMMARY_DATA["features"][feature]
+        desc = bucket["descriptions"][0] if bucket["descriptions"] else "Escenarios variados."
+        scopes = ", ".join(sorted(bucket["scopes"]))
+        methods = ", ".join(sorted(bucket["methods"]))
+        terminalreporter.write_line(
+            f" - {feature}: {bucket['total']} pruebas "
+            f"(P:{bucket['outcomes'].get('passed', 0)} "
+            f"F:{bucket['outcomes'].get('failed', 0)} "
+            f"S:{bucket['outcomes'].get('skipped', 0)}) | "
+            f"Alcance: {scopes} | Metodologías: {methods}"
+        )
+        terminalreporter.write_line(f"   Ejemplo: {desc}")
